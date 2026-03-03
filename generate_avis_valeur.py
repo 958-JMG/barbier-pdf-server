@@ -81,8 +81,7 @@ Cette estimation est établie conformément aux normes MRICS et aux recommandati
 
 
 def fetch_seatable_row(row_id: str) -> dict:
-    """Récupère les données d'une ligne SeaTable via l'API."""
-    # 1. Obtenir le token d'accès
+    """Récupère les données d'une ligne SeaTable via l'API Gateway v5.3+."""
     auth_resp = requests.get(
         f"{SEATABLE_SERVER}/api/v2.1/dtable/app-access-token/",
         headers={"Authorization": f"Token {SEATABLE_APP_TOKEN}"},
@@ -92,22 +91,45 @@ def fetch_seatable_row(row_id: str) -> dict:
     auth_data = auth_resp.json()
     access_token = auth_data["access_token"]
     dtable_uuid  = auth_data["dtable_uuid"]
+    headers = {"Authorization": f"Token {access_token}"}
 
-    # 2. Requête SQL pour récupérer la ligne
-    sql_resp = requests.post(
-        f"{SEATABLE_SERVER}/dtable-server/api/v1/dtables/{dtable_uuid}/sql/",
-        headers={
-            "Authorization": f"Token {access_token}",
-            "Content-Type": "application/json"
-        },
-        json={"sql": f"SELECT * FROM `{SEATABLE_TABLE}` WHERE `_id` = '{row_id}'"},
+    # Métadonnées pour décoder single-select
+    meta = requests.get(
+        f"{SEATABLE_SERVER}/api-gateway/api/v2/dtables/{dtable_uuid}/metadata/",
+        headers=headers, timeout=10
+    ).json()
+
+    col_map = {}
+    options_map = {}
+    for t in meta.get("metadata", {}).get("tables", []):
+        if t["name"] == SEATABLE_TABLE:
+            for col in t["columns"]:
+                col_map[col["key"]] = col["name"]
+                if col["type"] == "single-select":
+                    data = col.get("data") or {}
+                    options_map[col["name"]] = {str(o["id"]): o["name"] for o in data.get("options", [])}
+
+    # Récupérer la ligne cible
+    rows = requests.get(
+        f"{SEATABLE_SERVER}/api-gateway/api/v2/dtables/{dtable_uuid}/rows/",
+        headers=headers,
+        params={"table_name": SEATABLE_TABLE, "limit": 200},
         timeout=15
-    )
-    sql_resp.raise_for_status()
-    rows = sql_resp.json().get("results", [])
-    if not rows:
+    ).json().get("rows", [])
+
+    target_raw = next((r for r in rows if r.get("_id") == row_id), None)
+    if not target_raw:
         raise ValueError(f"Aucune ligne trouvée pour row_id={row_id}")
-    return rows[0]
+
+    # Décoder single-select IDs -> texte
+    decoded = {}
+    for k, v in target_raw.items():
+        col_name = col_map.get(k, k)
+        if col_name in options_map and v is not None:
+            decoded[col_name] = options_map[col_name].get(str(v), v)
+        else:
+            decoded[col_name] = v
+    return decoded
 
 
 def format_price(value) -> str:
