@@ -681,6 +681,13 @@ def generate_direct():
 # DOSSIER DE VENTE — v4 (assets base64, prompts riches)
 # ═══════════════════════════════════════════════════════
 
+def _st_token():
+    r2 = requests.get("https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
+        headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10)
+    tok = r2.json()
+    return tok["access_token"], tok["dtable_uuid"]
+
+
 import json as _json, urllib.request as _ur, urllib.parse as _up, math as _math
 
 from reportlab.lib.pagesizes import A4 as _A4
