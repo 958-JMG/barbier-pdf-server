@@ -337,35 +337,46 @@ def page2(c, d):
     # ── SECTION 04 — ANALYSE DE MARCHÉ ──────────────────────────────────────
     y = sec_title(c, ML, y, "04 — Analyse de marché & Avis professionnel")
 
-    # Extraire uniquement le 1er paragraphe substantiel de l'avis GPT
-    avis_raw = (d.get("avis_valeur") or "").strip()
-    # Supprimer les marqueurs de sections GPT ligne par ligne
-    lines_avis = []
-    section_headers = ("SYNTHESE", "SYNTHÈSE", "METHODOLOGIE", "MÉTHODOLOGIE",
-                       "EVALUATION", "ÉVALUATION", "VALEURS", "RECOMMANDATIONS",
-                       "---")
+    # ── BLOC AVIS DE VALEUR ─────────────────────────────────────────────────
+    # Nettoyer le texte GPT : supprimer entêtes de sections
+    avis_raw = (d.get("avis_valeur") or "Avis de valeur à compléter.").strip()
+    clean_lines = []
+    skip_words = ("SYNTHESE", "SYNTHÈSE", "METHODOLOGIE", "MÉTHODOLOGIE",
+                  "EVALUATION", "ÉVALUATION", "VALEURS", "RECOMMANDATIONS",
+                  "---SYNTHESE", "---METHODO", "---EVAL", "---VALEUR", "---RECOM")
     for line in avis_raw.split("\n"):
-        stripped = line.strip()
-        if any(stripped.startswith(h) or stripped == h for h in section_headers):
+        s = line.strip().upper()
+        if any(s.startswith(w.upper()) for w in skip_words) or s.startswith("---"):
             continue
-        lines_avis.append(line)
-    avis_clean = "\n".join(lines_avis).strip()
-    # Garder max 400 chars
-    if len(avis_clean) > 400:
-        cut = avis_clean[:400].rfind(" ")
-        avis_clean = avis_clean[:cut] + "..."
+        clean_lines.append(line)
+    avis_clean = "\n".join(clean_lines).strip()
+    # Tronquer à 420 chars
+    if len(avis_clean) > 420:
+        avis_clean = avis_clean[:avis_clean[:420].rfind(" ")] + "..."
 
     style_avis = ParagraphStyle("av", fontName="Helvetica", fontSize=8,
                                 leading=12, textColor=GRAY_DARK)
     p_avis = Paragraph(avis_clean.replace("\n", "<br/>"), style_avis)
-    avis_w, avis_h = p_avis.wrap(CW - 16, 300)
-    avis_box_h = max(55, avis_h + 24)
+    _, avis_h = p_avis.wrap(CW - 16, 500)
+    avis_box_h = avis_h + 24  # marges haut+bas
 
-    # Dessiner le rectangle PUIS le texte ancré depuis le HAUT du box
+    # 1. Dessiner le rectangle
     rrect(c, ML, y - avis_box_h, CW, avis_box_h, r=4, fill=TEAL_LIGHT, stroke=TEAL, sw=0.5)
-    # drawOn ancre depuis le bas du paragraphe — on positionne depuis le haut du box
-    text_y = y - 12  # 12pt de marge depuis le haut du box
-    p_avis.drawOn(c, ML + 8, text_y - avis_h)
+
+    # 2. Clipper puis dessiner le texte strictement à l'intérieur
+    c.saveState()
+    c.clipPath(
+        c.beginPath(),
+        stroke=0, fill=0
+    )
+    # Clip rect = intérieur du box avec 8pt de marge
+    clip = c.beginPath()
+    clip.rect(ML + 4, y - avis_box_h + 4, CW - 8, avis_box_h - 8)
+    c.clipPath(clip, stroke=0, fill=0)
+    # drawOn place le bas du paragraphe à text_bottom
+    text_bottom = y - avis_box_h + 12
+    p_avis.drawOn(c, ML + 8, text_bottom)
+    c.restoreState()
 
     y -= avis_box_h + 14
 
