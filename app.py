@@ -396,8 +396,8 @@ def page2(c, d, logo_buf=None):
     avis_raw = (d.get("Avis de valeur") or "Avis de valeur à compléter.").strip()
     lignes_sub = [l for l in avis_raw.split("\n") if len(l.strip()) > 60]
     avis_clean = " ".join(lignes_sub)
-    if len(avis_clean) > 420:
-        avis_clean = avis_clean[:avis_clean[:420].rfind(" ")] + "..."
+    if len(avis_clean) > 900:
+        avis_clean = avis_clean[:avis_clean[:900].rfind(" ")] + "..."
     if not avis_clean:
         avis_clean = "Avis de valeur à compléter."
 
