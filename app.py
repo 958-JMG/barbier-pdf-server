@@ -338,45 +338,26 @@ def page2(c, d):
     y = sec_title(c, ML, y, "04 — Analyse de marché & Avis professionnel")
 
     # ── BLOC AVIS DE VALEUR ─────────────────────────────────────────────────
-    # Nettoyer le texte GPT : supprimer entêtes de sections
+    # Filtrer le texte GPT : garder uniquement les lignes > 60 chars
+    # (élimine tous les entêtes : SYNTHÈSE, MÉTHODOLOGIE, VALEURS, etc.)
     avis_raw = (d.get("avis_valeur") or "Avis de valeur à compléter.").strip()
-    clean_lines = []
-    skip_words = ("SYNTHESE", "SYNTHÈSE", "METHODOLOGIE", "MÉTHODOLOGIE",
-                  "EVALUATION", "ÉVALUATION", "VALEURS", "RECOMMANDATIONS",
-                  "---SYNTHESE", "---METHODO", "---EVAL", "---VALEUR", "---RECOM")
-    for line in avis_raw.split("\n"):
-        s = line.strip().upper()
-        if any(s.startswith(w.upper()) for w in skip_words) or s.startswith("---"):
-            continue
-        clean_lines.append(line)
-    avis_clean = "\n".join(clean_lines).strip()
-    # Tronquer à 420 chars
+    lignes_sub = [l for l in avis_raw.split("\n") if len(l.strip()) > 60]
+    avis_clean = " ".join(lignes_sub)
     if len(avis_clean) > 420:
         avis_clean = avis_clean[:avis_clean[:420].rfind(" ")] + "..."
+    if not avis_clean:
+        avis_clean = avis_raw[:300]
 
     style_avis = ParagraphStyle("av", fontName="Helvetica", fontSize=8,
                                 leading=12, textColor=GRAY_DARK)
-    p_avis = Paragraph(avis_clean.replace("\n", "<br/>"), style_avis)
-    _, avis_h = p_avis.wrap(CW - 16, 500)
-    avis_box_h = avis_h + 24  # marges haut+bas
+    p_avis = Paragraph(avis_clean, style_avis)
+    _, avis_h = p_avis.wrap(CW - 16, 9999)
+    avis_box_h = avis_h + 20  # 10pt marge haut + 10pt marge bas
 
-    # 1. Dessiner le rectangle
+    # Rectangle
     rrect(c, ML, y - avis_box_h, CW, avis_box_h, r=4, fill=TEAL_LIGHT, stroke=TEAL, sw=0.5)
-
-    # 2. Clipper puis dessiner le texte strictement à l'intérieur
-    c.saveState()
-    c.clipPath(
-        c.beginPath(),
-        stroke=0, fill=0
-    )
-    # Clip rect = intérieur du box avec 8pt de marge
-    clip = c.beginPath()
-    clip.rect(ML + 4, y - avis_box_h + 4, CW - 8, avis_box_h - 8)
-    c.clipPath(clip, stroke=0, fill=0)
-    # drawOn place le bas du paragraphe à text_bottom
-    text_bottom = y - avis_box_h + 12
-    p_avis.drawOn(c, ML + 8, text_bottom)
-    c.restoreState()
+    # Texte ancré : bas du texte = bas du box + 10pt
+    p_avis.drawOn(c, ML + 8, y - avis_box_h + 10)
 
     y -= avis_box_h + 14
 
