@@ -849,21 +849,23 @@ def page2(c, d, logo_buf=None):
     # Section 04 — Analyse de marché
     y = sec_title(c, ML, y, "04 — Analyse de marché & Avis professionnel")
 
-    avis_txt = d.get("Avis de valeur") or "Avis de valeur à compléter."
-    # Nettoyer les séparateurs markdown
-    import re
-    avis_clean = re.sub(r'---[A-ZÉÈÀÂ\s]+---', '', avis_txt)
-    avis_clean = re.sub(r'\n{3,}', '\n\n', avis_clean).strip()
-    # Prendre uniquement la synthèse (max 600 chars)
-    avis_display = avis_clean[:600] + ("…" if len(avis_clean) > 600 else "")
+    # Filtrer le texte GPT : garder uniquement les lignes > 60 chars
+    avis_raw = (d.get("Avis de valeur") or "Avis de valeur à compléter.").strip()
+    lignes_sub = [l for l in avis_raw.split("\n") if len(l.strip()) > 60]
+    avis_clean = " ".join(lignes_sub)
+    if len(avis_clean) > 420:
+        avis_clean = avis_clean[:avis_clean[:420].rfind(" ")] + "..."
+    if not avis_clean:
+        avis_clean = "Avis de valeur à compléter."
 
-    avis_box_h = 72
-    rrect(c, ML, y - avis_box_h, CW, avis_box_h, r=4, fill=TEAL_LIGHT, stroke=TEAL, sw=0.5)
     style_avis = ParagraphStyle("av", fontName="Helvetica", fontSize=8,
                                 leading=12, textColor=GRAY_DARK)
-    p = Paragraph(avis_display.replace('\n', '<br/>'), style_avis)
-    p.wrap(CW - 16, avis_box_h - 12)
-    p.drawOn(c, ML + 8, y - avis_box_h + 8)
+    p_avis = Paragraph(avis_clean, style_avis)
+    _, avis_h = p_avis.wrap(CW - 16, 9999)
+    avis_box_h = avis_h + 24
+
+    rrect(c, ML, y - avis_box_h, CW, avis_box_h, r=4, fill=TEAL_LIGHT, stroke=TEAL, sw=0.5)
+    p_avis.drawOn(c, ML + 8, y - avis_box_h + 10)
 
     y -= avis_box_h + 14
 
