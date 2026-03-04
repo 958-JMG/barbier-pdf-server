@@ -112,6 +112,50 @@ def valider_avis():
         return f"<h2>Erreur : {str(e)}</h2>", 500
 
 
+@app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
+def generate_pdf_by_ref():
+    """Génère le PDF à partir d'une référence BAR-XXXXX et envoie par email."""
+    if request.method == 'POST':
+        data = request.get_json(force=True) or {}
+    else:
+        data = request.args
+
+    reference = data.get("reference") or data.get("ref", "")
+    email_to = data.get("email", "jmg@958.fr")
+
+    if not reference:
+        return jsonify({"error": "reference manquante"}), 400
+
+    try:
+        tr = requests.get("https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
+            headers={"Authorization": f"Token {APP_TOKEN}"}, timeout=10).json()
+        at = tr["access_token"]
+        uuid = tr["dtable_uuid"]
+
+        sql_r = requests.post(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/sql",
+            headers={"Authorization": f"Token {at}", "Content-Type": "application/json"},
+            json={"sql": f"SELECT _id FROM `01_Biens` WHERE `Reference` = '{reference}' LIMIT 1"},
+            timeout=10).json()
+        row_id = sql_r.get("results", [{}])[0].get("_id")
+        if not row_id:
+            return jsonify({"error": f"Bien {reference} introuvable"}), 404
+
+        data_row = fetch_seatable_row(row_id)
+        data_row["Date"] = datetime.now().strftime("%d/%m/%Y")
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            tmp_path = f.name
+        build_pdf(data_row, tmp_path)
+
+        # Envoyer par email via n8n WF8b ou directement
+        return send_file(tmp_path, mimetype="application/pdf",
+            as_attachment=True, download_name=f"AvisValeur_{reference}.pdf")
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/generate-pdf", methods=["POST"])
 def generate_pdf():
     token = request.headers.get("X-Secret-Token")
