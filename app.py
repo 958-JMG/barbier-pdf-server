@@ -500,7 +500,7 @@ def seatable_get_row(reference):
     resp = requests.post(
         f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/sql",
         headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
-        json={"sql": sql}, timeout=10
+        json={"sql": sql, "convert_keys": True}, timeout=10
     )
     resp.raise_for_status()
     results = resp.json().get("results", [])
