@@ -660,435 +660,682 @@ def generate_direct():
 # DOSSIER DE VENTE
 # ─────────────────────────────────────────────────────────────────
 
-def seatable_get_comparables(reference):
-    """Récupère les 3 biens comparables liés à une référence."""
-    at, uuid = seatable_token()
-    resp = requests.post(
-        f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/sql",
-        headers={"Authorization": f"Token {at}", "Content-Type": "application/json"},
-        json={"sql": f"SELECT * FROM `Comparables` WHERE `Référence bien` = '{reference}' LIMIT 3",
-              "convert_keys": True},
-        timeout=10
-    )
-    results = resp.json().get("results", [])
-    return results
 
+# ═══════════════════════════════════════════════════════
+# DOSSIER DE VENTE — fonctions et route
+# ═══════════════════════════════════════════════════════
+"""Dossier vente Barbier — v3"""
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.platypus import Paragraph
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
+from PIL import Image
+import io, math, urllib.request
 
-def generate_quartier_gpt(type_bien, adresse, ville):
-    """Génère un texte quartier via GPT."""
-    import openai
-    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    prompt = (
-        f"Tu es un expert immobilier commercial à {ville}, France. "
-        f"Rédige un paragraphe de 4-5 lignes présentant le quartier autour de '{adresse}' à {ville}, "
-        f"pour un acheteur potentiel intéressé par un bien de type '{type_bien}'. "
-        f"Mentionne : l'ambiance du quartier, la proximité des services, l'accessibilité, "
-        f"et l'attractivité pour ce type de bien. Ton professionnel et positif. "
-        f"Réponds uniquement avec le paragraphe, sans titre."
-    )
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=250,
-        temperature=0.6
-    )
-    return response.choices[0].message.content.strip()
+W, H = A4
 
+# ── Couleurs exactes logo Barbier ──
+BLEU   = colors.HexColor("#16708B")
+ORANGE = colors.HexColor("#F0795B")
+BLEU_F = colors.HexColor("#0D4F62")
+GRIS   = colors.HexColor("#F4F6F8")
+GTEXTE = colors.HexColor("#333333")
+BLANC  = colors.white
 
-def generate_dossier_vente(row, comparables, quartier_texte):
-    """Génère le PDF dossier de vente 6 pages."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas as rl_canvas
-    from reportlab.lib import colors
-    from reportlab.platypus import Paragraph
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import mm
-    import io
+LOGO_PATH = "/home/claude/logo_barbier.png"
 
-    W, H = A4
-    BLEU = colors.HexColor("#1B5E8A")
-    ORANGE = colors.HexColor("#E8651A")
-    GRIS_CLAIR = colors.HexColor("#F4F6F8")
-    GRIS_TEXTE = colors.HexColor("#444444")
-    BLANC = colors.white
+# ── Pictos dessinés en pur ReportLab (cercle teal + lettre blanche) ──
+PICTOS = {
+    "surface":   ("S", "Surface"),
+    "type":      ("T", "Type"),
+    "adresse":   ("A", "Adresse"),
+    "ville":     ("V", "Ville"),
+    "terrain":   ("⬜", "Terrain"),
+    "annee":     ("C", "Construction"),
+    "ca":        ("€", "CA HT"),
+    "loyer":     ("L", "Loyer"),
+    "activite":  ("✦", "Activité"),
+    "pieces":    ("P", "Pièces"),
+    "dpe":       ("D", "DPE"),
+    "chauffage": ("🔥", "Chauffage"),
+}
 
-    # Mapping données SeaTable
-    d = {
-        "reference":    row.get("Reference", ""),
-        "type_bien":    row.get("Type de bien", "Bien"),
-        "adresse":      row.get("Adresse", ""),
-        "ville":        row.get("Ville", ""),
-        "code_postal":  str(row.get("Code postal", "")),
-        "surface":      str(row.get("Surface", "")),
-        "nb_pieces":    str(row.get("Nombre de pièces", row.get("Nb pièces", ""))),
-        "etat_bien":    row.get("Etat du bien", ""),
-        "mandataire":   row.get("Negociateur", ""),
-        "description":  row.get("Description courte", row.get("Version portail", "")),
-        "prix_valeur":  fmt(row.get("Prix retenu", row.get("Prix", 0))),
-        "prix_min":     fmt(row.get("Prix estime min", 0)),
-        "prix_max":     fmt(row.get("Prix estime max", 0)),
-        "quartier":     quartier_texte,
-        "comparables":  comparables,
-    }
+# Symboles lisibles sans police spéciale
+ICONS = {
+    "surface":   "m²",
+    "type":      "▣",
+    "adresse":   "◎",
+    "ville":     "◉",
+    "terrain":   "▢",
+    "annee":     "◷",
+    "ca":        "€",
+    "loyer":     "€",
+    "activite":  "★",
+    "pieces":    "#",
+    "dpe":       "D",
+}
 
-    # Prix au m²
+def draw_logo(c, x, y, w=38*mm):
     try:
-        prix = int(row.get("Prix retenu", row.get("Prix", 0)) or 0)
-        surf = int(row.get("Surface", 0) or 0)
-        d["prix_m2"] = fmt(prix // surf) if surf > 0 else "—"
+        logo = ImageReader(LOGO_PATH)
+        ratio = 662/488
+        c.drawImage(logo, x, y, width=w, height=w*ratio, mask='auto')
     except:
-        d["prix_m2"] = "—"
+        c.setFillColor(BLEU); c.setFont("Helvetica-Bold",10)
+        c.drawString(x, y+4*mm, "barbier immobilier")
 
-    buf = io.BytesIO()
-    c = rl_canvas.Canvas(buf, pagesize=A4)
-    c.setTitle(f"Dossier de présentation — {d['adresse']}, {d['ville']}")
-
-    def footer(page_num):
-        c.setFillColor(BLEU)
-        c.rect(0, 0, W, 10*mm, fill=1, stroke=0)
-        c.setFillColor(BLANC)
-        c.setFont("Helvetica", 7)
-        c.drawString(15*mm, 3.5*mm, "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11")
-        c.drawRightString(W - 15*mm, 3.5*mm, f"Page {page_num}")
-
-    def header_band(title=""):
-        c.setFillColor(BLEU)
-        c.rect(0, H - 14*mm, W, 14*mm, fill=1, stroke=0)
-        if title:
-            c.setFillColor(BLANC)
-            c.setFont("Helvetica-Bold", 9)
-            c.drawString(15*mm, H - 9*mm, title)
-
-    def logo_zone(x, y):
-        c.setFillColor(BLEU)
-        c.roundRect(x, y, 50*mm, 16*mm, 3*mm, fill=1, stroke=0)
-        c.setFillColor(BLANC)
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(x + 4*mm, y + 9*mm, "barbier")
-        c.setFont("Helvetica", 9)
-        c.drawString(x + 4*mm, y + 4*mm, "immobilier")
-        c.setFillColor(ORANGE)
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(x + 40*mm, y + 5*mm, "›")
-
-    def section_title(text, x, y):
-        c.setFillColor(ORANGE)
-        c.rect(x, y + 4*mm, 3*mm, 6*mm, fill=1, stroke=0)
-        c.setFillColor(BLEU)
-        c.setFont("Helvetica-Bold", 13)
-        c.drawString(x + 6*mm, y + 5*mm, text)
-
-    def pill(x, y, label, value, w=56*mm, h=13*mm):
-        c.setFillColor(GRIS_CLAIR)
-        c.roundRect(x, y, w, h, 2*mm, fill=1, stroke=0)
-        c.setFillColor(GRIS_TEXTE)
-        c.setFont("Helvetica", 7)
-        c.drawString(x + 3*mm, y + 8*mm, label.upper())
-        c.setFillColor(BLEU)
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(x + 3*mm, y + 3*mm, str(value))
-
-    style_body = ParagraphStyle("body", fontName="Helvetica", fontSize=9,
-                                textColor=GRIS_TEXTE, leading=14)
-    style_sm   = ParagraphStyle("sm",   fontName="Helvetica", fontSize=8,
-                                textColor=GRIS_TEXTE, leading=12)
-
-    # ── PAGE 1 : COUVERTURE ──────────────────────────────────────
-    c.setFillColor(BLEU)
-    c.rect(0, H * 0.42, W, H * 0.58, fill=1, stroke=0)
+def draw_logo_on_white(c, x, y, w=34*mm):
+    pad = 3*mm
+    ratio = 662/488
+    h_logo = w*ratio
     c.setFillColor(BLANC)
-    c.setFont("Helvetica", 10)
-    c.drawString(15*mm, H - 18*mm, "DOSSIER DE PRÉSENTATION")
-    c.setFont("Helvetica-Bold", 28)
-    c.drawString(15*mm, H - 36*mm, d["type_bien"])
-    c.setFont("Helvetica", 15)
-    c.drawString(15*mm, H - 48*mm, d["adresse"])
-    c.drawString(15*mm, H - 57*mm, f"{d['code_postal']} {d['ville']}")
-    c.setStrokeColor(ORANGE)
-    c.setLineWidth(3)
-    c.line(15*mm, H - 62*mm, 75*mm, H - 62*mm)
-    c.setFont("Helvetica", 10)
-    c.drawString(15*mm, H - 75*mm, "PRIX DE PRÉSENTATION")
-    c.setFont("Helvetica-Bold", 32)
-    c.drawString(15*mm, H - 90*mm, f"{d['prix_valeur']} €")
-    c.setFont("Helvetica", 10)
-    c.drawString(15*mm, H - 99*mm, f"soit {d['prix_m2']} €/m²")
+    c.roundRect(x-pad, y-pad, w+2*pad, h_logo+2*pad, 3*mm, fill=1, stroke=0)
+    draw_logo(c, x, y, w)
 
-    # Badges surface/état
-    for i, (lbl, val) in enumerate([("SURFACE", f"{d['surface']} m²"), ("ÉTAT", d["etat_bien"])]):
-        bx = 15*mm + i * 48*mm
-        by = H * 0.43 + 2*mm
-        c.setFillColor(colors.HexColor("#FFFFFF22"))
-        c.roundRect(bx, by, 44*mm, 18*mm, 2*mm, fill=1, stroke=0)
-        c.setFillColor(ORANGE)
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(bx + 3*mm, by + 9*mm, val)
+def draw_footer(c, n):
+    c.setFillColor(BLEU_F)
+    c.rect(0, 0, W, 9*mm, fill=1, stroke=0)
+    c.setFillColor(BLANC)
+    c.setFont("Helvetica", 6.5)
+    c.drawString(14*mm, 3.5*mm,
+        "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com")
+    c.drawRightString(W-14*mm, 3.5*mm, f"{n} / 6")
+
+def draw_header(c, sub=""):
+    c.setFillColor(BLEU)
+    c.rect(0, H-11*mm, W, 11*mm, fill=1, stroke=0)
+    c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 8.5)
+    c.drawString(14*mm, H-7.5*mm, f"DOSSIER DE PRÉSENTATION  ›  {sub.upper()}")
+
+def draw_section_title(c, text, x, y):
+    c.setFillColor(ORANGE)
+    c.rect(x, y+3.5*mm, 3*mm, 7*mm, fill=1, stroke=0)
+    c.setFillColor(BLEU_F); c.setFont("Helvetica-Bold", 13)
+    c.drawString(x+7*mm, y+4.5*mm, text)
+
+def safe(v, fb="—"):
+    return fb if (v is None or v=="" or v==0) else str(v)
+
+def pfmt(v):
+    if not v: return "—"
+    try: return f"{int(float(str(v).replace(' ',''))):,}".replace(",", " ") + " €"
+    except: return str(v)
+
+def pm2(p, s):
+    try: return f"{int(float(str(p).replace(' ',''))/float(str(s).replace(' ',''))):,}".replace(",", " ")+" €/m²"
+    except: return "—"
+
+# ── Carte OSM ──
+def lat_lon_to_tile(lat, lon, zoom):
+    n = 2**zoom
+    x = int((lon+180)/360*n)
+    y = int((1-math.log(math.tan(math.radians(lat))+1/math.cos(math.radians(lat)))/math.pi)/2*n)
+    return x, y
+
+def geocode_osm(adresse, ville):
+    """Géocode une adresse via Nominatim"""
+    q = urllib.parse.quote_plus(f"{adresse}, {ville}, France")
+    url = f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1"
+    req = urllib.request.Request(url, headers={"User-Agent": "BarbierImmo/1.0 contact@958.fr"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        data = json.load(r)
+    if data:
+        return float(data[0]["lat"]), float(data[0]["lon"])
+    # Fallback : centre Vannes
+    return 47.6580, -2.7600
+
+def get_osm_map_image(lat, lon, zoom=16, tiles=3):
+    cx, cy = lat_lon_to_tile(lat, lon, zoom)
+    half = tiles//2
+    rows = []
+    for row in range(tiles):
+        row_imgs = []
+        for col in range(tiles):
+            tx, ty = cx-half+col, cy-half+row
+            url = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
+            req = urllib.request.Request(url, headers={"User-Agent": "BarbierImmo/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                tile = Image.open(io.BytesIO(r.read())).convert("RGB")
+            row_imgs.append(tile)
+        rows.append(row_imgs)
+    tw, th = rows[0][0].width, rows[0][0].height
+    result = Image.new("RGB", (tw*tiles, th*tiles))
+    for row in range(tiles):
+        for col in range(tiles):
+            result.paste(rows[row][col], (col*tw, row*th))
+    return result
+
+import urllib.parse, json
+
+# ═══════════════════════════════════════
+# PAGE 1 — COUVERTURE
+# ═══════════════════════════════════════
+def page_couverture(c, d):
+    # Fond teal haut 52%
+    c.setFillColor(BLEU)
+    c.rect(0, H*0.48, W, H*0.52, fill=1, stroke=0)
+
+    # Logo en haut à droite
+    draw_logo_on_white(c, W-52*mm, H-52*mm, w=34*mm)
+
+
+
+    # Titre
+    c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 30)
+    c.drawString(14*mm, H-42*mm, safe(d.get("type_bien"), "Bien immobilier"))
+    c.setFont("Helvetica", 15)
+    c.drawString(14*mm, H-53*mm, safe(d.get("adresse")))
+    c.drawString(14*mm, H-62*mm, f"{safe(d.get('code_postal'))} {safe(d.get('ville'))}")
+    c.setFillColor(ORANGE)
+    c.rect(14*mm, H-65.5*mm, 50*mm, 2.5*mm, fill=1, stroke=0)
+
+    # Prix
+    c.setFillColor(BLANC); c.setFont("Helvetica", 9)
+    c.drawString(14*mm, H-74*mm, "PRIX DE PRÉSENTATION")
+    prix = d.get("prix") or d.get("prix_retenu") or d.get("prix_estime_max")
+    surface = d.get("surface")
+    c.setFont("Helvetica-Bold", 34)
+    c.drawString(14*mm, H-91*mm, pfmt(prix))
+    if prix and surface:
+        c.setFont("Helvetica", 10)
+        c.setFillColor(colors.HexColor("#FFFFFFBB"))
+        c.drawString(14*mm, H-98*mm, f"soit {pm2(prix,surface)}")
+
+    # ── Blocs carac : fond BLANC, texte foncé — premium ──
+    carac = [("SURFACE", f"{safe(surface)} m²"), ("TYPE", safe(d.get("type_bien","—"))[:12])]
+    if d.get("surface_terrain"): carac.append(("TERRAIN", f"{safe(d.get('surface_terrain'))} m²"))
+    if d.get("activite"): carac.append(("ACTIVITÉ", safe(d.get("activite"))[:12]))
+    carac = carac[:4]
+
+    bw = (W-28*mm)/len(carac) - 2*mm
+    bh = 22*mm
+    by = H*0.49 + 1*mm
+
+    for i, (label, val) in enumerate(carac):
+        bx = 14*mm + i*(bw+2*mm)
+        c.setFillColor(colors.HexColor("#00000022"))
+        c.roundRect(bx+0.5*mm, by-0.5*mm, bw, bh, 2*mm, fill=1, stroke=0)
         c.setFillColor(BLANC)
+        c.roundRect(bx, by, bw, bh, 2*mm, fill=1, stroke=0)
+        c.setFillColor(ORANGE)
+        c.rect(bx+2*mm, by+bh-2*mm, bw-4*mm, 2*mm, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#888888"))
         c.setFont("Helvetica", 7)
-        c.drawString(bx + 3*mm, by + 4*mm, lbl)
+        c.drawCentredString(bx+bw/2, by+bh-7*mm, label)
+        # Valeur : taille auto pour éviter troncature
+        c.setFillColor(BLEU_F)
+        for fsz in [13, 11, 9, 8]:
+            c.setFont("Helvetica-Bold", fsz)
+            if c.stringWidth(val, "Helvetica-Bold", fsz) < bw - 6*mm:
+                break
+        c.drawCentredString(bx+bw/2, by+5*mm, val)
+
+    # Zone blanche bas
+    c.setFillColor(BLANC)
+    c.rect(0, 0, W, H*0.48, fill=1, stroke=0)
 
     # Photo placeholder
-    c.setFillColor(BLANC)
-    c.rect(0, 0, W, H * 0.42, fill=1, stroke=0)
-    c.setFillColor(GRIS_CLAIR)
-    c.setStrokeColor(colors.HexColor("#CCCCCC"))
-    c.roundRect(15*mm, 28*mm, W - 30*mm, 70*mm, 3*mm, fill=1, stroke=1)
-    c.setFillColor(colors.HexColor("#AAAAAA"))
-    c.setFont("Helvetica", 9)
-    c.drawCentredString(W/2, 63*mm, "[ Photo principale ]")
+    ph = H*0.48 - 22*mm
+    c.setFillColor(GRIS); c.setStrokeColor(colors.HexColor("#DDDDDD")); c.setLineWidth(1)
+    c.roundRect(14*mm, 20*mm, W-28*mm, ph, 3*mm, fill=1, stroke=1)
+    c.setFillColor(colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 10)
+    c.drawCentredString(W/2, 20*mm+ph/2+3*mm, "[ Photo principale du bien ]")
+    c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#AAAAAA"))
+    c.drawCentredString(W/2, 20*mm+ph/2-6*mm, "Intégrée automatiquement depuis SeaTable")
 
-    logo_zone(W - 65*mm, 13*mm)
-    c.setFillColor(GRIS_TEXTE)
-    c.setFont("Helvetica", 8)
-    c.drawString(15*mm, 20*mm, "Dossier préparé par")
-    c.setFont("Helvetica-Bold", 9)
-    c.drawString(15*mm, 15*mm, d["mandataire"])
-    footer(1); c.showPage()
+    c.setFillColor(GTEXTE); c.setFont("Helvetica", 7.5)
+    c.drawString(14*mm, 13*mm,
+        f"Dossier préparé par  {safe(d.get('negociateur'), 'Barbier Immobilier')}  ·  Réf. {safe(d.get('reference'))}")
+    draw_footer(c, 1)
 
-    # ── PAGE 2 : PRÉSENTATION DU BIEN ───────────────────────────
-    header_band(f"DOSSIER  ›  {d['type_bien'].upper()}  ›  {d['adresse'].upper()}, {d['ville'].upper()}")
-    section_title("Présentation du bien", 15*mm, H - 32*mm)
+# ═══════════════════════════════════════
+# PAGE 2 — BIEN + CARACTÉRISTIQUES AVEC PICTOS
+# ═══════════════════════════════════════
+# Mapping picto key → fichier PNG blanc
+PICTO_FILES = {
+    "m²":  "/home/claude/picto_surface_white.png",  # surface m²
+    "▣":   "/home/claude/picto_type_white.png",     # types/formes
+    "◎":   "/home/claude/picto_lieu_white.png",     # pin lieu/adresse
+    "◉":   "/home/claude/picto_ville_white.png",    # ville/château
+    "▢":   "/home/claude/picto_surface_white.png",  # terrain
+    "◷":   "/home/claude/picto_type_white.png",     # année
+    "€":   "/home/claude/picto_surface_white.png",  # CA/loyer → surface m²
+    "★":   "/home/claude/picto_type_white.png",     # activité
+    "#":   "/home/claude/picto_type_white.png",
+}
 
-    p = Paragraph(d["description"] or "Description à compléter.", style_body)
-    _, ph = p.wrap(W - 30*mm, 9999)
-    p.drawOn(c, 15*mm, H - 38*mm - ph)
-    cur_y = H - 38*mm - ph - 10*mm
-
-    section_title("Caractéristiques", 15*mm, cur_y - 4*mm)
-    pills_data = [
-        ("Surface", f"{d['surface']} m²"),
-        ("Type de bien", d["type_bien"]),
-        ("État", d["etat_bien"]),
-        ("Ville", d["ville"]),
-    ]
-    for i, (lbl, val) in enumerate(pills_data):
-        col = i % 3
-        row_i = i // 3
-        px = 15*mm + col * 60*mm
-        py = cur_y - 20*mm - row_i * 17*mm
-        pill(px, py, lbl, val)
-
-    footer(2); c.showPage()
-
-    # ── PAGE 3 : QUARTIER ───────────────────────────────────────
-    header_band("DOSSIER  ›  QUARTIER & ENVIRONNEMENT")
-    section_title("Le quartier", 15*mm, H - 32*mm)
-    p = Paragraph(d["quartier"], style_body)
-    _, ph = p.wrap(W - 30*mm, 9999)
-    p.drawOn(c, 15*mm, H - 38*mm - ph)
-    q_bottom = H - 38*mm - ph - 10*mm
-
-    section_title("Localisation", 15*mm, q_bottom - 4*mm)
-    map_h = 90*mm
-    map_y = q_bottom - 14*mm - map_h
-    c.setFillColor(GRIS_CLAIR)
-    c.setStrokeColor(colors.HexColor("#CCCCCC"))
-    c.roundRect(15*mm, map_y, W - 30*mm, map_h, 3*mm, fill=1, stroke=1)
-    c.setFillColor(colors.HexColor("#AAAAAA"))
-    c.setFont("Helvetica", 9)
-    c.drawCentredString(W/2, map_y + map_h/2, "[ Carte de localisation — Google Maps ]")
-
-    footer(3); c.showPage()
-
-    # ── PAGE 4 : COMPARABLES ────────────────────────────────────
-    header_band("DOSSIER  ›  BIENS COMPARABLES")
-    section_title("Biens comparables", 15*mm, H - 32*mm)
-
-    if comparables:
-        card_w = (W - 30*mm - 8*mm) / 3
-        card_h = 50*mm
-        for i, comp in enumerate(comparables[:3]):
-            cx = 15*mm + i * (card_w + 4*mm)
-            cy = H - 42*mm - card_h
-            c.setFillColor(GRIS_CLAIR)
-            c.roundRect(cx, cy, card_w, card_h, 3*mm, fill=1, stroke=0)
-
-            statut = str(comp.get("Statut", ""))
-            sc = colors.HexColor("#27AE60") if statut == "Vendu" else ORANGE
-            c.setFillColor(sc)
-            c.roundRect(cx + card_w - 22*mm, cy + card_h - 8*mm, 20*mm, 6*mm, 1*mm, fill=1, stroke=0)
-            c.setFillColor(BLANC)
-            c.setFont("Helvetica-Bold", 6)
-            c.drawCentredString(cx + card_w - 12*mm, cy + card_h - 5.5*mm, statut.upper())
-
-            c.setFillColor(BLEU)
-            c.setFont("Helvetica-Bold", 8)
-            addr = str(comp.get("Adresse", ""))
-            c.drawString(cx + 3*mm, cy + card_h - 14*mm, addr[:30])
-
-            prix = comp.get("Prix €", "")
-            c.setFillColor(ORANGE)
-            c.setFont("Helvetica-Bold", 13)
-            c.drawString(cx + 3*mm, cy + card_h - 26*mm, f"{fmt(prix)} €" if prix else "—")
-
-            c.setFillColor(GRIS_TEXTE)
-            c.setFont("Helvetica", 8)
-            surf = comp.get("Surface m2", "")
-            pm2  = comp.get("Prix m2 €", "")
-            date = comp.get("Date", "")
-            c.drawString(cx + 3*mm, cy + card_h - 34*mm, f"{surf} m²  ·  {fmt(pm2)} €/m²" if surf else "")
-            c.setFont("Helvetica", 7)
-            c.drawString(cx + 3*mm, cy + 4*mm, str(date))
-    else:
-        c.setFillColor(GRIS_TEXTE)
-        c.setFont("Helvetica-Oblique", 10)
-        c.drawCentredString(W/2, H - 80*mm, "Comparables à saisir dans SeaTable (table Comparables)")
-        c.setFont("Helvetica", 9)
-        c.drawCentredString(W/2, H - 92*mm, f"Renseigner la colonne 'Référence bien' = {d['reference']}")
-
-    footer(4); c.showPage()
-
-    # ── PAGE 5 : ESTIMATION ─────────────────────────────────────
-    header_band("DOSSIER  ›  NOTRE ESTIMATION")
-    section_title("Notre estimation de valeur", 15*mm, H - 32*mm)
-
-    seg_w = (W - 30*mm) / 3
-    bar_y = H - 80*mm
-    labels = [
-        ("Fourchette basse", f"{d['prix_min']} €", colors.HexColor("#B0C4DE")),
-        ("Valeur estimée",   f"{d['prix_valeur']} €", BLEU),
-        ("Fourchette haute", f"{d['prix_max']} €", colors.HexColor("#5A9ACA")),
-    ]
-    for i, (title, price, col) in enumerate(labels):
-        sx = 15*mm + i * seg_w
-        sh = 34*mm if i == 1 else 28*mm
-        sy = bar_y - sh + (6*mm if i == 1 else 0)
-        c.setFillColor(col)
-        c.roundRect(sx, sy, seg_w - 2*mm, sh, 2*mm, fill=1, stroke=0)
-        c.setFillColor(BLANC)
-        c.setFont("Helvetica", 7)
-        c.drawCentredString(sx + seg_w/2, sy + sh - 8*mm, title.upper())
-        c.setFont("Helvetica-Bold", 13 if i == 1 else 11)
-        c.drawCentredString(sx + seg_w/2, sy + sh - 20*mm, price)
-
-    c.setFillColor(GRIS_TEXTE)
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(W/2, bar_y - 48*mm, f"Prix au m² estimé : {d['prix_m2']} €/m²  ·  Surface : {d['surface']} m²")
-
-    disc = ("Cette estimation est établie à titre indicatif sur la base des caractéristiques "
-            "du bien et des transactions comparables observées sur le marché local. "
-            "Elle ne constitue pas une expertise immobilière au sens légal.")
-    p = Paragraph(disc, ParagraphStyle("disc", fontName="Helvetica-Oblique", fontSize=7,
-                                       textColor=colors.HexColor("#999999"), leading=10))
-    _, ph = p.wrap(W - 30*mm, 9999)
-    p.drawOn(c, 15*mm, bar_y - 64*mm - ph)
-
-    footer(5); c.showPage()
-
-    # ── PAGE 6 : BARBIER IMMOBILIER ─────────────────────────────
+def draw_pill_picto(c, x, y, picto, label, value, w=57*mm, h=16*mm):
+    """Pastille avec vrai picto PNG à gauche"""
+    c.setFillColor(GRIS)
+    c.roundRect(x, y, w, h, 2*mm, fill=1, stroke=0)
+    r = 5.5*mm
+    cx_p = x + r + 2*mm
+    cy_p = y + h/2
+    # Cercle teal
     c.setFillColor(BLEU)
-    c.rect(0, H * 0.55, W, H * 0.45, fill=1, stroke=0)
-    c.setFillColor(BLANC)
-    c.rect(0, 0, W, H * 0.55, fill=1, stroke=0)
-
-    c.setFillColor(BLANC)
-    c.setFont("Helvetica", 10)
-    c.drawString(15*mm, H - 18*mm, "VOTRE PARTENAIRE IMMOBILIER")
-    c.setFont("Helvetica-Bold", 24)
-    c.drawString(15*mm, H - 34*mm, "Barbier Immobilier")
-    c.setFont("Helvetica", 12)
-    c.drawString(15*mm, H - 44*mm, "Votre projet devient le nôtre")
-    c.setStrokeColor(ORANGE)
-    c.setLineWidth(3)
-    c.line(15*mm, H - 49*mm, 60*mm, H - 49*mm)
-
-    for i, (num, lbl) in enumerate([("33", "ans d'expérience"), ("+5 000", "clients accompagnés"), ("3", "pôles d'expertise")]):
-        sx = 15*mm + i * (W - 30*mm) / 3
-        c.setFillColor(BLANC)
-        c.setFont("Helvetica-Bold", 20)
-        c.drawString(sx + 3*mm, H * 0.57 + 10*mm, num)
-        c.setFont("Helvetica", 8)
-        c.drawString(sx + 3*mm, H * 0.57 + 5*mm, lbl)
-
-    services = [
-        ("Estimation",          "Valorisation précise basée sur les données du marché local."),
-        ("Vente",               "Diffusion multi-portails, sélection acquéreurs, négociation."),
-        ("Location",            "Gestion locative complète, de la recherche au suivi."),
-        ("Cession d'entreprise","Accompagnement expert pour la cession de fonds de commerce."),
-    ]
-    sw = (W - 30*mm - 6*mm) / 2
-    for i, (title, desc) in enumerate(services):
-        col = i % 2
-        row_i = i // 2
-        sx = 15*mm + col * (sw + 6*mm)
-        sy = H * 0.52 - row_i * 34*mm - 8*mm
-        c.setFillColor(GRIS_CLAIR)
-        c.roundRect(sx, sy - 24*mm, sw, 26*mm, 2*mm, fill=1, stroke=0)
-        c.setFillColor(ORANGE)
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(sx + 3*mm, sy - 4*mm, "›")
-        c.setFillColor(BLEU)
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(sx + 9*mm, sy - 4*mm, title)
-        p = Paragraph(desc, style_sm)
-        _, ph = p.wrap(sw - 8*mm, 9999)
-        p.drawOn(c, sx + 3*mm, sy - 22*mm)
-
-    c.setFillColor(BLEU)
-    c.roundRect(15*mm, 18*mm, W - 30*mm, 18*mm, 2*mm, fill=1, stroke=0)
-    c.setFillColor(BLANC)
-    c.setFont("Helvetica-Bold", 9)
-    c.drawString(20*mm, 30*mm, "2 place Albert Einstein, 56000 Vannes")
-    c.drawString(20*mm, 24*mm, "02.97.47.11.11  ·  contact@barbierimmobilier.com  ·  barbierimmobilier.com")
-    logo_zone(W - 65*mm, 20*mm)
-
-    footer(6); c.showPage()
-    c.save()
-    buf.seek(0)
-    return buf
-
-
-@app.route("/dossier-vente", methods=["GET"])
-def dossier_vente():
-    """
-    GET /dossier-vente?reference=BAR-XXXXX
-    Génère le dossier de présentation acheteur (6 pages).
-    """
-    reference = request.args.get("reference", "").strip()
-    if not reference:
-        return jsonify({"error": "Paramètre 'reference' manquant"}), 400
-
-    try:
-        # 1. Données bien SeaTable
-        row = seatable_get_row(reference)
-        app.logger.info(f"Dossier vente — SeaTable OK: {reference}")
-
-        # 2. Comparables SeaTable
-        comparables = seatable_get_comparables(reference)
-        app.logger.info(f"Comparables: {len(comparables)} trouvés")
-
-        # 3. Texte quartier GPT
+    c.circle(cx_p, cy_p, r, fill=1, stroke=0)
+    # Picto PNG blanc centré dans le cercle
+    picto_path = PICTO_FILES.get(picto)
+    if picto_path:
         try:
-            quartier = generate_quartier_gpt(
-                row.get("Type de bien", "bien"),
-                row.get("Adresse", ""),
-                row.get("Ville", "Vannes")
-            )
-        except Exception as e:
-            app.logger.warning(f"GPT quartier échoué: {e}")
-            quartier = (f"Bien situé à {row.get('Ville', 'Vannes')}, "
-                        f"dans un secteur accessible bénéficiant d'une bonne desserte "
-                        f"et d'une proximité des services et commerces.")
+            from reportlab.lib.utils import ImageReader
+            ico = ImageReader(picto_path)
+            ico_size = r * 1.3
+            c.drawImage(ico, cx_p - ico_size/2, cy_p - ico_size/2,
+                        width=ico_size, height=ico_size, mask='auto')
+        except:
+            c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 9)
+            c.drawCentredString(cx_p, cy_p-3*mm, picto)
+    else:
+        c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 9)
+        c.drawCentredString(cx_p, cy_p-3*mm, picto)
+    # Label + valeur
+    c.setFillColor(colors.HexColor("#888888")); c.setFont("Helvetica", 6.5)
+    c.drawString(x+r*2+5*mm, y+h-4.5*mm, label.upper())
+    c.setFillColor(BLEU_F); c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(x+r*2+5*mm, y+3.5*mm, str(value))
 
-        # 4. Générer le PDF
-        pdf_buf = generate_dossier_vente(row, comparables, quartier)
-        filename = f"Dossier_Vente_{reference}.pdf"
-        app.logger.info(f"Dossier vente généré: {filename}")
+def page_bien(c, d):
+    draw_header(c, f"{safe(d.get('type_bien'))} — {safe(d.get('adresse'))}, {safe(d.get('ville'))}")
+    draw_section_title(c, "Présentation du bien", 14*mm, H-32*mm)
 
-        return send_file(
-            pdf_buf,
+    desc = safe(d.get("description"), "Description non disponible.")
+    style = ParagraphStyle("b", fontName="Helvetica", fontSize=9.5, textColor=GTEXTE, leading=15)
+    p = Paragraph(desc, style)
+    _, ph = p.wrap(W-28*mm, 9999)
+    p.drawOn(c, 14*mm, H-38*mm-ph)
+    bottom = H-38*mm-ph-14*mm
+
+    draw_section_title(c, "Caractéristiques", 14*mm, bottom-2*mm)
+
+    # picto: surface=m², type=▣, adresse/lieu=◎, ville=◉
+    pills = []
+    pills.append(("m²", "Surface habitable", f"{safe(d.get('surface'))} m²"))
+    pills.append(("▣",  "Type de bien",       safe(d.get("type_bien"))))
+    pills.append(("◎",  "Adresse",            safe(d.get("adresse"))))
+    pills.append(("◉",  "Ville",              safe(d.get("ville"))))
+    if d.get("surface_terrain"): pills.append(("m²", "Surface terrain",   f"{safe(d.get('surface_terrain'))} m²"))
+    if d.get("annee_construct"): pills.append(("▣",  "Année construction", safe(d.get("annee_construct"))))
+    if d.get("ca_ht"):           pills.append(("m²", "CA HT annuel",      pfmt(d.get("ca_ht"))))
+    if d.get("loyer_annuel"):    pills.append(("m²", "Loyer annuel",      pfmt(d.get("loyer_annuel"))))
+    if d.get("activite"):        pills.append(("▣",  "Activité",          safe(d.get("activite"))))
+
+    pw, ph2, pgx, pgy = 57*mm, 16*mm, 3*mm, 3*mm
+    cols = 3
+    sy = bottom-20*mm
+    for i, (ico, lbl, val) in enumerate(pills):
+        col = i % cols; row2 = i // cols
+        draw_pill_picto(c, 14*mm+col*(pw+pgx), sy-row2*(ph2+pgy), ico, lbl, val, pw, ph2)
+
+    pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-14*mm
+    draw_section_title(c, "Photos du bien", 14*mm, pb)
+    pw3 = (W-28*mm-6*mm)/3; ph3 = 36*mm
+    for i in range(3):
+        px = 14*mm+i*(pw3+3*mm); py = pb-12*mm-ph3
+        c.setFillColor(GRIS); c.setStrokeColor(colors.HexColor("#DDDDDD"))
+        c.roundRect(px, py, pw3, ph3, 2*mm, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 8)
+        c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
+    draw_footer(c, 2)
+
+# ═══════════════════════════════════════
+# PAGE 3 — QUARTIER + CARTE OSM RÉELLE
+# ═══════════════════════════════════════
+def page_quartier(c, d):
+    draw_header(c, "Quartier & environnement")
+    draw_section_title(c, "Le quartier", 14*mm, H-32*mm)
+
+    texte = safe(d.get("texte_quartier"), "Secteur dynamique de Vannes, bien desservi.")
+    style = ParagraphStyle("b", fontName="Helvetica", fontSize=10, textColor=GTEXTE, leading=16)
+    p = Paragraph(texte, style)
+    _, ph = p.wrap(W-28*mm, 9999)
+    p.drawOn(c, 14*mm, H-38*mm-ph)
+    q_bottom = H-38*mm-ph-12*mm
+
+    draw_section_title(c, "Localisation", 14*mm, q_bottom-2*mm)
+    map_h = 70*mm
+    map_y = q_bottom-14*mm-map_h
+    map_x = 14*mm
+    map_w = W-28*mm
+
+    # ── Carte OSM réelle ──
+    try:
+        lat, lon = geocode_osm(safe(d.get("adresse"), "centre"), safe(d.get("ville"), "Vannes"))
+        osm_img = get_osm_map_image(lat, lon, zoom=16, tiles=3)
+        # Recadrer au centre pour le ratio PDF
+        iw, ih = osm_img.size
+        target_ratio = map_w / map_h
+        if iw/ih > target_ratio:
+            new_w = int(ih * target_ratio)
+            left = (iw-new_w)//2
+            osm_img = osm_img.crop((left, 0, left+new_w, ih))
+        else:
+            new_h = int(iw / target_ratio)
+            top = (ih-new_h)//2
+            osm_img = osm_img.crop((0, top, iw, top+new_h))
+        # Convertir en ImageReader pour ReportLab
+        buf = io.BytesIO()
+        osm_img.save(buf, format="PNG")
+        buf.seek(0)
+        map_reader = ImageReader(buf)
+        c.drawImage(map_reader, map_x, map_y, width=map_w, height=map_h)
+        # Pin orange centré
+        pin_x = map_x + map_w/2
+        pin_y = map_y + map_h/2
+        c.setFillColor(ORANGE)
+        c.circle(pin_x, pin_y, 4*mm, fill=1, stroke=0)
+        c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 9)
+        c.drawCentredString(pin_x, pin_y-3*mm, "✦")
+        # Bulle adresse
+        adr = f"{safe(d.get('adresse'))}, {safe(d.get('ville'))}"
+        bw_b = len(adr)*4.2+12
+        c.setFillColor(BLANC); c.setStrokeColor(colors.HexColor("#AAAAAA"))
+        c.setLineWidth(0.5)
+        c.roundRect(pin_x-bw_b/2, pin_y+6*mm, bw_b, 9*mm, 1.5*mm, fill=1, stroke=1)
+        c.setFillColor(BLEU_F); c.setFont("Helvetica-Bold", 7)
+        c.drawCentredString(pin_x, pin_y+10.5*mm, adr)
+        # Bandeau crédit OSM
+        c.setFillColor(colors.HexColor("#FFFFFF99"))
+        c.rect(map_x, map_y, map_w, 5*mm, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#555555")); c.setFont("Helvetica", 5.5)
+        c.drawRightString(map_x+map_w-2*mm, map_y+1*mm, "© OpenStreetMap contributors")
+    except Exception as e:
+        # Fallback si OSM échoue
+        c.setFillColor(colors.HexColor("#E8F0F4"))
+        c.roundRect(map_x, map_y, map_w, map_h, 3*mm, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#AAAAAA")); c.setFont("Helvetica", 9)
+        c.drawCentredString(W/2, map_y+map_h/2, f"Carte non disponible — {e}")
+
+    # Arrondi sur la carte
+    c.setStrokeColor(colors.HexColor("#CCCCCC")); c.setLineWidth(1)
+    c.roundRect(map_x, map_y, map_w, map_h, 3*mm, fill=0, stroke=1)
+
+    # Points clés
+    draw_section_title(c, "Points clés à proximité", 14*mm, map_y-10*mm)
+    pts = [
+        ("◉", "Commerces", "Services de proximité"),
+        ("◎", "Transports", "Gare SNCF / Rocade"),
+        ("★", "Dynamisme", "Zone commerciale active"),
+        ("▣", "Parking", "Stationnement aisé"),
+        ("◷", "Établissements", "Écoles & formations"),
+        ("€",  "Réseau", "Secteur porteur"),
+    ]
+    pw2 = (W-28*mm-10*mm)/3
+    for i, (ico, lbl, val) in enumerate(pts):
+        col = i%3; row2 = i//3
+        bx = 14*mm+col*(pw2+5*mm)
+        by = map_y-22*mm-row2*13*mm
+        c.setFillColor(GRIS); c.roundRect(bx, by, pw2, 11*mm, 2*mm, fill=1, stroke=0)
+        c.setFillColor(BLEU); c.setFont("Helvetica-Bold", 8)
+        c.drawString(bx+3*mm, by+6.5*mm, f"{ico}  {lbl}")
+        c.setFillColor(GTEXTE); c.setFont("Helvetica", 7)
+        c.drawString(bx+3*mm, by+2*mm, val)
+    draw_footer(c, 3)
+
+# ═══════════════════════════════════════
+# PAGE 4 — COMPARABLES
+# ═══════════════════════════════════════
+def page_comparables(c, comparables, d):
+    draw_header(c, "Biens comparables")
+    draw_section_title(c, "Analyse des biens comparables", 14*mm, H-32*mm)
+
+    style_sm = ParagraphStyle("sm", fontName="Helvetica", fontSize=9, textColor=GTEXTE, leading=13)
+    intro = Paragraph("Sélection de biens comparables permettant de positionner ce bien dans son marché local.", style_sm)
+    _, ih = intro.wrap(W-28*mm, 9999)
+    intro.drawOn(c, 14*mm, H-40*mm-ih)
+
+    ct = H-42*mm-ih-6*mm; ch = 44*mm
+    nb = min(len(comparables) if comparables else 3, 3)
+    cw = (W-28*mm-(nb-1)*4*mm)/nb if nb>0 else W-28*mm
+
+    if not comparables:
+        c.setFillColor(GRIS); c.roundRect(14*mm, ct-ch, W-28*mm, ch, 3*mm, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#AAAAAA")); c.setFont("Helvetica-Oblique", 9)
+        c.drawCentredString(W/2, ct-ch/2, "Aucun comparable saisi — ajouter dans 06_Comparables")
+    else:
+        for i, comp in enumerate(comparables[:3]):
+            cx2 = 14*mm+i*(cw+4*mm); cy2 = ct-ch
+            pc = comp.get("Prix",0); sc2 = comp.get("Surface",0)
+            st = comp.get("Statut","—")
+            c.setFillColor(GRIS); c.roundRect(cx2, cy2, cw, ch, 3*mm, fill=1, stroke=0)
+            sc_col = BLEU if st=="Vendu" else ORANGE
+            c.setFillColor(sc_col); c.roundRect(cx2+cw-24*mm, cy2+ch-8*mm, 22*mm, 6.5*mm, 1*mm, fill=1, stroke=0)
+            c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 6.5)
+            c.drawCentredString(cx2+cw-13*mm, cy2+ch-5*mm, str(st).upper())
+            c.setFillColor(BLEU); c.circle(cx2+8*mm, cy2+ch-7.5*mm, 5.5*mm, fill=1, stroke=0)
+            c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 9)
+            c.drawCentredString(cx2+8*mm, cy2+ch-9.5*mm, str(i+1))
+            c.setFillColor(BLEU_F); c.setFont("Helvetica-Bold", 8.5)
+            c.drawString(cx2+3*mm, cy2+ch-17*mm, str(comp.get("Adresse","—"))[:26])
+            c.setFillColor(GTEXTE); c.setFont("Helvetica", 7.5)
+            c.drawString(cx2+3*mm, cy2+ch-23*mm, str(comp.get("Ville","")))
+            c.setFillColor(ORANGE); c.setFont("Helvetica-Bold", 13)
+            c.drawString(cx2+3*mm, cy2+ch-33*mm, pfmt(pc))
+            c.setFillColor(GTEXTE); c.setFont("Helvetica", 7.5)
+            c.drawString(cx2+3*mm, cy2+ch-39*mm, pm2(pc,sc2))
+            c.setStrokeColor(colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
+            c.line(cx2+3*mm, cy2+ch-41*mm, cx2+cw-3*mm, cy2+ch-41*mm)
+            c.setFillColor(GTEXTE); c.setFont("Helvetica", 7)
+            c.drawString(cx2+3*mm, cy2+5*mm, f"{safe(sc2)} m²  ·  {safe(comp.get('Nb pieces','—'))} pces  ·  {safe(comp.get('Date'))}")
+
+    sy = ct-ch-14*mm
+    draw_section_title(c, "Synthèse marché", 14*mm, sy+2*mm)
+    if comparables:
+        try:
+            pl = [float(str(x.get("Prix",0)).replace(" ","")) for x in comparables if x.get("Prix")]
+            sl = [float(str(x.get("Surface",0)).replace(" ","")) for x in comparables if x.get("Surface")]
+            mp = int(sum(pl)/len(pl)) if pl else 0
+            mm2 = int(sum(p/s for p,s in zip(pl,sl))/len(pl)) if (pl and sl) else 0
+        except: mp=mm2=0
+        vs = [pfmt(mp), f"{mm2:,} €/m²".replace(",","") if mm2 else "—", str(len(comparables))]
+    else:
+        vs = ["—","—","0"]
+    ls = ["Prix moyen constaté","Prix moyen au m²","Nb références"]
+    mw = (W-28*mm-8*mm)/3
+    for i, (l,v) in enumerate(zip(ls,vs)):
+        mx2 = 14*mm+i*(mw+4*mm); my2 = sy-18*mm
+        c.setFillColor(BLEU); c.roundRect(mx2, my2, mw, 16*mm, 2*mm, fill=1, stroke=0)
+        c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 11)
+        c.drawCentredString(mx2+mw/2, my2+9*mm, v)
+        c.setFont("Helvetica", 7); c.drawCentredString(mx2+mw/2, my2+4*mm, l)
+    c.setFillColor(colors.HexColor("#999999")); c.setFont("Helvetica-Oblique", 7)
+    c.drawString(14*mm, sy-22*mm, "Sources : biens saisis par le mandataire depuis les portails immobiliers (SeLoger, LeBonCoin, etc.)")
+    draw_footer(c, 4)
+
+# ═══════════════════════════════════════
+# PAGE 5 — ESTIMATION
+# ═══════════════════════════════════════
+def page_estimation(c, d):
+    draw_header(c, "Notre estimation de valeur")
+    draw_section_title(c, "Positionnement prix", 14*mm, H-32*mm)
+    pm = d.get("prix_estime_min") or d.get("prix")
+    px = d.get("prix_estime_max") or d.get("prix")
+    pv = d.get("prix_retenu") or d.get("prix")
+    surface = d.get("surface")
+    by2 = H-82*mm; sw = (W-28*mm)/3
+    lbls = [("Fourchette basse", pfmt(pm), "Conditions défavorables"),
+            ("Valeur estimée",   pfmt(pv), "Recommandée"),
+            ("Fourchette haute", pfmt(px), "Marché porteur")]
+    scols = [colors.HexColor("#7BAFC4"), BLEU_F, BLEU]
+    for i, ((t,p,n),col) in enumerate(zip(lbls,scols)):
+        sx2 = 14*mm+i*sw; sh2 = 34*mm if i==1 else 27*mm
+        sy2 = by2-sh2+(6*mm if i==1 else 0)
+        c.setFillColor(col); c.roundRect(sx2, sy2, sw-2*mm, sh2, 2*mm if i==1 else 1.5*mm, fill=1, stroke=0)
+        c.setFillColor(BLANC); c.setFont("Helvetica", 7)
+        c.drawCentredString(sx2+sw/2, sy2+sh2-8*mm, t.upper())
+        c.setFont("Helvetica-Bold", 14 if i==1 else 11)
+        c.drawCentredString(sx2+sw/2, sy2+sh2-20*mm, p)
+        c.setFont("Helvetica", 6.5)
+        c.drawCentredString(sx2+sw/2, sy2+5*mm, n)
+    # Triangle
+    tri_x = 14*mm+sw+sw/2; tri_y = by2-27*mm-4*mm
+    tp = c.beginPath()
+    tp.moveTo(tri_x, tri_y); tp.lineTo(tri_x-4*mm, tri_y-5*mm); tp.lineTo(tri_x+4*mm, tri_y-5*mm); tp.close()
+    c.setFillColor(ORANGE); c.drawPath(tp, fill=1, stroke=0)
+    if pv and surface:
+        c.setFillColor(GTEXTE); c.setFont("Helvetica", 8.5)
+        c.drawCentredString(W/2, by2-42*mm, f"Valeur estimée au m² : {pm2(pv,surface)}  ·  Surface : {safe(surface)} m²")
+    ay = by2-54*mm
+    draw_section_title(c, "Analyse", 14*mm, ay)
+    cw2 = (W-28*mm-6*mm)/2
+    c.setFillColor(colors.HexColor("#E8F4F8")); c.roundRect(14*mm, ay-52*mm, cw2, 50*mm, 2*mm, fill=1, stroke=0)
+    c.setFillColor(BLEU); c.setFont("Helvetica-Bold", 8.5)
+    c.drawString(18*mm, ay-7*mm, "▸ ATOUTS DU BIEN")
+    for i, a in enumerate(["Emplacement commercial stratégique", f"Surface adaptée ({safe(surface)} m²)",
+                             "Potentiel de développement", "Secteur à forte demande"]):
+        c.setFillColor(GTEXTE); c.setFont("Helvetica", 8.5)
+        c.drawString(18*mm, ay-16*mm-i*10*mm, f"·  {a}")
+    c.setFillColor(colors.HexColor("#FDF0E8")); c.roundRect(14*mm+cw2+6*mm, ay-52*mm, cw2, 50*mm, 2*mm, fill=1, stroke=0)
+    c.setFillColor(ORANGE); c.setFont("Helvetica-Bold", 8.5)
+    c.drawString(18*mm+cw2+6*mm, ay-7*mm, "▸ POINTS DE VIGILANCE")
+    for i, v in enumerate(["Vérifier l'état technique", "Analyser charges et fiscalité", "Confirmer la conformité"]):
+        c.setFillColor(GTEXTE); c.setFont("Helvetica", 8.5)
+        c.drawString(18*mm+cw2+6*mm, ay-16*mm-i*10*mm, f"·  {v}")
+    disc = Paragraph("Estimation indicative établie sur la base des caractéristiques du bien et des comparables du marché local. Ne constitue pas une expertise immobilière au sens légal.",
+        ParagraphStyle("d", fontName="Helvetica-Oblique", fontSize=6.5, textColor=colors.HexColor("#AAAAAA"), leading=9))
+    _, dp = disc.wrap(W-28*mm, 9999)
+    disc.drawOn(c, 14*mm, ay-55*mm-dp)
+    draw_footer(c, 5)
+
+# ═══════════════════════════════════════
+# PAGE 6 — AGENCE
+# ═══════════════════════════════════════
+def page_agence(c):
+    c.setFillColor(BLEU); c.rect(0, H*0.5, W, H*0.5, fill=1, stroke=0)
+    c.setFillColor(BLANC); c.rect(0, 0, W, H*0.5, fill=1, stroke=0)
+    draw_logo_on_white(c, W-54*mm, H-56*mm, w=36*mm)
+    c.setFillColor(BLANC); c.setFont("Helvetica", 11)
+    c.drawString(14*mm, H-20*mm, "VOTRE PARTENAIRE EN IMMOBILIER COMMERCIAL")
+    c.setFont("Helvetica-Bold", 28)
+    c.drawString(14*mm, H-38*mm, "Barbier Immobilier")
+    c.setFont("Helvetica", 14); c.setFillColor(colors.HexColor("#FFFFFFCC"))
+    c.drawString(14*mm, H-50*mm, "Votre projet devient le nôtre")
+    c.setFillColor(ORANGE); c.rect(14*mm, H-54*mm, 50*mm, 2.5*mm, fill=1, stroke=0)
+    stats = [("33 ans","d'expertise locale"),("+5 000","clients accompagnés"),("3 métiers","vente · location · cession")]
+    sw2 = (W-28*mm)/3
+    for i,(num,lbl) in enumerate(stats):
+        sx3 = 14*mm+i*sw2; sy3 = H*0.52+2*mm
+        c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 20); c.drawString(sx3+3*mm, sy3+12*mm, num)
+        c.setFont("Helvetica", 9); c.setFillColor(colors.HexColor("#FFFFFFBB")); c.drawString(sx3+3*mm, sy3+6*mm, lbl)
+    services = [("Estimation & Valorisation","Analyse précise de la valeur vénale basée sur les données du marché local et notre expertise terrain."),
+                ("Vente & Transaction","Diffusion multi-portails, sélection d'acquéreurs qualifiés, négociation et suivi jusqu'à la signature."),
+                ("Location Commerciale","Recherche de locataires, rédaction des baux, gestion locative et suivi des relations."),
+                ("Cession d'Entreprise","Accompagnement expert pour la cession ou reprise de fonds de commerce et de sociétés.")]
+    sws = (W-28*mm-8*mm)/2; shs = 32*mm; sy_s = H*0.48-4*mm
+    for i,(title,desc) in enumerate(services):
+        col = i%2; row2 = i//2
+        sx4 = 14*mm+col*(sws+8*mm); sy4 = sy_s-row2*(shs+5*mm)
+        c.setFillColor(GRIS); c.roundRect(sx4, sy4-shs, sws, shs, 2*mm, fill=1, stroke=0)
+        c.setFillColor(ORANGE); c.rect(sx4, sy4-shs, 3*mm, shs, fill=1, stroke=0)
+        c.setFillColor(BLEU_F); c.setFont("Helvetica-Bold", 10); c.drawString(sx4+6*mm, sy4-8*mm, title)
+        p = Paragraph(desc, ParagraphStyle("ds", fontName="Helvetica", fontSize=8.5, textColor=GTEXTE, leading=12))
+        _, ph2 = p.wrap(sws-10*mm, 9999); p.drawOn(c, sx4+6*mm, sy4-shs+5*mm)
+    c.setFillColor(BLEU_F); c.roundRect(14*mm, 14*mm, W-28*mm, 20*mm, 2*mm, fill=1, stroke=0)
+    c.setFillColor(BLANC); c.setFont("Helvetica-Bold", 10)
+    c.drawString(20*mm, 28*mm, "2 place Albert Einstein, 56000 Vannes")
+    c.setFont("Helvetica", 9)
+    c.drawString(20*mm, 21*mm, "02.97.47.11.11  ·  contact@barbierimmobilier.com  ·  barbierimmobilier.com")
+    draw_footer(c, 6)
+
+# ═══════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════
+def generate_pdf(d, comparables=[]):
+    buf = io.BytesIO()
+    cv = canvas.Canvas(buf, pagesize=A4)
+    cv.setTitle(f"Dossier — {d.get('reference','')}")
+    page_couverture(cv, d); cv.showPage()
+    page_bien(cv, d);        cv.showPage()
+    page_quartier(cv, d);    cv.showPage()
+    page_comparables(cv, comparables, d); cv.showPage()
+    page_estimation(cv, d);  cv.showPage()
+    page_agence(cv);          cv.showPage()
+    cv.save(); buf.seek(0)
+    return buf.read()
+
+
+
+@app.route("/dossier-vente", methods=["GET", "POST"])
+def dossier_vente():
+    """Génère le dossier de présentation acheteur pour un bien SeaTable."""
+    try:
+        row_id = request.args.get("row_id") or (request.get_json(silent=True) or {}).get("row_id")
+        reference = request.args.get("reference") or (request.get_json(silent=True) or {}).get("reference")
+        if not row_id and not reference:
+            return jsonify({"error": "row_id ou reference requis"}), 400
+
+        at, uuid = seatable_token()
+
+        # Récupérer la ligne avec noms lisibles
+        params = urllib.parse.urlencode({"table_name": "01_Biens", "convert_keys": "true", "limit": 200})
+        req2 = urllib.request.Request(
+            f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/rows/?{params}",
+            headers={"Authorization": f"Token {at}"})
+        with urllib.request.urlopen(req2) as resp:
+            rows = json.load(resp)["rows"]
+
+        row = None
+        for r2 in rows:
+            if (row_id and r2.get("_id") == row_id) or (reference and r2.get("Reference") == reference):
+                row = r2
+                break
+        if not row:
+            return jsonify({"error": "Bien non trouvé"}), 404
+
+        # Récupérer les comparables
+        ref = row.get("Reference", "")
+        try:
+            comparables = st_get_comparables(at, uuid, ref)
+        except:
+            comparables = []
+
+        # Texte quartier : utiliser existant ou générer via GPT
+        texte_q = row.get("Texte quartier") or ""
+        if not texte_q:
+            try:
+                texte_q = gpt_texte_quartier(
+                    adresse=row.get("Adresse",""),
+                    ville=row.get("Ville","Vannes"),
+                    type_bien=row.get("Type de bien","bien commercial"),
+                    surface=row.get("Surface","")
+                )
+            except:
+                texte_q = "Secteur dynamique de Vannes, bien desservi et facilement accessible."
+
+        # Construire le dict data
+        d = {
+            "reference":       row.get("Reference",""),
+            "type_bien":       row.get("Type de bien",""),
+            "adresse":         row.get("Adresse",""),
+            "code_postal":     row.get("Code postal","56000"),
+            "ville":           row.get("Ville","Vannes"),
+            "surface":         row.get("Surface"),
+            "surface_terrain": row.get("Surface terrain"),
+            "prix":            row.get("Prix"),
+            "prix_estime_min": row.get("Prix estime min"),
+            "prix_estime_max": row.get("Prix estime max"),
+            "prix_retenu":     row.get("Prix retenu"),
+            "negociateur":     row.get("Negociateur","Barbier Immobilier"),
+            "description":     row.get("Description courte",""),
+            "annee_construct": row.get("Annee construction"),
+            "activite":        row.get("Activite"),
+            "ca_ht":           row.get("CA HT annuel"),
+            "loyer_annuel":    row.get("Loyer annuel"),
+            "texte_quartier":  texte_q,
+        }
+
+        pdf_bytes = generate_pdf(d, comparables)
+        filename = f"dossier-vente-{ref}.pdf"
+
+        return Response(
+            pdf_bytes,
             mimetype="application/pdf",
-            as_attachment=True,
-            download_name=filename
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
 
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
     except Exception as e:
-        app.logger.error(f"Erreur dossier-vente {reference}: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
