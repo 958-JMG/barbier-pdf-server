@@ -16,6 +16,62 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import Paragraph
 from reportlab.lib.styles import ParagraphStyle
 
+
+def seatable_get_row(reference):
+    """Récupère une ligne SeaTable par référence."""
+    r = requests.get(
+        "https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
+        headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10
+    )
+    r.raise_for_status()
+    tok = r.json()
+    AT   = tok["access_token"]
+    UUID = tok["dtable_uuid"]
+
+    sql = f"SELECT * FROM `01_Biens` WHERE `Reference` = '{reference}' LIMIT 1"
+    resp = requests.post(
+        f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/sql",
+        headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
+        json={"sql": sql, "convert_keys": True}, timeout=10
+    )
+    resp.raise_for_status()
+    results = resp.json().get("results", [])
+    if not results:
+        raise ValueError(f"Référence {reference} non trouvée dans SeaTable")
+    return results[0]
+
+
+def seatable_update_statut(reference, statut):
+    """Met à jour le statut avis valeur dans SeaTable."""
+    r = requests.get(
+        "https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
+        headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10
+    )
+    r.raise_for_status()
+    tok = r.json()
+    AT   = tok["access_token"]
+    UUID = tok["dtable_uuid"]
+
+    # Récupérer le _id de la ligne
+    sql = f"SELECT _id FROM `01_Biens` WHERE `Reference` = '{reference}' LIMIT 1"
+    resp = requests.post(
+        f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/sql",
+        headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
+        json={"sql": sql, "convert_keys": False}, timeout=10
+    )
+    results = resp.json().get("results", [])
+    if not results:
+        return
+    row_id = results[0]["_id"]
+
+    requests.put(
+        f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/rows/",
+        headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
+        json={"table_name": "01_Biens", "updates": [{"row_id": row_id, "row": {"Statut avis valeur": statut}}]},
+        timeout=10
+    )
+
+
 app = Flask(__name__)
 
 # ── CREDENTIALS ─────────────────────────────────────────────────────────────
