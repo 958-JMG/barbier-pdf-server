@@ -255,7 +255,7 @@ def page1(c, d, logo_buf=None):
     logo_h = 36
     logo_w = 36 * (488/662)
     try:
-        c.drawImage(LOGO_PATH, ML, y - logo_h, width=logo_w, height=logo_h,
+        c.drawImage(_img_reader(LOGO_B64), ML, y - logo_h, width=logo_w, height=logo_h,
                     mask='auto', preserveAspectRatio=True)
     except:
         pass
