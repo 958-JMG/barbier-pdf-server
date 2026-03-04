@@ -337,33 +337,22 @@ def page2(c, d):
     # ── SECTION 04 — ANALYSE DE MARCHÉ ──────────────────────────────────────
     y = sec_title(c, ML, y, "04 — Analyse de marché & Avis professionnel")
 
-    # Extraire uniquement la section SYNTHESE de l'avis (1er paragraphe lisible)
-    import re as _re
-    avis_raw = d.get("avis_valeur", "") or ""
-    # Supprimer les entêtes de sections (---SYNTHESE--- etc.)
-    avis_clean = _re.sub(r'---[A-ZÉÈÀÂ\s]+---', '', avis_raw)
-    avis_clean = _re.sub(r'
-{3,}', '
-
-', avis_clean).strip()
-    # Garder seulement les 2 premiers paragraphes (avant MÉTHODOLOGIE ou ÉVALUATION)
-    paras = [p.strip() for p in avis_clean.split('
-
-') if p.strip()]
-    # Exclure les paragraphes qui sont des entêtes seuls (SYNTHÈSE, MÉTHODOLOGIE...)
-    paras = [p for p in paras if len(p) > 40 and not p.isupper()]
-    avis_display = '
-
-'.join(paras[:2])
-    if len(avis_display) > 500:
-        avis_display = avis_display[:497] + '…'
+    # Nettoyer et tronquer l'avis de valeur GPT
+    avis_raw = (d.get("avis_valeur") or "").strip()
+    # Couper après 480 chars proprement sur un espace
+    if len(avis_raw) > 480:
+        cut = avis_raw[:480].rfind(" ")
+        avis_display = avis_raw[:cut] + "..."
+    else:
+        avis_display = avis_raw
+    # Remplacer les retours ligne pour ReportLab
+    avis_display = avis_display.replace("\r\n", "\n").replace("---SYNTHESE---", "").replace("---METHODOLOGIE---", "").replace("---EVALUATION DETAILLEE---", "").replace("---VALEURS---", "").replace("---RECOMMANDATIONS---", "").strip()
 
     style_avis = ParagraphStyle("av", fontName="Helvetica", fontSize=8,
                                 leading=12, textColor=GRAY_DARK)
-    p_avis = Paragraph(avis_display.replace('
-', '<br/>'), style_avis)
+    p_avis = Paragraph(avis_display.replace("\n", "<br/>"), style_avis)
     avis_w, avis_h = p_avis.wrap(CW - 16, 400)
-    avis_box_h = max(60, avis_h + 20)
+    avis_box_h = max(60, avis_h + 22)
 
     rrect(c, ML, y - avis_box_h, CW, avis_box_h, r=4, fill=TEAL_LIGHT, stroke=TEAL, sw=0.5)
     p_avis.drawOn(c, ML + 8, y - avis_box_h + 10)
