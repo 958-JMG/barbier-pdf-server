@@ -527,6 +527,36 @@ def generate_pdf(data):
         except:
             pass
 
+    # Mapper les clés SeaTable (espaces) vers snake_case attendu par page1
+    data = {
+        "reference":       data.get("Reference", ""),
+        "type_bien":       data.get("Type de bien", "—"),
+        "surface":         data.get("Surface") or "—",
+        "surface_terrain": data.get("Surface terrain"),
+        "adresse":         data.get("Adresse", "—"),
+        "ville":           data.get("Ville", ""),
+        "code_postal":     data.get("Code postal", ""),
+        "ref_cadastrale":  data.get("Référence cadastrale", "—"),
+        "etat_bien":       data.get("Etat du bien", "—"),
+        "negociateur":     data.get("Negociateur", "—"),
+        "nom_client":      data.get("Nom client", "—"),
+        "prix_min":        data.get("Prix estime min"),
+        "prix_max":        data.get("Prix estime max"),
+        "prix_retenu":     data.get("Prix retenu"),
+        "prix_sans_decote":data.get("Prix sans décote"),
+        "prix_avec_decote":data.get("Prix avec décote"),
+        "avis_valeur":     data.get("Avis de valeur", ""),
+        # Garder aussi les clés originales pour page2
+        "Avis de valeur":  data.get("Avis de valeur", ""),
+        "Prix estime min": data.get("Prix estime min"),
+        "Prix estime max": data.get("Prix estime max"),
+        "Prix retenu":     data.get("Prix retenu"),
+        "Prix sans décote":data.get("Prix sans décote"),
+        "Prix avec décote":data.get("Prix avec décote"),
+        "Negociateur":     data.get("Negociateur", "—"),
+        "Reference":       data.get("Reference", ""),
+    }
+
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=A4)
     c.setTitle(f"Avis de Valeur — {data.get('Reference', '')} — Barbier Immobilier")
