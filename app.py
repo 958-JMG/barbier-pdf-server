@@ -224,7 +224,7 @@ def get_osm_map(address, out_w=840, out_h=340, zoom=16):
 #  PAGE 1 — En-tête + Identification + Carte + Valeurs
 # ══════════════════════════════════════════════════════════════════════════════
 
-def page1(c, d):
+def page1(c, d, logo_buf=None):
     y = PAGE_H - MT   # curseur descend depuis le haut
 
     # ── Trait teal vertical gauche ──────────────────────────────────────────
