@@ -340,7 +340,7 @@ def page2(c, d):
     # ── BLOC AVIS DE VALEUR ─────────────────────────────────────────────────
     # Filtrer le texte GPT : garder uniquement les lignes > 60 chars
     # (élimine tous les entêtes : SYNTHÈSE, MÉTHODOLOGIE, VALEURS, etc.)
-    avis_raw = (d.get("avis_valeur") or "Avis de valeur à compléter.").strip()
+    avis_raw = (d.get("Avis de valeur") or "Avis de valeur à compléter.").strip()
     lignes_sub = [l for l in avis_raw.split("\n") if len(l.strip()) > 60]
     avis_clean = " ".join(lignes_sub)
     if len(avis_clean) > 420:
