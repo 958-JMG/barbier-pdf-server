@@ -664,6 +664,14 @@ def generate_direct():
 # ═══════════════════════════════════════════════════════
 # DOSSIER DE VENTE — fonctions et route
 # ═══════════════════════════════════════════════════════
+
+def _st_token():
+    """Auth SeaTable — retourne (access_token, uuid)"""
+    r2 = requests.get("https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
+        headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10)
+    tok = r2.json()
+    return tok["access_token"], tok["dtable_uuid"]
+
 """Dossier vente Barbier — v3"""
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -1260,39 +1268,46 @@ def generate_pdf(d, comparables=[]):
 
 @app.route("/dossier-vente", methods=["GET", "POST"])
 def dossier_vente():
-    """Génère le dossier de présentation acheteur pour un bien SeaTable."""
     try:
-        row_id = request.args.get("row_id") or (request.get_json(silent=True) or {}).get("row_id")
-        reference = request.args.get("reference") or (request.get_json(silent=True) or {}).get("reference")
+        data = request.get_json(silent=True) or {}
+        row_id    = request.args.get("row_id")    or data.get("row_id")
+        reference = request.args.get("reference") or data.get("reference")
         if not row_id and not reference:
             return jsonify({"error": "row_id ou reference requis"}), 400
 
-        at, uuid = seatable_token()
+        at, uuid = _st_token()
 
         # Récupérer la ligne avec noms lisibles
-        params = urllib.parse.urlencode({"table_name": "01_Biens", "convert_keys": "true", "limit": 200})
+        params = urllib.parse.urlencode({"table_name": "01_Biens", "convert_keys": "true", "limit": 300})
         req2 = urllib.request.Request(
             f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/rows/?{params}",
             headers={"Authorization": f"Token {at}"})
         with urllib.request.urlopen(req2) as resp:
             rows = json.load(resp)["rows"]
 
-        row = None
-        for r2 in rows:
-            if (row_id and r2.get("_id") == row_id) or (reference and r2.get("Reference") == reference):
-                row = r2
-                break
+        row = next((r2 for r2 in rows if
+            (row_id and r2.get("_id") == row_id) or
+            (reference and r2.get("Reference") == reference)), None)
         if not row:
             return jsonify({"error": "Bien non trouvé"}), 404
 
-        # Récupérer les comparables
         ref = row.get("Reference", "")
-        try:
-            comparables = st_get_comparables(at, uuid, ref)
-        except:
-            comparables = []
 
-        # Texte quartier : utiliser existant ou générer via GPT
+        # Comparables
+        try:
+            comp_rows = []
+            sql = f"SELECT * FROM `06_Comparables` WHERE `Reference bien` = '{ref}' LIMIT 3"
+            payload2 = json.dumps({"sql": sql}).encode()
+            req3 = urllib.request.Request(
+                f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/sql",
+                data=payload2, method="POST",
+                headers={"Authorization": f"Token {at}", "Content-Type": "application/json"})
+            with urllib.request.urlopen(req3) as resp2:
+                comp_rows = json.load(resp2).get("results", [])
+        except:
+            comp_rows = []
+
+        # Texte quartier
         texte_q = row.get("Texte quartier") or ""
         if not texte_q:
             try:
@@ -1305,9 +1320,8 @@ def dossier_vente():
             except:
                 texte_q = "Secteur dynamique de Vannes, bien desservi et facilement accessible."
 
-        # Construire le dict data
         d = {
-            "reference":       row.get("Reference",""),
+            "reference":       ref,
             "type_bien":       row.get("Type de bien",""),
             "adresse":         row.get("Adresse",""),
             "code_postal":     row.get("Code postal","56000"),
@@ -1327,14 +1341,10 @@ def dossier_vente():
             "texte_quartier":  texte_q,
         }
 
-        pdf_bytes = generate_pdf(d, comparables)
-        filename = f"dossier-vente-{ref}.pdf"
-
-        return Response(
-            pdf_bytes,
-            mimetype="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
+        pdf_bytes = generate_pdf(d, comp_rows)
+        filename  = f"dossier-vente-{ref}.pdf"
+        return Response(pdf_bytes, mimetype="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"})
 
     except Exception as e:
         import traceback
