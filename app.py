@@ -337,25 +337,35 @@ def page2(c, d):
     # ── SECTION 04 — ANALYSE DE MARCHÉ ──────────────────────────────────────
     y = sec_title(c, ML, y, "04 — Analyse de marché & Avis professionnel")
 
-    # Nettoyer et tronquer l'avis de valeur GPT
+    # Extraire uniquement le 1er paragraphe substantiel de l'avis GPT
     avis_raw = (d.get("avis_valeur") or "").strip()
-    # Couper après 480 chars proprement sur un espace
-    if len(avis_raw) > 480:
-        cut = avis_raw[:480].rfind(" ")
-        avis_display = avis_raw[:cut] + "..."
-    else:
-        avis_display = avis_raw
-    # Remplacer les retours ligne pour ReportLab
-    avis_display = avis_display.replace("\r\n", "\n").replace("---SYNTHESE---", "").replace("---METHODOLOGIE---", "").replace("---EVALUATION DETAILLEE---", "").replace("---VALEURS---", "").replace("---RECOMMANDATIONS---", "").strip()
+    # Supprimer les marqueurs de sections GPT ligne par ligne
+    lines_avis = []
+    section_headers = ("SYNTHESE", "SYNTHÈSE", "METHODOLOGIE", "MÉTHODOLOGIE",
+                       "EVALUATION", "ÉVALUATION", "VALEURS", "RECOMMANDATIONS",
+                       "---")
+    for line in avis_raw.split("\n"):
+        stripped = line.strip()
+        if any(stripped.startswith(h) or stripped == h for h in section_headers):
+            continue
+        lines_avis.append(line)
+    avis_clean = "\n".join(lines_avis).strip()
+    # Garder max 400 chars
+    if len(avis_clean) > 400:
+        cut = avis_clean[:400].rfind(" ")
+        avis_clean = avis_clean[:cut] + "..."
 
     style_avis = ParagraphStyle("av", fontName="Helvetica", fontSize=8,
                                 leading=12, textColor=GRAY_DARK)
-    p_avis = Paragraph(avis_display.replace("\n", "<br/>"), style_avis)
-    avis_w, avis_h = p_avis.wrap(CW - 16, 400)
-    avis_box_h = max(60, avis_h + 22)
+    p_avis = Paragraph(avis_clean.replace("\n", "<br/>"), style_avis)
+    avis_w, avis_h = p_avis.wrap(CW - 16, 300)
+    avis_box_h = max(55, avis_h + 24)
 
+    # Dessiner le rectangle PUIS le texte ancré depuis le HAUT du box
     rrect(c, ML, y - avis_box_h, CW, avis_box_h, r=4, fill=TEAL_LIGHT, stroke=TEAL, sw=0.5)
-    p_avis.drawOn(c, ML + 8, y - avis_box_h + 10)
+    # drawOn ancre depuis le bas du paragraphe — on positionne depuis le haut du box
+    text_y = y - 12  # 12pt de marge depuis le haut du box
+    p_avis.drawOn(c, ML + 8, text_y - avis_h)
 
     y -= avis_box_h + 14
 
