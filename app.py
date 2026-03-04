@@ -7,7 +7,7 @@ Version fusionnée : générateur PDF intégré
 
 import io, os, math, base64, re
 import requests
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response
 from PIL import Image, ImageDraw
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
