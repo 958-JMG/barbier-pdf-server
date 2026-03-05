@@ -82,8 +82,7 @@ def seatable_update_after_generation(reference):
             json={"table_name": "01_Biens", "updates": [{
                 "row_id": row_id,
                 "row": {
-                    "Statut avis valeur": "PDF généré",
-                    "Demander avis valeur": False
+                    "Statut avis valeur": "PDF généré"
                 }
             }]},
             timeout=10
