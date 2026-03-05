@@ -202,11 +202,11 @@ def wrap_text(c, text, x, y, max_w, max_h, font="Helvetica", size=8, color=GRAY_
 
 
 def get_ref_cadastrale(adresse, ville):
-    """Récupère la référence cadastrale via geocodage + apicarto.ign.fr"""
+    """Récupère la référence cadastrale via geocodage BAN + apicarto.ign.fr avec code_insee"""
     try:
         import urllib.parse as _up
-        q = _up.quote(f"{adresse}, {ville}")
-        # Geocodage BAN
+        q = _up.quote(f"{adresse}, {ville}, France")
+        # 1. Geocodage BAN — récupère coords + code_insee
         geo_r = requests.get(
             f"https://api-adresse.data.gouv.fr/search/?q={q}&limit=1",
             headers={"User-Agent": "BarbierImmo/1.0"}, timeout=8
@@ -214,22 +214,31 @@ def get_ref_cadastrale(adresse, ville):
         features = geo_r.json().get("features", [])
         if not features:
             return "—"
-        coords = features[0]["geometry"]["coordinates"]
+        feat = features[0]
+        coords = feat["geometry"]["coordinates"]
         lon, lat = coords[0], coords[1]
-        # API cadastre IGN
+        code_insee = feat["properties"].get("citycode", "")
+        # 2. API cadastre IGN avec code_insee pour forcer la bonne commune
+        params = f"lon={lon}&lat={lat}"
+        if code_insee:
+            params += f"&code_insee={code_insee}"
         cad_r = requests.get(
-            f"https://apicarto.ign.fr/api/cadastre/parcelle?lon={lon}&lat={lat}",
-            headers={"User-Agent": "BarbierImmo/1.0"}, timeout=8
+            f"https://apicarto.ign.fr/api/cadastre/parcelle?{params}&_limit=1",
+            headers={"User-Agent": "BarbierImmo/1.0"}, timeout=10
         )
         parcelles = cad_r.json().get("features", [])
         if not parcelles:
             return "—"
         p = parcelles[0]["properties"]
-        # Format: commune + section + numéro ex: "56260000 A 0142"
-        code = p.get("code_dep","") + p.get("code_com","")
-        section = p.get("section","")
-        numero = p.get("numero","")
-        return f"{code} {section} {numero}".strip() if section else "—"
+        # Vérifier cohérence commune
+        if code_insee and p.get("code_insee","") != code_insee:
+            return "—"
+        section = p.get("section", "")
+        numero = p.get("numero", "")
+        idu = p.get("idu", "")
+        if idu:
+            return idu  # Format complet ex: "56053000BA0187"
+        return f"{code_insee} {section} {numero}".strip() if section else "—"
     except Exception:
         return "—"
 
