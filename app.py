@@ -56,6 +56,62 @@ def seatable_get_row(reference):
     return results[0]
 
 
+def seatable_upload_pdf_and_update(reference, pdf_bytes):
+    """Upload le PDF dans SeaTable et met à jour statut + colonne fichier."""
+    import io as _io
+    r = requests.get(
+        "https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
+        headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10
+    )
+    tok = r.json()
+    AT   = tok["access_token"]
+    UUID = tok["dtable_uuid"]
+
+    sql = f"SELECT _id FROM `01_Biens` WHERE `Reference` = '{reference}' LIMIT 1"
+    resp = requests.post(
+        f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/sql",
+        headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
+        json={"sql": sql, "convert_keys": False}, timeout=10
+    )
+    results = resp.json().get("results", [])
+    if not results:
+        return
+    row_id = results[0]["_id"]
+
+    ul_resp = requests.get(
+        f"https://cloud.seatable.io/api/v2.1/dtable/{UUID}/upload-link/",
+        headers={"Authorization": f"Token {AT}"}, timeout=10
+    )
+    ul = ul_resp.json()
+    upload_link = ul.get("upload_link", "")
+    parent_path = ul.get("parent_path", "/asset")
+
+    filename = f"Avis_Valeur_{reference}.pdf"
+    upload_resp = requests.post(
+        upload_link,
+        headers={"Authorization": f"Token {AT}"},
+        files={"file": (filename, _io.BytesIO(pdf_bytes), "application/pdf")},
+        data={"parent_dir": parent_path, "replace": "1"},
+        timeout=30
+    )
+    file_url = upload_resp.json().get("url", "")
+    file_obj = [{"name": filename, "url": file_url, "size": len(pdf_bytes), "type": "application/pdf"}]
+
+    requests.put(
+        f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/rows/",
+        headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
+        json={"table_name": "01_Biens", "updates": [{
+            "row_id": row_id,
+            "row": {
+                "Avis de Valeur PDF": file_obj,
+                "Statut avis valeur": "PDF g\u00e9n\u00e9r\u00e9",
+                "Demander avis valeur": False
+            }
+        }]},
+        timeout=10
+    )
+
+
 def seatable_update_statut(reference, statut):
     """Met à jour le statut avis valeur dans SeaTable."""
     r = requests.get(
@@ -625,7 +681,8 @@ def generate_by_ref():
 
         # 3. Mettre à jour le statut SeaTable
         try:
-            seatable_update_statut(reference, "PDF généré")
+            pdf_bytes_for_upload = pdf_buf.getvalue()
+            seatable_upload_pdf_and_update(reference, pdf_bytes_for_upload)
         except Exception as e:
             app.logger.warning(f"Statut SeaTable non mis à jour: {e}")
 
