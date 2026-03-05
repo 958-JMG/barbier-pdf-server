@@ -56,10 +56,8 @@ def seatable_get_row(reference):
     return results[0]
 
 
-def seatable_upload_pdf_and_update(reference, pdf_bytes):
-    """Upload le PDF dans SeaTable et met à jour statut + colonne fichier."""
-    import io as _io
-    import json as _json
+def seatable_update_after_generation(reference):
+    """Met à jour statut et reset checkbox après génération PDF."""
     try:
         tok = requests.get(
             "https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
@@ -78,30 +76,12 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             return
         row_id = results[0]["_id"]
 
-        ul = requests.get(
-            "https://cloud.seatable.io/api/v2.1/dtable/app-upload-link/",
-            headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10
-        ).json()
-        upload_link = ul.get("upload_link", "")
-        parent_dir  = ul.get("parent_path", "/asset")  # /asset/uuid — racine, dossier garanti existant
-
-        filename = f"Avis_Valeur_{reference}.pdf"
-        requests.post(
-            upload_link,
-            headers={"Authorization": f"Token {SEATABLE_TOKEN}"},
-            files={"file": (filename, _io.BytesIO(pdf_bytes), "application/pdf")},
-            data={"parent_dir": parent_dir, "replace": "1"},
-            timeout=30
-        )
-        file_url = parent_dir + "/" + filename  # /asset/uuid/Avis_Valeur_REF.pdf
-        file_obj = [{"name": filename, "url": file_url, "size": len(pdf_bytes), "type": "application/pdf"}]
         requests.put(
             f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/rows/",
             headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
             json={"table_name": "01_Biens", "updates": [{
                 "row_id": row_id,
                 "row": {
-                    "Avis de Valeur PDF": file_obj,
                     "Statut avis valeur": "PDF généré",
                     "Demander avis valeur": False
                 }
@@ -109,7 +89,7 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             timeout=10
         )
     except Exception as e:
-        print(f"[UPLOAD] erreur: {e}", flush=True)
+        print(f"[UPDATE] erreur: {e}", flush=True)
 
 
 def seatable_update_statut(reference, statut):
@@ -681,8 +661,7 @@ def generate_by_ref():
 
         # 3. Mettre à jour le statut SeaTable
         try:
-            pdf_bytes_for_upload = pdf_buf.getvalue()
-            seatable_upload_pdf_and_update(reference, pdf_bytes_for_upload)
+            seatable_update_after_generation(reference)
         except Exception as e:
             app.logger.warning(f"Statut SeaTable non mis à jour: {e}")
 
