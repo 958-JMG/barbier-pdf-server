@@ -110,8 +110,9 @@ CW = PAGE_W - ML - MR
 LOGO_B64 = os.environ.get("LOGO_B64", "")
 
 def fmt(val):
-    return f"{val:,.0f}".replace(",", " ") + " €"
-
+    if val is None: return "—"
+    try: return f"{float(val):,.0f}".replace(",", " ") + " €"
+    except: return str(val)
 
 # ── UTILITAIRES ─────────────────────────────────────────────────────────────
 
