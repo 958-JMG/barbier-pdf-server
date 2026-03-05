@@ -1077,7 +1077,7 @@ def _page6(c):
     c.setFont("Helvetica",9); c.drawString(20*_mm,21*_mm,"02.97.47.11.11  ·  contact@barbierimmobilier.com  ·  barbierimmobilier.com")
     _footer(c,6)
 
-def generate_pdf(d, comparables=[]):
+def generate_dossier_pdf(d, comparables=[]):
     buf = _BytesIO()
     cv  = _canvas.Canvas(buf, pagesize=_A4)
     cv.setTitle(f"Dossier — {d.get('reference','')}")
@@ -1146,7 +1146,7 @@ def dossier_vente():
             "texte_quartier":  texte_q,
         }
 
-        pdf_bytes = generate_pdf(d, comparables)
+        pdf_bytes = generate_dossier_pdf(d, comparables)
         return Response(pdf_bytes, mimetype="application/pdf",
             headers={"Content-Disposition": f"attachment; filename=dossier-vente-{ref}.pdf"})
 
