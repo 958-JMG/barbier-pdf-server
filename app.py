@@ -478,25 +478,66 @@ def page2(c, d, logo_buf=None):
     c.rect(0, 0, 5, PAGE_H, fill=1, stroke=0)
     c.restoreState()
 
-    # Section 04 — Analyse de marché
+    # Section 04 — Analyse de marché (rendu structuré par sections)
     y = sec_title(c, ML, y, "04 — Analyse de marché & Avis professionnel")
 
-    # Filtrer le texte GPT : garder uniquement les lignes > 60 chars
+    import re as _re
+
     avis_raw = (d.get("Avis de valeur") or "Avis de valeur à compléter.").strip()
-    lignes_sub = [l for l in avis_raw.split("\n") if len(l.strip()) > 60]
-    avis_clean = " ".join(lignes_sub)
-    # Pas de troncature — hauteur dynamique
-    if not avis_clean:
-        avis_clean = "Avis de valeur à compléter."
 
-    style_avis = ParagraphStyle("av", fontName="Helvetica", fontSize=8,
-                                leading=12, textColor=GRAY_DARK)
-    p_avis = Paragraph(avis_clean, style_avis)
-    _, avis_h = p_avis.wrap(CW - 16, 9999)
-    avis_box_h = avis_h + 24
+    # Parser les sections ---TAG---
+    SECTION_LABELS = {
+        "SYNTHÈSE": "Synthèse",
+        "SYNTHESE": "Synthèse",
+        "MÉTHODOLOGIE": "Méthodologie",
+        "METHODOLOGIE": "Méthodologie",
+        "ÉVALUATION DÉTAILLÉE": "Évaluation détaillée",
+        "EVALUATION DÉTAILLÉE": "Évaluation détaillée",
+        "EVALUATION DETAILLEE": "Évaluation détaillée",
+        "VALEURS": None,          # On l'affiche pas ici (déjà dans la synthèse)
+        "RECOMMANDATIONS": "Recommandations",
+    }
 
+    parts = _re.split(r'---([^-]+)---', avis_raw)
+    # parts = [texte_avant, tag1, texte1, tag2, texte2, ...]
+    sections = []
+    if len(parts) >= 3:
+        for i in range(1, len(parts) - 1, 2):
+            tag = parts[i].strip().upper()
+            body = parts[i+1].strip()
+            if tag in SECTION_LABELS and SECTION_LABELS[tag] is not None and body:
+                sections.append((SECTION_LABELS[tag], body))
+    
+    # Fallback si pas de tags : afficher tel quel
+    if not sections:
+        sections = [("Analyse de marché", avis_raw)]
+
+    style_titre_s = ParagraphStyle("st", fontName="Helvetica-Bold", fontSize=8,
+                                   leading=11, textColor=TEAL, spaceAfter=2)
+    style_body_s  = ParagraphStyle("sb", fontName="Helvetica", fontSize=7.5,
+                                   leading=11, textColor=GRAY_DARK)
+
+    # Calculer hauteur totale
+    total_h = 0
+    rendered = []
+    for label, body in sections:
+        pt = Paragraph(label.upper(), style_titre_s)
+        _, ht = pt.wrap(CW - 16, 9999)
+        pb = Paragraph(body.replace("\n", "<br/>"), style_body_s)
+        _, hb = pb.wrap(CW - 16, 9999)
+        total_h += ht + hb + 8
+        rendered.append((pt, ht, pb, hb))
+    
+    avis_box_h = total_h + 20
     rrect(c, ML, y - avis_box_h, CW, avis_box_h, r=4, fill=TEAL_LIGHT, stroke=TEAL, sw=0.5)
-    p_avis.drawOn(c, ML + 8, y - avis_box_h + 10)
+
+    cy = y - 12
+    for (pt, ht, pb, hb) in rendered:
+        cy -= ht
+        pt.drawOn(c, ML + 8, cy)
+        cy -= hb + 4
+        pb.drawOn(c, ML + 8, cy)
+        cy -= 4
 
     y -= avis_box_h + 14
 
