@@ -202,11 +202,11 @@ def wrap_text(c, text, x, y, max_w, max_h, font="Helvetica", size=8, color=GRAY_
 
 
 def get_ref_cadastrale(adresse, ville):
-    """Récupère la référence cadastrale via geocodage BAN + apicarto.ign.fr avec code_insee"""
+    """Récupère la référence cadastrale via BAN + data.geopf.fr (géoplateforme IGN)"""
     try:
         import urllib.parse as _up
         q = _up.quote(f"{adresse}, {ville}, France")
-        # 1. Geocodage BAN — récupère coords + code_insee
+        # 1. Géocode BAN
         geo_r = requests.get(
             f"https://api-adresse.data.gouv.fr/search/?q={q}&limit=1",
             headers={"User-Agent": "BarbierImmo/1.0"}, timeout=8
@@ -214,34 +214,29 @@ def get_ref_cadastrale(adresse, ville):
         features = geo_r.json().get("features", [])
         if not features:
             return "—"
-        feat = features[0]
-        coords = feat["geometry"]["coordinates"]
+        coords = features[0]["geometry"]["coordinates"]
         lon, lat = coords[0], coords[1]
-        code_insee = feat["properties"].get("citycode", "")
-        # 2. API cadastre IGN avec code_insee pour forcer la bonne commune
-        params = f"lon={lon}&lat={lat}"
-        if code_insee:
-            params += f"&code_insee={code_insee}"
+        # 2. Reverse geocodage parcellaire — géoplateforme IGN
         cad_r = requests.get(
-            f"https://apicarto.ign.fr/api/cadastre/parcelle?{params}&_limit=1",
+            f"https://data.geopf.fr/geocodage/reverse?lon={lon}&lat={lat}&index=parcel&limit=1",
             headers={"User-Agent": "BarbierImmo/1.0"}, timeout=10
         )
-        parcelles = cad_r.json().get("features", [])
-        if not parcelles:
+        feats = cad_r.json().get("features", [])
+        if not feats:
             return "—"
-        p = parcelles[0]["properties"]
-        # Vérifier cohérence commune
-        if code_insee and p.get("code_insee","") != code_insee:
-            return "—"
-        section = p.get("section", "")
-        numero = p.get("numero", "")
-        idu = p.get("idu", "")
+        p = feats[0]["properties"]
+        idu = p.get("id", "")
         if idu:
-            return idu  # Format complet ex: "56053000BA0187"
-        return f"{code_insee} {section} {numero}".strip() if section else "—"
+            # Format lisible : dep + commune + section + numéro
+            # ex: "56053000AN0003" → "56053 AN 0003"
+            section = p.get("section", "")
+            numero = p.get("number", "")
+            dep = p.get("departmentcode", "")
+            com = p.get("municipalitycode", "")
+            return f"{dep}{com} {section} {numero}".strip() if section else idu
+        return "—"
     except Exception:
         return "—"
-
 def get_osm_map(address, out_w=840, out_h=340, zoom=16):
     """Carte centrée exactement sur le point géocodé."""
     try:
