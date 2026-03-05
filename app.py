@@ -2,7 +2,7 @@
 """
 Barbier Immobilier — PDF Generator v3.0
 Railway Flask app — routes /generate-pdf-by-ref et /generate-pdf
-Version fusionnée : générateur PDF intégréa
+Version fusionnée : générateur PDF intégré
 """
 
 import io, os, math, base64, re
@@ -60,8 +60,6 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
     """Upload le PDF dans SeaTable et met à jour statut + colonne fichier."""
     import io as _io
     import json as _json
-    import re as _re
-
     try:
         tok = requests.get(
             "https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
@@ -69,7 +67,6 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
         ).json()
         AT   = tok["access_token"]
         UUID = tok["dtable_uuid"]
-        print(f"[UPLOAD] UUID={UUID[:8]}... AT OK", flush=True)
 
         results = requests.post(
             f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/sql",
@@ -78,10 +75,8 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             timeout=10
         ).json().get("results", [])
         if not results:
-            print(f"[UPLOAD] row_id non trouvé pour {reference}", flush=True)
             return
         row_id = results[0]["_id"]
-        print(f"[UPLOAD] row_id={row_id}", flush=True)
 
         ul = requests.get(
             "https://cloud.seatable.io/api/v2.1/dtable/app-upload-link/",
@@ -89,7 +84,6 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
         ).json()
         upload_link = ul.get("upload_link", "")
         parent_path = ul.get("parent_path", "/asset")
-        print(f"[UPLOAD] link={upload_link[:50]} parent={parent_path}", flush=True)
 
         filename = f"Avis_Valeur_{reference}.pdf"
         up_r = requests.post(
@@ -99,21 +93,13 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             data={"parent_dir": parent_path, "replace": "1"},
             timeout=30
         )
-        raw_text = up_r.text
-        print(f"[UPLOAD] status={up_r.status_code} raw={raw_text[:300]}", flush=True)
-
-        try:
-            up_resp = _json.loads(raw_text)
-        except Exception:
-            up_resp = _json.loads(_re.sub(r'[\x00-\x1f]', '', raw_text))
+        up_resp = _json.loads(up_r.text)
         file_url = up_resp.get("url", "")
-
         if not file_url:
-            print(f"[UPLOAD] url vide — {up_resp}", flush=True)
             return
 
         file_obj = [{"name": filename, "url": file_url, "size": len(pdf_bytes), "type": "application/pdf"}]
-        put_r = requests.put(
+        requests.put(
             f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/rows/",
             headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
             json={"table_name": "01_Biens", "updates": [{
@@ -126,10 +112,8 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             }]},
             timeout=10
         )
-        print(f"[UPLOAD] PUT status={put_r.status_code} — DONE", flush=True)
-
     except Exception as e:
-        print(f"[UPLOAD] EXCEPTION: {e}", flush=True)
+        print(f"[UPLOAD] erreur: {e}", flush=True)
 
 
 def seatable_update_statut(reference, statut):
