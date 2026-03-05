@@ -201,6 +201,39 @@ def wrap_text(c, text, x, y, max_w, max_h, font="Helvetica", size=8, color=GRAY_
 
 # ── CARTE OSM ───────────────────────────────────────────────────────────────
 
+
+def get_ref_cadastrale(adresse, ville):
+    """Récupère la référence cadastrale via geocodage + apicarto.ign.fr"""
+    try:
+        import urllib.parse as _up
+        q = _up.quote(f"{adresse}, {ville}")
+        # Geocodage BAN
+        geo_r = requests.get(
+            f"https://api-adresse.data.gouv.fr/search/?q={q}&limit=1",
+            headers={"User-Agent": "BarbierImmo/1.0"}, timeout=8
+        )
+        features = geo_r.json().get("features", [])
+        if not features:
+            return "—"
+        coords = features[0]["geometry"]["coordinates"]
+        lon, lat = coords[0], coords[1]
+        # API cadastre IGN
+        cad_r = requests.get(
+            f"https://apicarto.ign.fr/api/cadastre/parcelle?lon={lon}&lat={lat}",
+            headers={"User-Agent": "BarbierImmo/1.0"}, timeout=8
+        )
+        parcelles = cad_r.json().get("features", [])
+        if not parcelles:
+            return "—"
+        p = parcelles[0]["properties"]
+        # Format: commune + section + numéro ex: "56260000 A 0142"
+        code = p.get("code_dep","") + p.get("code_com","")
+        section = p.get("section","")
+        numero = p.get("numero","")
+        return f"{code} {section} {numero}".strip() if section else "—"
+    except Exception:
+        return "—"
+
 def get_osm_map(address, out_w=840, out_h=340, zoom=16):
     """Carte centrée exactement sur le point géocodé."""
     try:
@@ -348,7 +381,7 @@ def page1(c, d, logo_buf=None):
 
     map_h = 88*mm
     _addr_geo = " ".join(filter(None, [d.get("adresse",""), d.get("code_postal",""), d.get("ville",""), "France"]))
-    map_buf = get_osm_map(_addr_geo, out_w=840, out_h=340, zoom=15)
+    map_buf = get_osm_map(_addr_geo, out_w=840, out_h=340, zoom=18)
 
     if map_buf:
         c.drawImage(rl_canvas.ImageReader(map_buf), ML, y - map_h,
@@ -587,7 +620,9 @@ def generate_pdf(data):
 "adresse":         data.get("Adresse") or "—",
 "ville":           data.get("Ville") or "",
 "code_postal":     data.get("Code postal") or "",
-"ref_cadastrale":  data.get("Référence cadastrale") or "—",
+"ref_cadastrale":  data.get("Référence cadastrale") or get_ref_cadastrale(
+            data.get("Adresse",""), data.get("Ville","")
+        ),
 "etat_bien":       data.get("Etat du bien") or "—",
 "negociateur":     data.get("Negociateur") or "—",
 "nom_client":      data.get("Nom client") or "—",
