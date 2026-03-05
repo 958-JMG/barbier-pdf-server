@@ -93,7 +93,7 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
         )
         ul = ul_r.json()
         upload_link = ul.get("upload_link", "")
-        parent_path = ul.get("parent_path", "") + "/" + ul.get("file_relative_path", "files/2026-03")
+        parent_path = ul.get("parent_path", "/asset")
         print(f"[UPLOAD] link={upload_link[:50]} parent={parent_path}", flush=True)
 
         # 4. Upload PDF
