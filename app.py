@@ -2,7 +2,7 @@
 """
 Barbier Immobilier — PDF Generator v3.0
 Railway Flask app — routes /generate-pdf-by-ref et /generate-pdf
-Version fusionnée : générateur PDF intégré
+Version fusionnée : générateur PDF intégréa
 """
 
 import io, os, math, base64, re
@@ -105,9 +105,17 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             data={"parent_dir": parent_path, "replace": "1"},
             timeout=30
         )
-        up_resp = up_r.json()
+        raw_text = up_r.text
+        print(f"[UPLOAD] upload status={up_r.status_code} raw={raw_text[:200]}", flush=True)
+        # Parser manuellement pour éviter erreur sur caractères de contrôle
+        try:
+            up_resp = json.loads(raw_text)
+        except Exception:
+            import re
+            raw_clean = re.sub(r'[\x00-\x1f]', '', raw_text)
+            up_resp = json.loads(raw_clean)
         file_url = up_resp.get("url", "")
-        print(f"[UPLOAD] upload status={up_r.status_code} url={file_url[:60]}", flush=True)
+        print(f"[UPLOAD] file_url={file_url[:80]}", flush=True)
 
         if not file_url:
             print(f"[UPLOAD] ERREUR url vide, réponse={up_resp}", flush=True)
