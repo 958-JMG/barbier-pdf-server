@@ -59,44 +59,47 @@ def seatable_get_row(reference):
 def seatable_upload_pdf_and_update(reference, pdf_bytes):
     """Upload le PDF dans SeaTable et met à jour statut + colonne fichier."""
     import io as _io
-    r = requests.get(
+
+    # 1. Access token + UUID
+    tok = requests.get(
         "https://cloud.seatable.io/api/v2.1/dtable/app-access-token/",
         headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10
-    )
-    tok = r.json()
+    ).json()
     AT   = tok["access_token"]
     UUID = tok["dtable_uuid"]
 
-    sql = f"SELECT _id FROM `01_Biens` WHERE `Reference` = '{reference}' LIMIT 1"
-    resp = requests.post(
+    # 2. row_id via SQL
+    results = requests.post(
         f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/sql",
         headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
-        json={"sql": sql, "convert_keys": False}, timeout=10
-    )
-    results = resp.json().get("results", [])
+        json={"sql": f"SELECT _id FROM `01_Biens` WHERE `Reference` = '{reference}' LIMIT 1", "convert_keys": False},
+        timeout=10
+    ).json().get("results", [])
     if not results:
         return
     row_id = results[0]["_id"]
 
-    ul_resp = requests.get(
-        f"https://cloud.seatable.io/api/v2.1/dtable/{UUID}/upload-link/",
-        headers={"Authorization": f"Token {AT}"}, timeout=10
-    )
-    ul = ul_resp.json()
+    # 3. Upload link — endpoint correct avec APP TOKEN
+    ul = requests.get(
+        "https://cloud.seatable.io/api/v2.1/dtable/app-upload-link/",
+        headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10
+    ).json()
     upload_link = ul.get("upload_link", "")
-    parent_path = ul.get("parent_path", "/asset")
+    parent_path = ul.get("parent_path", "") + "/" + ul.get("file_relative_path", "files/2026-03")
 
+    # 4. Upload PDF
     filename = f"Avis_Valeur_{reference}.pdf"
-    upload_resp = requests.post(
+    up_resp = requests.post(
         upload_link,
-        headers={"Authorization": f"Token {AT}"},
+        headers={"Authorization": f"Token {SEATABLE_TOKEN}"},
         files={"file": (filename, _io.BytesIO(pdf_bytes), "application/pdf")},
         data={"parent_dir": parent_path, "replace": "1"},
         timeout=30
-    )
-    file_url = upload_resp.json().get("url", "")
-    file_obj = [{"name": filename, "url": file_url, "size": len(pdf_bytes), "type": "application/pdf"}]
+    ).json()
+    file_url = up_resp.get("url", "")
 
+    # 5. Update row
+    file_obj = [{"name": filename, "url": file_url, "size": len(pdf_bytes), "type": "application/pdf"}]
     requests.put(
         f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/rows/",
         headers={"Authorization": f"Token {AT}", "Content-Type": "application/json"},
@@ -104,7 +107,7 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             "row_id": row_id,
             "row": {
                 "Avis de Valeur PDF": file_obj,
-                "Statut avis valeur": "PDF g\u00e9n\u00e9r\u00e9",
+                "Statut avis valeur": "PDF généré",
                 "Demander avis valeur": False
             }
         }]},
