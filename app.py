@@ -82,19 +82,21 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             "https://cloud.seatable.io/api/v2.1/dtable/app-upload-link/",
             headers={"Authorization": f"Token {SEATABLE_TOKEN}"}, timeout=10
         ).json()
-        upload_link = ul.get("upload_link", "")
-        parent_path = ul.get("parent_path", "/asset")
+        upload_link  = ul.get("upload_link", "")
+        parent_root  = ul.get("parent_path", "/asset")           # /asset/uuid
+        file_rel     = ul.get("file_relative_path", "files/2026-03")  # files/2026-03
+        parent_dir   = parent_root + "/" + file_rel               # /asset/uuid/files/2026-03
 
         filename = f"Avis_Valeur_{reference}.pdf"
         up_r = requests.post(
             upload_link,
             headers={"Authorization": f"Token {SEATABLE_TOKEN}"},
             files={"file": (filename, _io.BytesIO(pdf_bytes), "application/pdf")},
-            data={"parent_dir": parent_path, "replace": "1"},
+            data={"parent_dir": parent_dir, "replace": "1"},
             timeout=30
         )
-        # SeaTable retourne ["filename.pdf"] — l'URL = parent_path + "/" + filename
-        file_url = parent_path + "/" + filename
+        # URL finale utilisable par SeaTable = parent_dir + "/" + filename
+        file_url = parent_dir + "/" + filename
         file_obj = [{"name": filename, "url": file_url, "size": len(pdf_bytes), "type": "application/pdf"}]
         requests.put(
             f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/rows/",
