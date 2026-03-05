@@ -243,7 +243,7 @@ def get_osm_map(address, out_w=840, out_h=340, zoom=16):
         headers = {"User-Agent": "BarbierImmobilier/1.0"}
         r = requests.get("https://nominatim.openstreetmap.org/search",
                          params={"q": address, "format": "json", "limit": 1},
-                         headers=headers, timeout=10)
+                         headers=headers, timeout=15)
         res = r.json()
         if not res: return None
         lat = float(res[0]["lat"])
@@ -701,6 +701,18 @@ def generate_by_ref():
             val = request.args.get(param) or overrides.get(param)
             if val:
                 row[param] = val
+        # Overrides numériques (prix GPT)
+        for param, key in [('prix_min', 'Prix estime min'), ('prix_max', 'Prix estime max'), ('prix_retenu', 'Prix retenu')]:
+            val = request.args.get(param) or overrides.get(param)
+            if val:
+                try:
+                    row[key] = float(str(val).replace(' ', '').replace(' ', '').replace(' ', ''))
+                except Exception:
+                    pass
+        # Override avis de valeur (texte GPT)
+        avis_override = request.args.get('avis_valeur') or overrides.get('avis_valeur')
+        if avis_override:
+            row['Avis de valeur'] = avis_override
 
         # 2. Générer le PDF
         pdf_buf = generate_pdf(row)
