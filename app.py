@@ -485,8 +485,8 @@ def page2(c, d, logo_buf=None):
 
     avis_raw = (d.get("Avis de valeur") or "Avis de valeur à compléter.").strip()
 
-    # Parser les sections ---TAG---
-    SECTION_LABELS = {
+    # Parser flexible : accepte ---TAG--- ET "TAG\n" (sans tirets)
+    SECTION_MAP = {
         "SYNTHÈSE": "Synthèse",
         "SYNTHESE": "Synthèse",
         "MÉTHODOLOGIE": "Méthodologie",
@@ -494,23 +494,46 @@ def page2(c, d, logo_buf=None):
         "ÉVALUATION DÉTAILLÉE": "Évaluation détaillée",
         "EVALUATION DÉTAILLÉE": "Évaluation détaillée",
         "EVALUATION DETAILLEE": "Évaluation détaillée",
-        "VALEURS": None,          # On l'affiche pas ici (déjà dans la synthèse)
         "RECOMMANDATIONS": "Recommandations",
+        # VALEURS : affiché dans la synthèse des valeurs, pas ici
     }
+    SKIP_TAGS = {"VALEURS", "VALEUR"}
 
-    parts = _re.split(r'---([^-]+)---', avis_raw)
-    # parts = [texte_avant, tag1, texte1, tag2, texte2, ...]
     sections = []
+    # Essai 1 : format avec ---TAG---
+    parts = _re.split(r'---([^-\n]+)---', avis_raw)
     if len(parts) >= 3:
         for i in range(1, len(parts) - 1, 2):
             tag = parts[i].strip().upper()
             body = parts[i+1].strip()
-            if tag in SECTION_LABELS and SECTION_LABELS[tag] is not None and body:
-                sections.append((SECTION_LABELS[tag], body))
-    
-    # Fallback si pas de tags : afficher tel quel
+            if tag in SKIP_TAGS:
+                continue
+            label = SECTION_MAP.get(tag)
+            if label and body:
+                sections.append((label, body))
+
+    # Essai 2 si pas de tags --- : format "NOM_SECTION\ntexte"
     if not sections:
-        sections = [("Analyse de marché", avis_raw)]
+        pattern = '|'.join(_re.escape(k) for k in SECTION_MAP.keys())
+        parts2 = _re.split(r'^(' + pattern + r')\s*$', avis_raw, flags=_re.MULTILINE | _re.IGNORECASE)
+        if len(parts2) >= 3:
+            for i in range(1, len(parts2) - 1, 2):
+                tag = parts2[i].strip().upper()
+                body = parts2[i+1].strip()
+                if tag in SKIP_TAGS:
+                    continue
+                label = SECTION_MAP.get(tag)
+                if label and body:
+                    # Couper avant VALEURS si présent
+                    body = _re.split(r'^VALEURS?\s*$', body, flags=_re.MULTILINE)[0].strip()
+                    if body:
+                        sections.append((label, body))
+
+    # Fallback final
+    if not sections:
+        # Supprimer le bloc VALEURS du texte brut
+        avis_no_val = _re.split(r'^VALEURS?\s*$', avis_raw, flags=_re.MULTILINE)[0].strip()
+        sections = [("Analyse de marché", avis_no_val or avis_raw)]
 
     style_titre_s = ParagraphStyle("st", fontName="Helvetica-Bold", fontSize=8,
                                    leading=11, textColor=TEAL, spaceAfter=2)
