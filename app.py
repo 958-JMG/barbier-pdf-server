@@ -689,6 +689,15 @@ def generate_by_ref():
         row = seatable_get_row(reference)
         app.logger.info(f"SeaTable OK: {reference} — {row.get('Type de bien')}")
 
+        # 1b. Appliquer les overrides (adresse, ville passés en paramètre)
+        overrides = {}
+        if request.is_json:
+            overrides = request.get_json(silent=True) or {}
+        for param in ['Adresse', 'Ville', 'Code postal', 'Surface terrain', 'Référence cadastrale']:
+            val = request.args.get(param) or overrides.get(param)
+            if val:
+                row[param] = val
+
         # 2. Générer le PDF
         pdf_buf = generate_pdf(row)
         app.logger.info(f"PDF généré: {reference}")
