@@ -93,11 +93,8 @@ def seatable_upload_pdf_and_update(reference, pdf_bytes):
             data={"parent_dir": parent_path, "replace": "1"},
             timeout=30
         )
-        up_resp = _json.loads(up_r.text)
-        file_url = up_resp.get("url", "")
-        if not file_url:
-            return
-
+        # SeaTable retourne ["filename.pdf"] — l'URL = parent_path + "/" + filename
+        file_url = parent_path + "/" + filename
         file_obj = [{"name": filename, "url": file_url, "size": len(pdf_bytes), "type": "application/pdf"}]
         requests.put(
             f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{UUID}/rows/",
