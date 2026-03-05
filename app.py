@@ -514,7 +514,9 @@ def page2(c, d, logo_buf=None):
 
     # Essai 2 si pas de tags --- : format "NOM_SECTION\ntexte"
     if not sections:
-        pattern = '|'.join(_re.escape(k) for k in SECTION_MAP.keys())
+        # Le pattern inclut AUSSI les SKIP_TAGS pour bien les couper
+        all_keys = list(SECTION_MAP.keys()) + list(SKIP_TAGS)
+        pattern = '|'.join(_re.escape(k) for k in all_keys)
         parts2 = _re.split(r'^(' + pattern + r')\s*$', avis_raw, flags=_re.MULTILINE | _re.IGNORECASE)
         if len(parts2) >= 3:
             for i in range(1, len(parts2) - 1, 2):
@@ -524,14 +526,10 @@ def page2(c, d, logo_buf=None):
                     continue
                 label = SECTION_MAP.get(tag)
                 if label and body:
-                    # Couper avant VALEURS si présent
-                    body = _re.split(r'^VALEURS?\s*$', body, flags=_re.MULTILINE)[0].strip()
-                    if body:
-                        sections.append((label, body))
+                    sections.append((label, body))
 
     # Fallback final
     if not sections:
-        # Supprimer le bloc VALEURS du texte brut
         avis_no_val = _re.split(r'^VALEURS?\s*$', avis_raw, flags=_re.MULTILINE)[0].strip()
         sections = [("Analyse de marché", avis_no_val or avis_raw)]
 
