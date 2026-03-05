@@ -347,7 +347,8 @@ def page1(c, d, logo_buf=None):
     y = sec_title(c, ML, y, "02 — Localisation")
 
     map_h = 88*mm
-    map_buf = get_osm_map(d["adresse"], out_w=840, out_h=340, zoom=16)
+    _addr_geo = " ".join(filter(None, [d.get("adresse",""), d.get("code_postal",""), d.get("ville",""), "France"]))
+    map_buf = get_osm_map(_addr_geo, out_w=840, out_h=340, zoom=15)
 
     if map_buf:
         c.drawImage(rl_canvas.ImageReader(map_buf), ML, y - map_h,
@@ -470,8 +471,7 @@ def page2(c, d, logo_buf=None):
         ("Valeur minimale",   fmt(d.get("Prix estime min")),    False),
         ("Valeur maximale",   fmt(d.get("Prix estime max")),    False),
         ("Valeur retenue",    fmt(d.get("Prix retenu")),         True),
-        ("Prix sans décote",  fmt(d.get("Prix sans décote")),   False),
-        ("Prix avec décote",  fmt(d.get("Prix avec décote")),   False),
+
     ]
 
     rh = 18
