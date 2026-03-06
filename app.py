@@ -1318,3 +1318,176 @@ def dossier_vente():
     except Exception as e:
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route("/dvf-comparables", methods=["GET", "POST"])
+def dvf_comparables():
+    """
+    Recherche de comparables DVF + BienIci pour un bien.
+    Params: reference (ou ville + type_local + surface)
+    Retourne: JSON {dvf: [...], bienici: [...], total: n}
+    """
+    try:
+        import re as _re
+        import time as _time
+
+        data = request.get_json(silent=True) or {}
+        reference = request.args.get("reference") or data.get("reference")
+        ville = request.args.get("ville") or data.get("ville") or "Vannes"
+        code_postal = request.args.get("code_postal") or data.get("code_postal") or "56000"
+        type_local = request.args.get("type_local") or data.get("type_local") or "Local commercial"
+        surface = float(request.args.get("surface") or data.get("surface") or 0)
+
+        # Si reference fournie, charger depuis SeaTable
+        if reference:
+            at, uuid = _st_token()
+            params = _up.urlencode({"table_name": "01_Biens", "convert_keys": "true", "limit": 300})
+            req2 = _ur.Request(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/rows/?{params}",
+                headers={"Authorization": f"Token {at}"})
+            with _ur.urlopen(req2) as resp:
+                rows = _json.load(resp)["rows"]
+            row = next((r for r in rows if r.get("Reference") == reference), None)
+            if row:
+                ville = row.get("Ville") or ville
+                code_postal = row.get("Code postal") or code_postal
+                type_local = row.get("Type de bien") or type_local
+                surface = float(row.get("Surface") or surface or 0)
+
+        # 1. Résoudre code commune INSEE via API Geo
+        geo_url = f"https://geo.api.gouv.fr/communes?nom={_up.quote(ville)}&fields=code,nom,codesPostaux&boost=population&limit=5"
+        try:
+            with _ur.urlopen(_ur.Request(geo_url, headers={"User-Agent": "Barbier-Immobilier/1.0"})) as r:
+                geo_data = _json.load(r)
+            code_commune = "56260"
+            if geo_data:
+                match = next((c for c in geo_data if code_postal in c.get("codesPostaux", [])), None) or                         next((c for c in geo_data if c["nom"].lower() == ville.lower()), None) or                         geo_data[0]
+                code_commune = match["code"]
+        except:
+            code_commune = "56260"
+
+        # 2. DVF Etalab API
+        dvf_results = []
+        try:
+            dvf_url = f"https://api.dvf.etalab.gouv.fr/geoapi/mutations/?code_commune={code_commune}&nature_mutation=Vente&size=50"
+            req_dvf = _ur.Request(dvf_url, headers={"User-Agent": "Barbier-Immobilier/1.0 (jmg@958.fr)"})
+            with _ur.urlopen(req_dvf, timeout=20) as r:
+                dvf_data = _json.load(r)
+
+            items = dvf_data.get("results", dvf_data.get("features", dvf_data.get("mutations", [])))
+
+            # Mots-clés types commerciaux
+            type_kw = type_local.lower()
+            commercial_types = ["local industriel", "commercial", "bureau", "entrepot", "entrepôt"]
+
+            for item in items:
+                props = item.get("properties", item)
+                surf = float(props.get("surface_reelle_bati") or 0)
+                prix = float(props.get("valeur_fonciere") or 0)
+                nature = (props.get("nature_mutation") or "").lower()
+                type_l = (props.get("type_local") or "").lower()
+
+                if surf <= 0 or prix <= 0:
+                    continue
+                if not any(kw in type_l for kw in commercial_types):
+                    continue
+                if surface > 0 and abs(surf - surface) / max(surface, 1) > 0.6:
+                    continue
+
+                adresse = " ".join(filter(None, [
+                    str(props.get("adresse_numero") or ""),
+                    str(props.get("adresse_nom_voie") or "")
+                ])).strip()
+
+                dvf_results.append({
+                    "source": "DVF (vendu)",
+                    "adresse": adresse,
+                    "ville": props.get("nom_commune") or ville,
+                    "surface": surf,
+                    "prix": prix,
+                    "prix_m2": round(prix / surf) if surf > 0 else 0,
+                    "date": props.get("date_mutation") or "",
+                    "url": "",
+                    "type_bien": props.get("type_local") or type_local,
+                    "description": f"{props.get('type_local','?')} — {round(prix):,} € — {props.get('date_mutation','')} — {surf} m²".replace(",", " ")
+                })
+
+            # Trier par date desc + limiter
+            dvf_results.sort(key=lambda x: x.get("date", ""), reverse=True)
+            dvf_results = dvf_results[:8]
+        except Exception as e:
+            dvf_results = [{"source": "DVF", "erreur": str(e), "prix": 0}]
+
+        # 3. BienIci scraping
+        bienici_results = []
+        try:
+            ville_slug = ville.lower().replace(" ", "-").replace("é","e").replace("è","e").replace("ê","e").replace("à","a")
+            cp_str = str(code_postal).replace(" ", "")
+            bi_url = f"https://www.bienici.com/recherche/vente/{ville_slug}-{cp_str}?categories=bureaux_locaux_commerciaux&tri=prix-croissant"
+            req_bi = _ur.Request(bi_url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; BarbierBot/1.0)",
+                "Accept": "text/html,application/xhtml+xml"
+            })
+            with _ur.urlopen(req_bi, timeout=15) as r:
+                html = r.read().decode("utf-8", errors="ignore")
+
+            # Chercher les données JSON embarquées
+            json_match = None
+            patterns = [
+                r'"realEstateAds"\s*:\s*(\[[\s\S]{100,50000}?\])',
+                r'window\.__PRELOADED_STATE__\s*=\s*(\{[\s\S]{100,200000}?\});',
+            ]
+            for pat in patterns:
+                m = _re.search(pat, html)
+                if m:
+                    try:
+                        parsed = _json.loads(m.group(1))
+                        if isinstance(parsed, list):
+                            json_match = parsed
+                        elif isinstance(parsed, dict):
+                            json_match = parsed.get("realEstateAds", [])
+                        if json_match:
+                            break
+                    except:
+                        continue
+
+            if json_match:
+                for ad in json_match[:8]:
+                    surf = float(ad.get("surfaceArea") or ad.get("surface") or 0)
+                    prix = float(ad.get("price") or 0)
+                    if surf <= 0 or prix <= 0:
+                        continue
+                    bienici_results.append({
+                        "source": "BienIci (actif)",
+                        "adresse": (ad.get("address") or {}).get("street") or ad.get("title") or "",
+                        "ville": ad.get("city") or ville,
+                        "surface": surf,
+                        "prix": prix,
+                        "prix_m2": round(prix / surf) if surf > 0 else 0,
+                        "date": _time.strftime("%Y-%m-%d"),
+                        "url": "https://www.bienici.com" + (ad.get("publicationUrl") or ""),
+                        "type_bien": type_local,
+                        "description": ((ad.get("description") or "")[:200]) or f"Annonce active — {round(prix):,} €".replace(",", " ")
+                    })
+        except Exception as e:
+            bienici_results = [{"source": "BienIci", "erreur": str(e), "prix": 0}]
+
+        all_results = [r for r in dvf_results + bienici_results if r.get("prix", 0) > 0]
+        return jsonify({
+            "reference": reference or "",
+            "ville": ville,
+            "code_commune": code_commune,
+            "dvf": dvf_results,
+            "bienici": bienici_results,
+            "all": all_results,
+            "total": len(all_results),
+            "dvf_count": len([r for r in dvf_results if r.get("prix", 0) > 0]),
+            "bienici_count": len([r for r in bienici_results if r.get("prix", 0) > 0])
+        })
+
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
