@@ -1305,11 +1305,16 @@ def dossier_vente():
 
         ref = row.get("Reference","")
         try:
-            sql   = f"SELECT * FROM `06_Comparables` WHERE `Reference bien` = '{ref}' ORDER BY `Date` DESC LIMIT 4"
-            req3  = _ur.Request(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/sql",
-                data=_json.dumps({"sql":sql}).encode(), method="POST",
-                headers={"Authorization":f"Token {at}","Content-Type":"application/json"})
-            with _ur.urlopen(req3) as res3: comparables = _json.load(res3).get("results",[])
+            # /sql ne supporte pas convert_keys → utiliser rows endpoint avec convert_keys=true
+            p3 = _up.urlencode({"table_name":"06_Comparables","convert_keys":"true","limit":300})
+            req3 = _ur.Request(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/rows/?{p3}",
+                headers={"Authorization":f"Token {at}"})
+            with _ur.urlopen(req3) as res3:
+                all_comp = _json.load(res3).get("rows",[])
+            # Filtrer par référence, trier par Date DESC, prendre les 4 plus récents
+            matched = [c for c in all_comp if c.get("Reference bien") == ref]
+            matched.sort(key=lambda x: str(x.get("Date","") or ""), reverse=True)
+            comparables = matched[:4]
         except: comparables = []
 
         texte_q = row.get("Texte quartier") or ""
