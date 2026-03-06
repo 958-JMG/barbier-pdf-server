@@ -962,23 +962,27 @@ def _gpt_quartier(adresse, ville, type_bien, surface):
     import os
     api_key = os.environ.get("OPENAI_API_KEY","")
     if not api_key: return ""
+    ville_str = ville or "Vannes"
+    adresse_str = adresse or ville_str
     prompt = (
-        f"Tu es un expert immobilier commercial dans le Golfe du Morbihan.\n"
-        f"Rédige un texte de présentation du quartier pour ce bien, destiné à un acquéreur :\n"
-        f"- Type : {type_bien}\n- Adresse : {adresse}, {ville} (Morbihan, 56)\n- Surface : {surface} m²\n\n"
-        f"Développe en 5-6 phrases (150-200 mots) :\n"
-        f"1. Dynamisme commercial et économique du secteur\n"
-        f"2. Accessibilité : axes routiers (N165/rocade), transports, parking\n"
-        f"3. Flux de clientèle et visibilité du bien\n"
-        f"4. Commerces, services, équipements à proximité\n"
-        f"5. Atout spécifique de cet emplacement pour une activité commerciale\n\n"
-        f"Ton professionnel et valorisant. Texte continu, sans titre ni liste à puces."
+        f"Tu es un expert en immobilier commercial dans le Golfe du Morbihan (Bretagne Sud).\n"
+        f"Rédige un texte de présentation du quartier pour ce bien, destiné à un acquéreur professionnel.\n\n"
+        f"Bien : {type_bien or 'Local commercial'} de {surface or '?'} m²\n"
+        f"Localisation : {adresse_str}, {ville_str} (Morbihan, 56)\n\n"
+        f"Le texte doit comporter 5 à 6 phrases riches (160-220 mots), en texte continu, sans titre ni liste.\n"
+        f"Aborde obligatoirement :\n"
+        f"1. Le dynamisme économique et commercial du secteur de {ville_str}\n"
+        f"2. L'accessibilité : axes routiers (N165/rocade de {ville_str}), parkings, transports\n"
+        f"3. Le flux de clientèle et la visibilité du bien dans ce secteur\n"
+        f"4. Les commerces, services et équipements à proximité\n"
+        f"5. L'atout stratégique de cet emplacement pour une activité commerciale\n\n"
+        f"Ton : professionnel, valorisant, factuel. Pas de formule vague comme 'bien desservi' seul."
     )
     payload = _json.dumps({
         "model": "gpt-4o-mini",
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 400,
-        "temperature": 0.7
+        "max_tokens": 500,
+        "temperature": 0.65
     }).encode()
     req = _ur.Request("https://api.openai.com/v1/chat/completions",
         data=payload, method="POST",
@@ -1079,7 +1083,7 @@ def _page2(c, d):
 def _page3(c, d):
     _header(c, "Quartier & environnement")
     _sec(c, "Le quartier", 14*_mm, _H-32*_mm)
-    texte = _safe(d.get("texte_quartier"), "Secteur dynamique bien desservi.")
+    texte = d.get("texte_quartier") or f"Situé à {_safe(d.get('ville','Vannes'))}, ce bien bénéficie d'une localisation stratégique dans un secteur économiquement actif du Morbihan. L'accessibilité est optimale grâce à la proximité de la rocade et des axes principaux, garantissant un flux de clientèle régulier. Le secteur compte de nombreux commerces, services et équipements à proximité, offrant un environnement favorable à l'exploitation d'une activité commerciale ou professionnelle."
     p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=10, textColor=_GTEXTE, leading=16))
     _, ph = p.wrap(_W-28*_mm, 9999); p.drawOn(c, 14*_mm, _H-38*_mm-ph)
     qbot = _H-38*_mm-ph-12*_mm
@@ -1128,7 +1132,7 @@ def _page4(c, comparables, d):
     intro = _Para("Sélection des transactions les plus récentes permettant de positionner ce bien dans son marché local.",
         _PS("sm",fontName="Helvetica",fontSize=9,textColor=_GTEXTE,leading=13))
     _,ih = intro.wrap(_W-28*_mm,9999); intro.drawOn(c,14*_mm,_H-40*_mm-ih)
-    ct=_H-42*_mm-ih-6*_mm; ch=42*_mm
+    ct=_H-42*_mm-ih-6*_mm; ch=50*_mm
     if not comparables:
         c.setFillColor(_GRIS); c.roundRect(14*_mm,ct-ch,_W-28*_mm,ch,3*_mm,fill=1,stroke=0)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica-Oblique",9)
@@ -1156,25 +1160,24 @@ def _page4(c, comparables, d):
             # Numéro
             c.setFillColor(_BLEU); c.circle(cx2+8*_mm,cy2+ch-7.5*_mm,5.5*_mm,fill=1,stroke=0)
             c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",9); c.drawCentredString(cx2+8*_mm,cy2+ch-9.5*_mm,str(i+1))
-            # Adresse
+            # Adresse (ligne 1 : -17mm, ligne 2 ville : -23mm)
             c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8)
-            c.drawString(cx2+3*_mm,cy2+ch-17*_mm,str(comp.get("Adresse","—"))[:28])
+            c.drawString(cx2+3*_mm,cy2+ch-18*_mm,str(comp.get("Adresse","—"))[:28])
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
-            c.drawString(cx2+3*_mm,cy2+ch-23*_mm,str(comp.get("Ville","")))
-            # Prix
+            c.drawString(cx2+3*_mm,cy2+ch-24*_mm,str(comp.get("Ville","")))
+            # Prix (-32mm) + prix/m² (-38mm) — 6mm d'écart
             c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",12)
             c.drawString(cx2+3*_mm,cy2+ch-32*_mm,_pfmt(pc))
-            # Prix/m² sous le prix — espacé suffisamment
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
-            c.drawString(cx2+3*_mm,cy2+ch-37.5*_mm,_pm2(pc,sc2))
-            # Ligne séparatrice
+            c.drawString(cx2+3*_mm,cy2+ch-38.5*_mm,_pm2(pc,sc2))
+            # Ligne séparatrice à -41mm (9mm au-dessus du bas)
             c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
-            c.line(cx2+3*_mm,cy2+ch-39*_mm,cx2+cw-3*_mm,cy2+ch-39*_mm)
-            # Infos bas : surface | source DVF | année — sur 2 lignes si besoin
+            c.line(cx2+3*_mm,cy2+ch-42*_mm,cx2+cw-3*_mm,cy2+ch-42*_mm)
+            # Infos bas : 2 lignes sous la séparatrice
             src_short = src.replace(" (vendu)","").replace("DVF ","DVF ").strip()[:10]
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",6.5)
-            c.drawString(cx2+3*_mm,cy2+6.5*_mm,f"{_safe(sc2)} m²")
-            c.drawString(cx2+3*_mm,cy2+2*_mm,f"{src_short}  ·  {yr}")
+            c.drawString(cx2+3*_mm,cy2+7*_mm,f"{_safe(sc2)} m²")
+            c.drawString(cx2+3*_mm,cy2+2.5*_mm,f"{src_short}  ·  {yr}")
     # Synthèse : décalée selon nb de lignes de cartes
     nrows_cards = (len(comparables[:4]) + 1) // 2 if comparables else 1
     sy = ct - nrows_cards*ch - (nrows_cards-1)*4*_mm - 14*_mm
@@ -1322,7 +1325,7 @@ def dossier_vente():
         texte_q = row.get("Texte quartier") or ""
         if not texte_q:
             try: texte_q = _gpt_quartier(row.get("Adresse",""), row.get("Ville","Vannes"), row.get("Type de bien",""), row.get("Surface",""))
-            except: texte_q = "Secteur dynamique de Vannes, bien desservi et facilement accessible."
+            except: texte_q = f"Situé à {row.get('Ville','Vannes')}, ce bien bénéficie d'une localisation stratégique dans un secteur économiquement actif du Morbihan. L'accessibilité est optimale grâce à la proximité de la rocade et des axes principaux, garantissant un flux de clientèle régulier. Le secteur compte de nombreux commerces, services et équipements à proximité immédiate, offrant un environnement favorable à l'exploitation d'une activité commerciale ou professionnelle."
 
         d = {
             "reference":       ref,
