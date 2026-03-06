@@ -1612,6 +1612,27 @@ def dvf_comparables():
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
+@app.route("/test-modelo", methods=["GET"])
+def test_modelo():
+    """Test de connectivité API Modelo depuis l'IP Railway"""
+    import urllib.request as ur
+    try:
+        req = ur.Request(
+            "https://webapi.netty.fr/apiv1/products?limit=2",
+            headers={"x-netty-api-key": "627abdc3-8d06-4249-8245-0e44ce1aaae8"}
+        )
+        with ur.urlopen(req, timeout=10) as r:
+            import json as _json
+            body = _json.loads(r.read().decode())
+            return jsonify({
+                "status": "ok",
+                "ip_railway": request.environ.get("HTTP_X_FORWARDED_FOR", "unknown"),
+                "modelo_count": body.get("count", 0),
+                "sample": body.get("data", [])[:1]
+            })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
