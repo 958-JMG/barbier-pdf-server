@@ -1125,45 +1125,72 @@ def _page3(c, d):
 
 def _page4(c, comparables, d):
     _header(c, "Biens comparables"); _sec(c,"Analyse des biens comparables",14*_mm,_H-32*_mm)
-    intro = _Para("Sélection de biens comparables permettant de positionner ce bien dans son marché local.",
+    intro = _Para("Sélection des transactions les plus récentes permettant de positionner ce bien dans son marché local.",
         _PS("sm",fontName="Helvetica",fontSize=9,textColor=_GTEXTE,leading=13))
     _,ih = intro.wrap(_W-28*_mm,9999); intro.drawOn(c,14*_mm,_H-40*_mm-ih)
-    ct=_H-42*_mm-ih-6*_mm; ch=44*_mm; nb=min(len(comparables) if comparables else 1,3)
-    cw=(_W-28*_mm-(nb-1)*4*_mm)/nb
+    ct=_H-42*_mm-ih-6*_mm; ch=42*_mm
     if not comparables:
         c.setFillColor(_GRIS); c.roundRect(14*_mm,ct-ch,_W-28*_mm,ch,3*_mm,fill=1,stroke=0)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica-Oblique",9)
-        c.drawCentredString(_W/2,ct-ch/2,"Aucun comparable saisi — ajouter dans 06_Comparables")
+        c.drawCentredString(_W/2,ct-ch/2,"Aucun comparable disponible — relancer la recherche dans 01_Biens")
     else:
-        for i,comp in enumerate(comparables[:3]):
-            cx2=14*_mm+i*(cw+4*_mm); cy2=ct-ch; pc=comp.get("Prix",0); sc2=comp.get("Surface",0)
-            st=comp.get("Statut","—")
+        # Layout: 2 columns x up to 2 rows (max 4 cards)
+        cards = comparables[:4]
+        ncols = 2; gap = 4*_mm
+        cw = (_W - 28*_mm - gap) / ncols
+        row_gap = 4*_mm
+        for i, comp in enumerate(cards):
+            col = i % ncols; row = i // ncols
+            cx2 = 14*_mm + col*(cw+gap)
+            cy2 = ct - ch - row*(ch+row_gap)
+            pc = comp.get("Prix",0); sc2 = comp.get("Surface",0)
+            st = comp.get("Statut","—"); src = str(comp.get("Source","") or "")
+            date_raw = str(comp.get("Date","") or ""); yr = date_raw[:4] if date_raw else "—"
             c.setFillColor(_GRIS); c.roundRect(cx2,cy2,cw,ch,3*_mm,fill=1,stroke=0)
-            c.setFillColor(_BLEU if st=="Vendu" else _ORANGE)
-            c.roundRect(cx2+cw-24*_mm,cy2+ch-8*_mm,22*_mm,6.5*_mm,1*_mm,fill=1,stroke=0)
-            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",6.5)
-            c.drawCentredString(cx2+cw-13*_mm,cy2+ch-5*_mm,str(st).upper())
+            # Badge statut
+            badge_col = _BLEU if st=="Vendu" else _ORANGE
+            c.setFillColor(badge_col)
+            c.roundRect(cx2+cw-26*_mm,cy2+ch-8*_mm,24*_mm,6.5*_mm,1*_mm,fill=1,stroke=0)
+            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",6)
+            c.drawCentredString(cx2+cw-14*_mm,cy2+ch-5*_mm,str(st).upper())
+            # Numéro
             c.setFillColor(_BLEU); c.circle(cx2+8*_mm,cy2+ch-7.5*_mm,5.5*_mm,fill=1,stroke=0)
             c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",9); c.drawCentredString(cx2+8*_mm,cy2+ch-9.5*_mm,str(i+1))
-            c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(cx2+3*_mm,cy2+ch-17*_mm,str(comp.get("Adresse","—"))[:26])
-            c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5); c.drawString(cx2+3*_mm,cy2+ch-23*_mm,str(comp.get("Ville","")))
-            c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",13); c.drawString(cx2+3*_mm,cy2+ch-33*_mm,_pfmt(pc))
-            c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5); c.drawString(cx2+3*_mm,cy2+ch-39*_mm,_pm2(pc,sc2))
+            # Adresse
+            c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8)
+            c.drawString(cx2+3*_mm,cy2+ch-17*_mm,str(comp.get("Adresse","—"))[:28])
+            c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
+            c.drawString(cx2+3*_mm,cy2+ch-23*_mm,str(comp.get("Ville","")))
+            # Prix
+            c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",12)
+            c.drawString(cx2+3*_mm,cy2+ch-32*_mm,_pfmt(pc))
+            c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
+            c.drawString(cx2+3*_mm,cy2+ch-38*_mm,_pm2(pc,sc2))
+            # Ligne séparatrice
             c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
-            c.line(cx2+3*_mm,cy2+ch-41*_mm,cx2+cw-3*_mm,cy2+ch-41*_mm)
-            c.setFillColor(_GTEXTE); c.setFont("Helvetica",7)
-            c.drawString(cx2+3*_mm,cy2+5*_mm,f"{_safe(sc2)} m²  ·  {_safe(comp.get('Nb pieces','—'))} pces  ·  {_safe(comp.get('Date'))}")
-    sy=ct-ch-14*_mm; _sec(c,"Synthèse marché",14*_mm,sy+2*_mm)
+            c.line(cx2+3*_mm,cy2+ch-39.5*_mm,cx2+cw-3*_mm,cy2+ch-39.5*_mm)
+            # Infos bas : surface · source · année
+            src_short = src.replace(" (vendu)","").replace("DVF ","DVF")[:12]
+            c.setFillColor(_GTEXTE); c.setFont("Helvetica",6.5)
+            c.drawString(cx2+3*_mm,cy2+4*_mm,f"{_safe(sc2)} m²  ·  {src_short}  ·  {yr}")
+    # Synthèse : décalée selon nb de lignes de cartes
+    nrows_cards = (len(comparables[:4]) + 1) // 2 if comparables else 1
+    sy = ct - nrows_cards*ch - (nrows_cards-1)*4*_mm - 14*_mm
+    _sec(c,"Synthèse marché",14*_mm,sy+2*_mm)
     if comparables:
         try:
-            pl=[float(str(x.get("Prix",0)).replace(" ","")) for x in comparables if x.get("Prix")]
+            pl=[float(str(x.get("Prix",0)).replace(" ","").replace("\u202f","")) for x in comparables if x.get("Prix")]
             sl=[float(str(x.get("Surface",0)).replace(" ","")) for x in comparables if x.get("Surface")]
             mp=int(sum(pl)/len(pl)) if pl else 0
             mm2v=int(sum(p/s for p,s in zip(pl,sl))/len(pl)) if (pl and sl) else 0
         except: mp=mm2v=0
-        vs=[_pfmt(mp),f"{mm2v:,} €/m²".replace(",","") if mm2v else "—",str(len(comparables))]
-    else: vs=["—","—","0"]
-    ls=["Prix moyen constaté","Prix moyen au m²","Nb références"]
+        # Année la plus récente
+        dates=[str(x.get("Date",""))[:4] for x in comparables if x.get("Date")]
+        yr_max=max(dates) if dates else "—"
+        vs=[_pfmt(mp),f"{mm2v:,} €/m²".replace(",","") if mm2v else "—",yr_max]
+        ls=["Prix moyen constaté","Prix moyen au m²","Année réf. la + récente"]
+    else:
+        vs=["—","—","—"]; ls=["Prix moyen constaté","Prix moyen au m²","Année réf. la + récente"]
     mw2=(_W-28*_mm-8*_mm)/3
     for i,(l,v) in enumerate(zip(ls,vs)):
         mx2=14*_mm+i*(mw2+4*_mm); my2=sy-18*_mm
@@ -1171,7 +1198,7 @@ def _page4(c, comparables, d):
         c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",11); c.drawCentredString(mx2+mw2/2,my2+9*_mm,v)
         c.setFont("Helvetica",7); c.drawCentredString(mx2+mw2/2,my2+4*_mm,l)
     c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica-Oblique",7)
-    c.drawString(14*_mm,sy-22*_mm,"Sources : biens saisis par le mandataire depuis les portails immobiliers.")
+    c.drawString(14*_mm,sy-22*_mm,"Sources : DVF (data.gouv.fr) — Mutations de valeurs foncières, données officielles.")
     _footer(c,4)
 
 def _page5(c, d):
@@ -1278,7 +1305,7 @@ def dossier_vente():
 
         ref = row.get("Reference","")
         try:
-            sql   = f"SELECT * FROM `06_Comparables` WHERE `Reference bien` = '{ref}' LIMIT 3"
+            sql   = f"SELECT * FROM `06_Comparables` WHERE `Reference bien` = '{ref}' ORDER BY `Date` DESC LIMIT 4"
             req3  = _ur.Request(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/sql",
                 data=_json.dumps({"sql":sql}).encode(), method="POST",
                 headers={"Authorization":f"Token {at}","Content-Type":"application/json"})
@@ -1510,3 +1537,4 @@ def dvf_comparables():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
