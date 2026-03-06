@@ -1164,15 +1164,17 @@ def _page4(c, comparables, d):
             # Prix
             c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",12)
             c.drawString(cx2+3*_mm,cy2+ch-32*_mm,_pfmt(pc))
+            # Prix/m² sous le prix — espacé suffisamment
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
-            c.drawString(cx2+3*_mm,cy2+ch-38*_mm,_pm2(pc,sc2))
+            c.drawString(cx2+3*_mm,cy2+ch-37.5*_mm,_pm2(pc,sc2))
             # Ligne séparatrice
             c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
-            c.line(cx2+3*_mm,cy2+ch-39.5*_mm,cx2+cw-3*_mm,cy2+ch-39.5*_mm)
-            # Infos bas : surface · source · année
-            src_short = src.replace(" (vendu)","").replace("DVF ","DVF")[:12]
+            c.line(cx2+3*_mm,cy2+ch-39*_mm,cx2+cw-3*_mm,cy2+ch-39*_mm)
+            # Infos bas : surface | source DVF | année — sur 2 lignes si besoin
+            src_short = src.replace(" (vendu)","").replace("DVF ","DVF ").strip()[:10]
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",6.5)
-            c.drawString(cx2+3*_mm,cy2+4*_mm,f"{_safe(sc2)} m²  ·  {src_short}  ·  {yr}")
+            c.drawString(cx2+3*_mm,cy2+6.5*_mm,f"{_safe(sc2)} m²")
+            c.drawString(cx2+3*_mm,cy2+2*_mm,f"{src_short}  ·  {yr}")
     # Synthèse : décalée selon nb de lignes de cartes
     nrows_cards = (len(comparables[:4]) + 1) // 2 if comparables else 1
     sy = ct - nrows_cards*ch - (nrows_cards-1)*4*_mm - 14*_mm
