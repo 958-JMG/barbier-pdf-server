@@ -848,6 +848,34 @@ def _st_token():
 
 import json as _json, urllib.request as _ur, urllib.parse as _up, math as _math
 
+def _fetch_photo_image(photo_url, access_token=None):
+    """Télécharge une photo SeaTable et retourne un ImageReader ReportLab.
+    Gère les URLs cloud.seatable.io en obtenant d'abord un lien de téléchargement signé."""
+    try:
+        from reportlab.lib.utils import ImageReader as _IR
+        from io import BytesIO as _BIO
+        import re as _re
+        url = photo_url
+        # Si c'est une URL SeaTable asset, obtenir le download link
+        if "cloud.seatable.io" in url and "/asset/" in url:
+            # Extraire le path relatif depuis l'URL
+            m = _re.search(r'/images/(.+)$', url)
+            if m:
+                path = "/images/" + _up.unquote(m.group(1))
+                tok = access_token or SEATABLE_TOKEN
+                params = _up.urlencode({"path": path})
+                r = requests.get(
+                    f"https://cloud.seatable.io/api/v2.1/dtable/app-download-link/?{params}",
+                    headers={"Authorization": f"Token {tok}"}, timeout=10)
+                if r.status_code == 200:
+                    url = r.json().get("download_link", url)
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 200 and "image" in resp.headers.get("Content-Type",""):
+            return _IR(_BIO(resp.content))
+    except Exception:
+        pass
+    return None
+
 from reportlab.lib.pagesizes import A4 as _A4
 from reportlab.pdfgen import canvas as _canvas
 from reportlab.lib import colors as _colors
@@ -1032,15 +1060,38 @@ def _page1(c, d):
             c.setFont("Helvetica-Bold", fsz)
             if c.stringWidth(val, "Helvetica-Bold", fsz) < bw-6*_mm: break
         c.drawCentredString(bx+bw/2, by+5*_mm, val)
-    # Zone blanche + photo placeholder
+    # Zone blanche + photo principale
     c.setFillColor(_BLANC); c.rect(0, 0, _W, _H*0.48, fill=1, stroke=0)
     ph = _H*0.48-22*_mm
-    c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(1)
-    c.roundRect(14*_mm, 20*_mm, _W-28*_mm, ph, 3*_mm, fill=1, stroke=1)
-    c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 10)
-    c.drawCentredString(_W/2, 20*_mm+ph/2+3*_mm, "[ Photo principale du bien ]")
-    c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#AAAAAA"))
-    c.drawCentredString(_W/2, 20*_mm+ph/2-6*_mm, "Intégrée automatiquement depuis SeaTable")
+    px0, py0, pw0 = 14*_mm, 20*_mm, _W-28*_mm
+    photos = d.get("photos") or []
+    img0 = _fetch_photo_image(photos[0]) if photos else None
+    if img0:
+        try:
+            from reportlab.lib.utils import ImageReader as _IR
+            pil_img = img0._image if hasattr(img0, '_image') else None
+            iw = img0.getSize()[0]; ih = img0.getSize()[1]
+            scale = min(pw0/iw, ph/ih)
+            dw, dh = iw*scale, ih*scale
+            dx = px0 + (pw0-dw)/2; dy = py0 + (ph-dh)/2
+            c.saveState()
+            p = c._doc.pdfDocument if hasattr(c,'_doc') else None
+            c.roundRect(px0, py0, pw0, ph, 3*_mm, fill=0, stroke=0)
+            c.clipPath(c.beginPath(), stroke=0, fill=0)
+            c.drawImage(img0, dx, dy, dw, dh, mask="auto")
+            c.restoreState()
+        except Exception:
+            c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(1)
+            c.roundRect(px0, py0, pw0, ph, 3*_mm, fill=1, stroke=1)
+            try: c.drawImage(img0, px0, py0, pw0, ph, preserveAspectRatio=True, anchor='c', mask="auto")
+            except: pass
+    else:
+        c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(1)
+        c.roundRect(px0, py0, pw0, ph, 3*_mm, fill=1, stroke=1)
+        c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 10)
+        c.drawCentredString(_W/2, py0+ph/2+3*_mm, "[ Photo principale du bien ]")
+        c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#AAAAAA"))
+        c.drawCentredString(_W/2, py0+ph/2-6*_mm, "Intégrée automatiquement depuis SeaTable")
     c.setFillColor(_GTEXTE); c.setFont("Helvetica", 7.5)
     c.drawString(14*_mm, 13*_mm, f"Dossier préparé par  {_safe(d.get('negociateur'),'Barbier Immobilier')}  ·  Réf. {_safe(d.get('reference'))}")
     _footer(c, 1)
@@ -1072,12 +1123,28 @@ def _page2(c, d):
     pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-14*_mm
     _sec(c, "Photos du bien", 14*_mm, pb)
     pw3 = (_W-28*_mm-6*_mm)/3; ph3 = 36*_mm
+    photos = d.get("photos") or []
     for i in range(3):
         px = 14*_mm+i*(pw3+3*_mm); py = pb-12*_mm-ph3
-        c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD"))
-        c.roundRect(px, py, pw3, ph3, 2*_mm, fill=1, stroke=1)
-        c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 8)
-        c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
+        img = _fetch_photo_image(photos[i]) if i < len(photos) else None
+        if img:
+            try:
+                c.saveState()
+                path_clip = c.beginPath()
+                path_clip.roundRect(px, py, pw3, ph3, 2*_mm)
+                c.clipPath(path_clip, stroke=0, fill=0)
+                c.drawImage(img, px, py, pw3, ph3, preserveAspectRatio=True, anchor='c', mask="auto")
+                c.restoreState()
+            except Exception:
+                c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD"))
+                c.roundRect(px, py, pw3, ph3, 2*_mm, fill=1, stroke=1)
+                try: c.drawImage(img, px, py, pw3, ph3, preserveAspectRatio=True, anchor='c', mask="auto")
+                except: pass
+        else:
+            c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD"))
+            c.roundRect(px, py, pw3, ph3, 2*_mm, fill=1, stroke=1)
+            c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 8)
+            c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
     _footer(c, 2)
 
 def _page3(c, d):
@@ -1346,6 +1413,7 @@ def dossier_vente():
             "ca_ht":           row.get("CA HT annuel"),
             "loyer_annuel":    row.get("Loyer annuel"),
             "texte_quartier":  texte_q,
+            "photos":          row.get("Photo") or [],
         }
 
         pdf_bytes = generate_dossier_pdf(d, comparables)
