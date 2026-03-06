@@ -1323,163 +1323,182 @@ def dossier_vente():
 @app.route("/dvf-comparables", methods=["GET", "POST"])
 def dvf_comparables():
     """
-    Recherche de comparables DVF + BienIci pour un bien.
-    Params: reference (ou ville + type_local + surface)
-    Retourne: JSON {dvf: [...], bienici: [...], total: n}
+    Recherche de comparables DVF (CSV data.gouv) + BienIci pour un bien commercial.
+    DVF CSV: files.data.gouv.fr/geo-dvf/latest/csv/{annee}/communes/{dept}/{code_commune}.csv
     """
     try:
-        import re as _re
-        import time as _time
+        import re as _re, csv as _csv, io as _io, time as _time
 
         data = request.get_json(silent=True) or {}
         reference = request.args.get("reference") or data.get("reference")
         ville = request.args.get("ville") or data.get("ville") or "Vannes"
-        code_postal = request.args.get("code_postal") or data.get("code_postal") or "56000"
+        code_postal = str(request.args.get("code_postal") or data.get("code_postal") or "56000")
         type_local = request.args.get("type_local") or data.get("type_local") or "Local commercial"
         surface = float(request.args.get("surface") or data.get("surface") or 0)
 
-        # Si reference fournie, charger depuis SeaTable
+        # Charger depuis SeaTable si reference fournie
         if reference:
-            at, uuid = _st_token()
-            params = _up.urlencode({"table_name": "01_Biens", "convert_keys": "true", "limit": 300})
-            req2 = _ur.Request(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/rows/?{params}",
-                headers={"Authorization": f"Token {at}"})
-            with _ur.urlopen(req2) as resp:
-                rows = _json.load(resp)["rows"]
-            row = next((r for r in rows if r.get("Reference") == reference), None)
-            if row:
-                ville = row.get("Ville") or ville
-                code_postal = row.get("Code postal") or code_postal
-                type_local = row.get("Type de bien") or type_local
-                surface = float(row.get("Surface") or surface or 0)
+            try:
+                at, uuid = _st_token()
+                params = _up.urlencode({"table_name": "01_Biens", "convert_keys": "true", "limit": 300})
+                req2 = _ur.Request(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/rows/?{params}",
+                    headers={"Authorization": f"Token {at}"})
+                with _ur.urlopen(req2) as resp:
+                    rows = _json.load(resp)["rows"]
+                row = next((r for r in rows if r.get("Reference") == reference), None)
+                if row:
+                    ville = row.get("Ville") or ville
+                    code_postal = str(row.get("Code postal") or code_postal)
+                    type_local = row.get("Type de bien") or type_local
+                    surface = float(row.get("Surface") or surface or 0)
+            except:
+                pass
 
-        # 1. Résoudre code commune INSEE via API Geo
-        geo_url = f"https://geo.api.gouv.fr/communes?nom={_up.quote(ville)}&fields=code,nom,codesPostaux&boost=population&limit=5"
+        # 1. Résoudre code commune INSEE
+        code_commune = None
         try:
+            geo_url = f"https://geo.api.gouv.fr/communes?nom={_up.quote(ville)}&fields=code,nom,codesPostaux&boost=population&limit=5"
             with _ur.urlopen(_ur.Request(geo_url, headers={"User-Agent": "Barbier-Immobilier/1.0"})) as r:
                 geo_data = _json.load(r)
-            code_commune = "56260"
             if geo_data:
                 match = next((c for c in geo_data if code_postal in c.get("codesPostaux", [])), None) or                         next((c for c in geo_data if c["nom"].lower() == ville.lower()), None) or                         geo_data[0]
                 code_commune = match["code"]
         except:
-            code_commune = "56260"
+            pass
+        if not code_commune:
+            # Fallback: le code commune est souvent dept + padding du code postal
+            dept = code_postal[:2]
+            code_commune = code_postal  # approximation
 
-        # 2. DVF Etalab API
+        dept = code_commune[:2]
+
+        # 2. DVF — CSV par commune (plusieurs années)
         dvf_results = []
-        try:
-            dvf_url = f"https://api.dvf.etalab.gouv.fr/geoapi/mutations/?code_commune={code_commune}&nature_mutation=Vente&size=50"
-            req_dvf = _ur.Request(dvf_url, headers={"User-Agent": "Barbier-Immobilier/1.0 (jmg@958.fr)"})
-            with _ur.urlopen(req_dvf, timeout=20) as r:
-                dvf_data = _json.load(r)
+        dvf_error = None
+        annees = ["2024", "2023", "2022"]
 
-            items = dvf_data.get("results", dvf_data.get("features", dvf_data.get("mutations", [])))
+        for annee in annees:
+            if len(dvf_results) >= 8:
+                break
+            try:
+                csv_url = f"https://files.data.gouv.fr/geo-dvf/latest/csv/{annee}/communes/{dept}/{code_commune}.csv"
+                req_csv = _ur.Request(csv_url, headers={"User-Agent": "Barbier-Immobilier/1.0"})
+                with _ur.urlopen(req_csv, timeout=15) as r:
+                    content = r.read().decode("utf-8", errors="ignore")
 
-            # Mots-clés types commerciaux
-            type_kw = type_local.lower()
-            commercial_types = ["local industriel", "commercial", "bureau", "entrepot", "entrepôt"]
+                reader = _csv.DictReader(_io.StringIO(content))
+                commercial_kw = ["commercial", "industriel", "bureau"]
 
-            for item in items:
-                props = item.get("properties", item)
-                surf = float(props.get("surface_reelle_bati") or 0)
-                prix = float(props.get("valeur_fonciere") or 0)
-                nature = (props.get("nature_mutation") or "").lower()
-                type_l = (props.get("type_local") or "").lower()
+                for row in reader:
+                    nature = (row.get("nature_mutation") or "").lower()
+                    type_l = (row.get("type_local") or "").lower()
+                    surf_str = row.get("surface_reelle_bati") or ""
+                    prix_str = row.get("valeur_fonciere") or ""
 
-                if surf <= 0 or prix <= 0:
-                    continue
-                if not any(kw in type_l for kw in commercial_types):
-                    continue
-                if surface > 0 and abs(surf - surface) / max(surface, 1) > 0.6:
-                    continue
+                    if not surf_str or not prix_str:
+                        continue
+                    try:
+                        surf = float(surf_str.replace(",", "."))
+                        prix = float(prix_str.replace(",", ".").replace(" ", ""))
+                    except:
+                        continue
 
-                adresse = " ".join(filter(None, [
-                    str(props.get("adresse_numero") or ""),
-                    str(props.get("adresse_nom_voie") or "")
-                ])).strip()
+                    if surf <= 0 or prix <= 0 or prix < 1000:
+                        continue
+                    if "vente" not in nature:
+                        continue
+                    if not any(kw in type_l for kw in commercial_kw):
+                        continue
+                    if surface > 0 and abs(surf - surface) / max(surface, 1) > 0.65:
+                        continue
 
-                dvf_results.append({
-                    "source": "DVF (vendu)",
-                    "adresse": adresse,
-                    "ville": props.get("nom_commune") or ville,
-                    "surface": surf,
-                    "prix": prix,
-                    "prix_m2": round(prix / surf) if surf > 0 else 0,
-                    "date": props.get("date_mutation") or "",
-                    "url": "",
-                    "type_bien": props.get("type_local") or type_local,
-                    "description": f"{props.get('type_local','?')} — {round(prix):,} € — {props.get('date_mutation','')} — {surf} m²".replace(",", " ")
-                })
+                    adresse = " ".join(filter(None, [
+                        row.get("adresse_numero", "").strip(),
+                        row.get("adresse_nom_voie", "").strip()
+                    ])).strip()
 
-            # Trier par date desc + limiter
-            dvf_results.sort(key=lambda x: x.get("date", ""), reverse=True)
-            dvf_results = dvf_results[:8]
-        except Exception as e:
-            dvf_results = [{"source": "DVF", "erreur": str(e), "prix": 0}]
+                    dvf_results.append({
+                        "source": f"DVF {annee} (vendu)",
+                        "adresse": adresse,
+                        "ville": row.get("nom_commune") or ville,
+                        "surface": surf,
+                        "prix": prix,
+                        "prix_m2": round(prix / surf) if surf > 0 else 0,
+                        "date": row.get("date_mutation") or "",
+                        "url": "",
+                        "type_bien": row.get("type_local") or type_local,
+                        "description": f"{row.get('type_local','?')} — {round(prix):,} € — {row.get('date_mutation','')} — {surf} m²".replace(",", " ")
+                    })
 
-        # 3. BienIci scraping
+                    if len(dvf_results) >= 10:
+                        break
+            except Exception as e:
+                dvf_error = str(e)
+                continue
+
+        # Trier par date desc + limiter
+        dvf_results.sort(key=lambda x: x.get("date", ""), reverse=True)
+        dvf_results = dvf_results[:8]
+
+        if not dvf_results and dvf_error:
+            dvf_results = [{"source": "DVF", "erreur": dvf_error, "prix": 0}]
+
+        # 3. BienIci
         bienici_results = []
         try:
-            ville_slug = ville.lower().replace(" ", "-").replace("é","e").replace("è","e").replace("ê","e").replace("à","a")
-            cp_str = str(code_postal).replace(" ", "")
+            ville_slug = ville.lower()
+            for ch, rep in [(" ", "-"), ("é","e"),("è","e"),("ê","e"),("à","a"),("ô","o"),("î","i"),("û","u"),("ç","c")]:
+                ville_slug = ville_slug.replace(ch, rep)
+            cp_str = code_postal.replace(" ", "")
             bi_url = f"https://www.bienici.com/recherche/vente/{ville_slug}-{cp_str}?categories=bureaux_locaux_commerciaux&tri=prix-croissant"
             req_bi = _ur.Request(bi_url, headers={
-                "User-Agent": "Mozilla/5.0 (compatible; BarbierBot/1.0)",
-                "Accept": "text/html,application/xhtml+xml"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "fr-FR,fr;q=0.9"
             })
             with _ur.urlopen(req_bi, timeout=15) as r:
                 html = r.read().decode("utf-8", errors="ignore")
 
-            # Chercher les données JSON embarquées
-            json_match = None
-            patterns = [
-                r'"realEstateAds"\s*:\s*(\[[\s\S]{100,50000}?\])',
-                r'window\.__PRELOADED_STATE__\s*=\s*(\{[\s\S]{100,200000}?\});',
-            ]
-            for pat in patterns:
+            # Extraire JSON embarqué
+            for pat in [
+                r'"realEstateAds"\s*:\s*(\[[\s\S]{50,40000}?\](?=\s*[,}]))',
+            ]:
                 m = _re.search(pat, html)
                 if m:
                     try:
-                        parsed = _json.loads(m.group(1))
-                        if isinstance(parsed, list):
-                            json_match = parsed
-                        elif isinstance(parsed, dict):
-                            json_match = parsed.get("realEstateAds", [])
-                        if json_match:
-                            break
+                        ads = _json.loads(m.group(1))
+                        for ad in ads[:8]:
+                            surf = float(ad.get("surfaceArea") or ad.get("surface") or 0)
+                            prix = float(ad.get("price") or 0)
+                            if surf <= 0 or prix <= 0:
+                                continue
+                            bienici_results.append({
+                                "source": "BienIci (actif)",
+                                "adresse": (ad.get("address") or {}).get("street") or ad.get("title") or "",
+                                "ville": ad.get("city") or ville,
+                                "surface": surf,
+                                "prix": prix,
+                                "prix_m2": round(prix / surf) if surf > 0 else 0,
+                                "date": _time.strftime("%Y-%m-%d"),
+                                "url": "https://www.bienici.com" + (ad.get("publicationUrl") or ""),
+                                "type_bien": type_local,
+                                "description": (ad.get("description") or "")[:200] or f"Annonce active — {round(prix):,} €".replace(",", " ")
+                            })
+                        break
                     except:
                         continue
-
-            if json_match:
-                for ad in json_match[:8]:
-                    surf = float(ad.get("surfaceArea") or ad.get("surface") or 0)
-                    prix = float(ad.get("price") or 0)
-                    if surf <= 0 or prix <= 0:
-                        continue
-                    bienici_results.append({
-                        "source": "BienIci (actif)",
-                        "adresse": (ad.get("address") or {}).get("street") or ad.get("title") or "",
-                        "ville": ad.get("city") or ville,
-                        "surface": surf,
-                        "prix": prix,
-                        "prix_m2": round(prix / surf) if surf > 0 else 0,
-                        "date": _time.strftime("%Y-%m-%d"),
-                        "url": "https://www.bienici.com" + (ad.get("publicationUrl") or ""),
-                        "type_bien": type_local,
-                        "description": ((ad.get("description") or "")[:200]) or f"Annonce active — {round(prix):,} €".replace(",", " ")
-                    })
         except Exception as e:
             bienici_results = [{"source": "BienIci", "erreur": str(e), "prix": 0}]
 
-        all_results = [r for r in dvf_results + bienici_results if r.get("prix", 0) > 0]
+        all_valid = [r for r in dvf_results + bienici_results if r.get("prix", 0) > 0]
         return jsonify({
             "reference": reference or "",
             "ville": ville,
             "code_commune": code_commune,
             "dvf": dvf_results,
             "bienici": bienici_results,
-            "all": all_results,
-            "total": len(all_results),
+            "all": all_valid,
+            "total": len(all_valid),
             "dvf_count": len([r for r in dvf_results if r.get("prix", 0) > 0]),
             "bienici_count": len([r for r in bienici_results if r.get("prix", 0) > 0])
         })
