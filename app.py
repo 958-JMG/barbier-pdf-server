@@ -1235,6 +1235,13 @@ def _page6(c):
     c.setFont("Helvetica",9); c.drawString(20*_mm,21*_mm,"02.97.47.11.11  ·  contact@barbierimmobilier.com  ·  barbierimmobilier.com")
     _footer(c,6)
 
+
+def _clean_desc(text):
+    """Nettoie les variables n8n résiduelles {{ $json[...] }} d'un texte."""
+    import re as _re
+    if not text: return ""
+    return _re.sub(r'\{\{[^}]+\}\}', '', text).strip()
+
 def generate_dossier_pdf(d, comparables=[]):
     buf = _BytesIO()
     cv  = _canvas.Canvas(buf, pagesize=_A4)
@@ -1296,7 +1303,7 @@ def dossier_vente():
             "prix_estime_max": row.get("Prix estime max"),
             "prix_retenu":     row.get("Prix retenu"),
             "negociateur":     row.get("Negociateur","Barbier Immobilier"),
-            "description":     row.get("Description courte",""),
+            "description":     _clean_desc(row.get("Version portail") or row.get("Description courte","")),
             "annee_construct": row.get("Annee construction"),
             "activite":        row.get("Activite"),
             "ca_ht":           row.get("CA HT annuel"),
