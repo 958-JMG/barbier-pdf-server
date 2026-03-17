@@ -128,10 +128,10 @@ app = Flask(__name__)
 SEATABLE_TOKEN = os.environ.get("SEATABLE_TOKEN", "4fcb9688f14c8c6b076a5612c0dbadc0d7e7cf41")
 
 # ── CHARTE GRAPHIQUE ────────────────────────────────────────────────────────
-TEAL         = colors.HexColor("#1B6B7B")
-TEAL_DARK    = colors.HexColor("#145260")
-TEAL_LIGHT   = colors.HexColor("#EBF4F6")
-ORANGE       = colors.HexColor("#E8632A")
+TEAL         = colors.HexColor("#1B3A5C")
+TEAL_DARK    = colors.HexColor("#0F2641")
+TEAL_LIGHT   = colors.HexColor("#EBF0F8")
+ORANGE       = colors.HexColor("#E8472A")
 ORANGE_LIGHT = colors.HexColor("#FDF2EC")
 GRAY_DARK    = colors.HexColor("#1F2937")
 GRAY_MID     = colors.HexColor("#6B7280")
@@ -885,10 +885,10 @@ from reportlab.lib.units import mm as _mm
 from PIL import Image as _PILImage
 
 _W, _H = _A4
-_BLEU   = _colors.HexColor("#16708B")
-_ORANGE = _colors.HexColor("#F0795B")
-_BLEU_F = _colors.HexColor("#0D4F62")
-_GRIS   = _colors.HexColor("#F4F6F8")
+_BLEU   = _colors.HexColor("#1B3A5C")
+_ORANGE = _colors.HexColor("#E8472A")
+_BLEU_F = _colors.HexColor("#0F2641")
+_GRIS   = _colors.HexColor("#F3F4F6")
 _GTEXTE = _colors.HexColor("#333333")
 _BLANC  = _colors.white
 
@@ -920,9 +920,13 @@ def _header(c, sub=""):
     c.drawString(14*_mm, _H-7.5*_mm, f"DOSSIER DE PRÉSENTATION  ›  {sub.upper()}")
 
 def _sec(c, text, x, y):
-    c.setFillColor(_ORANGE); c.rect(x, y+3.5*_mm, 3*_mm, 7*_mm, fill=1, stroke=0)
-    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 13)
-    c.drawString(x+7*_mm, y+4.5*_mm, text)
+    # Fond léger toute largeur
+    c.setFillColor(_colors.HexColor("#EBF0F8"))
+    c.rect(x, y+2.5*_mm, _W-28*_mm, 8*_mm, fill=1, stroke=0)
+    # Barre orange gauche
+    c.setFillColor(_ORANGE); c.rect(x, y+2.5*_mm, 3.5*_mm, 8*_mm, fill=1, stroke=0)
+    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 12)
+    c.drawString(x+8*_mm, y+5*_mm, text)
 
 def _logo(c, x, y, w=34*_mm):
     pad = 3*_mm
@@ -933,7 +937,9 @@ def _logo(c, x, y, w=34*_mm):
     c.drawImage(logo, x, y, width=w, height=h, mask='auto')
 
 def _pill_picto(c, x, y, picto_b64, label, value, w=57*_mm, h=16*_mm):
-    c.setFillColor(_GRIS); c.roundRect(x, y, w, h, 2*_mm, fill=1, stroke=0)
+    # Fond avec légère bordure
+    c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#D1D8E8")); c.setLineWidth(0.5)
+    c.roundRect(x, y, w, h, 2*_mm, fill=1, stroke=1)
     r = 5.5*_mm; cx = x+r+2*_mm; cy = y+h/2
     c.setFillColor(_BLEU); c.circle(cx, cy, r, fill=1, stroke=0)
     try:
@@ -943,7 +949,7 @@ def _pill_picto(c, x, y, picto_b64, label, value, w=57*_mm, h=16*_mm):
     except:
         c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 8)
         c.drawCentredString(cx, cy-3*_mm, "•")
-    c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 6.5)
+    c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 6.5)
     c.drawString(x+r*2+5*_mm, y+h-4.5*_mm, label.upper())
     c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 9.5)
     # Auto-fit
@@ -1636,4 +1642,5 @@ def test_modelo():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
