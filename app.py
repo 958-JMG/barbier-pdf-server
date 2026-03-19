@@ -597,6 +597,20 @@ def page2(c, d, logo_buf=None):
 
     y -= avis_box_h + 14
 
+    # Section annonce portail
+    annonce_txt = (d.get("Version portail") or d.get("version_portail") or "").strip()
+    if annonce_txt:
+        y = sec_title(c, ML, y, "Annonce commerciale")
+        style_ann = ParagraphStyle("ann", fontName="Helvetica", fontSize=7.5, leading=11,
+                                   textColor=GRAY_DARK, leftIndent=8, rightIndent=8)
+        pa = Paragraph(annonce_txt, style_ann)
+        ann_w = CW - 16
+        pa.wrap(ann_w, 200)
+        ann_h = pa.height + 20
+        rrect(c, ML, y - ann_h, CW, ann_h, r=4, fill=GRAY_LIGHT, stroke=GRAY_BORDER, sw=0.5)
+        pa.drawOn(c, ML + 8, y - ann_h + 8)
+        y -= ann_h + 14
+
     # Méthodologie
     y = sec_title(c, ML, y, "Méthodologie d'évaluation")
 
@@ -694,8 +708,10 @@ def generate_pdf(data):
 "prix_sans_decote":data.get("Prix sans décote") or 0,
 "prix_avec_decote":data.get("Prix avec décote") or 0,
         "avis_valeur":     data.get("Avis de valeur", ""),
+"version_portail": data.get("Version portail") or data.get("version_portail") or "",
         # Garder aussi les clés originales pour page2
         "Avis de valeur":  data.get("Avis de valeur", ""),
+        "Version portail": data.get("Version portail") or data.get("version_portail") or "",
         "Prix estime min": data.get("Prix estime min"),
         "Prix estime max": data.get("Prix estime max"),
         "Prix retenu":     data.get("Prix retenu"),
