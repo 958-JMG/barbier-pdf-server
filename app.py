@@ -237,17 +237,37 @@ def get_ref_cadastrale(adresse, ville):
         return "—"
     except Exception:
         return "—"
+def _geocode(address):
+    """Géocode via BAN (data.gouv.fr) — fiable pour adresses françaises."""
+    try:
+        import urllib.parse
+        q = urllib.parse.quote(address)
+        r = requests.get(
+            f"https://api-adresse.data.gouv.fr/search/?q={q}&limit=1",
+            headers={"User-Agent": "BarbierImmobilier/1.0"}, timeout=10)
+        feat = r.json().get("features", [])
+        if feat:
+            lon, lat = feat[0]["geometry"]["coordinates"]
+            return float(lat), float(lon)
+    except: pass
+    return None, None
+
 def get_osm_map(address, out_w=840, out_h=340, zoom=16):
-    """Carte centrée exactement sur le point géocodé."""
+    """Carte centrée exactement sur le point géocodé — BAN en priorité, Nominatim en fallback."""
     try:
         headers = {"User-Agent": "BarbierImmobilier/1.0"}
-        r = requests.get("https://nominatim.openstreetmap.org/search",
-                         params={"q": address, "format": "json", "limit": 1},
-                         headers=headers, timeout=15)
-        res = r.json()
-        if not res: return None
-        lat = float(res[0]["lat"])
-        lon = float(res[0]["lon"])
+        # Essai 1 : BAN (API adresse gouv.fr — très fiable pour la France)
+        lat, lon = _geocode(address)
+        # Essai 2 : Nominatim fallback
+        if lat is None:
+            r = requests.get("https://nominatim.openstreetmap.org/search",
+                             params={"q": address, "format": "json", "limit": 1},
+                             headers=headers, timeout=15)
+            res = r.json()
+            if not res: return None
+            lat = float(res[0]["lat"])
+            lon = float(res[0]["lon"])
+        if lat is None: return None
 
         T = 256  # tile size
 
@@ -340,7 +360,7 @@ def page1(c, d, logo_buf=None):
     c.drawRightString(PAGE_W - MR, y - 13, "AVIS DE VALEUR PROFESSIONNEL")
     c.setFillColor(GRAY_MID)
     c.setFont("Helvetica", 8)
-    c.drawRightString(PAGE_W - MR, y - 25, f"Réf. {d['reference']}  ·  {d['ville']}  ·  {d['nom_client']}")
+    c.drawRightString(PAGE_W - MR, y - 25, f"Réf. {d['reference']}  ·  {d['ville']}  ·  {d['negociateur']}")
     c.restoreState()
 
     y -= header_h + 4
@@ -379,8 +399,23 @@ def page1(c, d, logo_buf=None):
 
     y -= 2*(cell_h + cell_gap) + 12
 
-    # ── SECTION 02 — LOCALISATION ───────────────────────────────────────────
-    y = sec_title(c, ML, y, "02 — Localisation")
+    # ── SECTION PHOTO DU BIEN (si fournie) ─────────────────────────────────
+    photo_b64 = d.get("photo_bien")
+    if photo_b64:
+        try:
+            photo_buf = io.BytesIO(base64.b64decode(photo_b64))
+            photo_h = 70*mm
+            y = sec_title(c, ML, y, "02 — Photo du bien")
+            c.drawImage(rl_canvas.ImageReader(photo_buf), ML, y - photo_h,
+                        width=CW, height=photo_h, preserveAspectRatio=False)
+            y -= photo_h + 14
+            y = sec_title(c, ML, y, "03 — Localisation")
+        except Exception as e:
+            print(f"Photo error: {e}")
+            y = sec_title(c, ML, y, "02 — Localisation")
+    else:
+        # ── SECTION 02 — LOCALISATION ───────────────────────────────────────────
+        y = sec_title(c, ML, y, "02 — Localisation")
 
     map_h = 88*mm
     _addr_geo = " ".join(filter(None, [d.get("adresse",""), d.get("code_postal",""), d.get("ville",""), "France"]))
@@ -652,6 +687,7 @@ def generate_pdf(data):
 "etat_bien":       data.get("Etat du bien") or "—",
 "negociateur":     data.get("Negociateur") or "—",
 "nom_client":      data.get("Nom client") or "—",
+"photo_bien":      data.get("Photo bien") or data.get("photo_bien") or None,
 "prix_min":        data.get("Prix estime min") or 0,
 "prix_max":        data.get("Prix estime max") or 0,
 "prix_retenu":     data.get("Prix retenu") or 0,
