@@ -720,7 +720,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.7"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.8"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1631,272 +1631,283 @@ def test_modelo():
 
 
 # ══════════════════════════════════════════════════════════════
-# FICHE COMMERCIALE — page 1 (fiche du bien)
+# FICHE COMMERCIALE v2 — page 1
 # ══════════════════════════════════════════════════════════════
+
+# Couleur orange Barbier correcte
+_ORANGE_FC = _colors.HexColor("#EC795C")
+
 def _fiche_page1(c, d):
-    """Page 1 : fiche commerciale du bien.
-    En-tête bleu foncé : logo + infos négociatrice
-    Bandeau titre : Référence · Type · Surface · Loyer/Prix · Mandat
-    Corps 2 colonnes : photo + carte OSM | blocs technique + financier
-    Blocs texte pleine largeur : description ville + description commerciale
-    """
     import io as _io
 
-    # ── fond blanc toute la page ──────────────────────────────
+    # ── FOND BLANC ────────────────────────────────────────────
     c.setFillColor(_BLANC); c.rect(0, 0, _W, _H, fill=1, stroke=0)
 
-    # ── EN-TÊTE BLEU (hauteur 28 mm) ─────────────────────────
-    hdr_h = 28*_mm
-    c.setFillColor(_BLEU); c.rect(0, _H-hdr_h, _W, hdr_h, fill=1, stroke=0)
+    # ── EN-TÊTE BLEU (28 mm) ──────────────────────────────────
+    HDR_H = 28 * _mm
+    c.setFillColor(_BLEU); c.rect(0, _H - HDR_H, _W, HDR_H, fill=1, stroke=0)
 
     # Logo (coin droit)
-    _logo(c, _W-46*_mm, _H-25*_mm, w=30*_mm)
+    _logo(c, _W - 46*_mm, _H - 25*_mm, w=30*_mm)
 
     # Photo négociatrice (ronde)
-    nego_photo_url = d.get("nego_photo_url","")
-    neg_img = None
-    if nego_photo_url:
-        neg_img = _fetch_photo_image(nego_photo_url)
-    circ_r = 9*_mm
-    circ_x, circ_y = 14*_mm, _H-hdr_h/2-circ_r
+    CIRC_R = 9*_mm
+    CIRC_X = 14*_mm
+    CIRC_Y = _H - HDR_H/2 - CIRC_R
+
+    nego_photo_url = d.get("nego_photo_url", "")
+    neg_img = _fetch_photo_image(nego_photo_url) if nego_photo_url else None
+
     if neg_img:
         try:
-            # Clip circulaire via mask
-            from reportlab.lib.utils import ImageReader as _IR
             from PIL import Image as _PILI
-            raw = neg_img
-            sz = int(circ_r*2*3)  # 3x pour qualité
-            pil_src = raw._image if hasattr(raw, '_image') else None
+            from reportlab.lib.utils import ImageReader as _IR
+            sz = int(CIRC_R * 2 * 3)
+            pil_src = neg_img._image if hasattr(neg_img, '_image') else None
             if pil_src:
-                pil_sq = pil_src.resize((sz,sz), _PILI.LANCZOS)
-                mask_img = _PILI.new("L",(sz,sz),0)
+                pil_sq = pil_src.resize((sz, sz), _PILI.LANCZOS)
+                mask_img = _PILI.new("L", (sz, sz), 0)
                 import PIL.ImageDraw as _PID
-                draw = _PID.Draw(mask_img)
-                draw.ellipse((0,0,sz,sz),fill=255)
+                _PID.Draw(mask_img).ellipse((0, 0, sz, sz), fill=255)
                 pil_sq.putalpha(mask_img)
                 buf_neg = _io.BytesIO()
-                pil_sq.save(buf_neg,"PNG"); buf_neg.seek(0)
-                neg_ir = _IR(buf_neg)
-                c.drawImage(neg_ir, circ_x, circ_y, circ_r*2, circ_r*2, mask="auto")
+                pil_sq.save(buf_neg, "PNG"); buf_neg.seek(0)
+                c.drawImage(_IR(buf_neg), CIRC_X, CIRC_Y, CIRC_R*2, CIRC_R*2, mask="auto")
             else:
-                c.drawImage(neg_img, circ_x, circ_y, circ_r*2, circ_r*2, mask="auto")
+                c.drawImage(neg_img, CIRC_X, CIRC_Y, CIRC_R*2, CIRC_R*2, mask="auto")
         except Exception:
-            c.setFillColor(_ORANGE)
-            c.circle(circ_x+circ_r, circ_y+circ_r, circ_r, fill=1, stroke=0)
+            c.setFillColor(_ORANGE_FC)
+            c.circle(CIRC_X + CIRC_R, CIRC_Y + CIRC_R, CIRC_R, fill=1, stroke=0)
     else:
-        c.setFillColor(_ORANGE)
-        c.circle(circ_x+circ_r, circ_y+circ_r, circ_r, fill=1, stroke=0)
+        c.setFillColor(_ORANGE_FC)
+        c.circle(CIRC_X + CIRC_R, CIRC_Y + CIRC_R, CIRC_R, fill=1, stroke=0)
 
-    # Nom + titre + contact négociatrice
-    tx = circ_x + circ_r*2 + 3*_mm
-    ty_name = circ_y + circ_r*2 - 4*_mm
-    c.setFillColor(_BLANC)
-    nom = d.get("nego_nom_complet","") or "Barbier Immobilier"
-    titre = d.get("nego_titre","") or "Négociatrice"
-    tel = d.get("nego_telephone","") or ""
-    email = d.get("nego_email","") or ""
-    c.setFont("Helvetica-Bold", 10); c.drawString(tx, ty_name, nom)
+    # Texte négo
+    TX = CIRC_X + CIRC_R*2 + 3*_mm
+    TY = CIRC_Y + CIRC_R*2 - 4*_mm
+    nom   = d.get("nego_nom_complet", "") or "Barbier Immobilier"
+    titre = d.get("nego_titre", "") or "Négociatrice"
+    tel   = d.get("nego_telephone", "") or ""
+    email = d.get("nego_email", "") or ""
+    c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10); c.drawString(TX, TY, nom)
     c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#FFFFFFBB"))
-    c.drawString(tx, ty_name-5*_mm, titre)
-    contact_parts = []
-    if tel: contact_parts.append(tel)
-    if email: contact_parts.append(email)
-    if contact_parts:
-        c.setFont("Helvetica", 7.5); c.drawString(tx, ty_name-10*_mm, "  ·  ".join(contact_parts))
+    c.drawString(TX, TY - 5*_mm, titre)
+    parts_ct = [p for p in [tel, email] if p]
+    if parts_ct:
+        c.setFont("Helvetica", 7.5)
+        c.drawString(TX, TY - 10*_mm, "  ·  ".join(parts_ct))
 
-    # ── BANDEAU TITRE (hauteur ~18 mm) ────────────────────────
-    band_y = _H-hdr_h-18*_mm; band_h = 18*_mm
-    c.setFillColor(_BLEU_F); c.rect(0, band_y, _W, band_h, fill=1, stroke=0)
-    c.setFillColor(_BLANC)
-    ref = d.get("Reference","") or d.get("reference","")
-    type_b = d.get("Type de bien","") or d.get("type_bien","") or "Bien"
-    surf = d.get("Surface") or d.get("surface") or ""
-    stat_m = d.get("Statut mandat","") or d.get("statut_mandat","") or ""
+    # ── BANDEAU TITRE BLEU FONCÉ (16 mm) ─────────────────────
+    BAND_H = 16*_mm
+    BAND_Y = _H - HDR_H - BAND_H
+    c.setFillColor(_BLEU_F); c.rect(0, BAND_Y, _W, BAND_H, fill=1, stroke=0)
 
-    # Loyer ou prix
-    loyer = d.get("Loyer mensuel") or d.get("loyer_mensuel")
-    prix = d.get("Prix de vente") or d.get("prix_vente")
+    ref    = d.get("Reference", "") or d.get("reference", "")
+    type_b = d.get("Type de bien", "") or d.get("type_bien", "") or "Bien"
+    surf   = d.get("Surface") or d.get("surface") or 0
+    stat_m = d.get("Statut mandat", "") or d.get("statut_mandat", "") or ""
+    loyer  = d.get("Loyer mensuel") or d.get("loyer_mensuel") or 0
+    prix   = d.get("Prix de vente") or d.get("prix_vente") or 0
+
+    surf_str = f"{int(float(surf))} m²" if surf else ""
     if loyer:
-        val_str = f"{int(float(loyer)):,} € HT/mois".replace(",","")
-        val_lbl = "LOYER MENSUEL"
+        val_str = f"{int(float(loyer)):,} € HT/mois".replace(",", " ")
     elif prix:
         val_str = _pfmt(prix)
-        val_lbl = "PRIX"
     else:
-        val_str = "—"
-        val_lbl = "VALEUR"
+        val_str = ""
 
-    surf_str = f"{int(float(surf))} m²" if surf else "—"
-    parts = []
-    if ref: parts.append(f"Réf. {ref}")
-    if type_b: parts.append(type_b)
-    if surf_str != "—": parts.append(surf_str)
-    parts.append(val_str)
-    if stat_m: parts.append(stat_m.upper())
+    band_parts = []
+    if ref:      band_parts.append(f"Réf. {ref}")
+    if type_b:   band_parts.append(type_b)
+    if surf_str: band_parts.append(surf_str)
+    if val_str:  band_parts.append(val_str)
+    if stat_m:   band_parts.append(stat_m.upper())
 
-    c.setFont("Helvetica-Bold", 10.5)
-    separator = "  ·  "
-    line = separator.join(parts)
-    # Ajustement taille si trop long
+    c.setFillColor(_BLANC)
+    line = "  ·  ".join(band_parts)
     for fsz in [10.5, 9.5, 8.5, 7.5]:
         c.setFont("Helvetica-Bold", fsz)
-        if c.stringWidth(line,"Helvetica-Bold",fsz) < _W-28*_mm: break
-    c.drawString(14*_mm, band_y + 6*_mm, line)
+        if c.stringWidth(line, "Helvetica-Bold", fsz) < _W - 28*_mm:
+            break
+    c.drawString(14*_mm, BAND_Y + 5.5*_mm, line)
 
-    # ── CORPS : 2 colonnes ────────────────────────────────────
-    body_top = band_y - 4*_mm
-    col_w = (_W-30*_mm)/2
-    lcol_x = 14*_mm
-    rcol_x = 14*_mm + col_w + 2*_mm
+    # ── LAYOUT CORPS : positions fixes ───────────────────────
+    # Zone corps : de BAND_Y jusqu'à 14 mm (footer)
+    # Diviser verticalement :
+    #   - photo bien    : 60 mm de haut, départ depuis BAND_Y - 4 mm
+    #   - carte OSM     : 48 mm, sous la photo
+    #   - zone texte    : 30 mm, sous la carte
+    # Colonne droite : commence à BAND_Y - 4 mm, blocs empilés
 
-    # === Colonne gauche : photo puis carte OSM ===
-    photo_h = 58*_mm
-    photo_y = body_top - photo_h
+    MARGIN   = 14*_mm
+    GAP      = 4*_mm
+    COL_W    = (_W - 2*MARGIN - GAP) / 2
 
-    photo_url = d.get("Photo bien","") or ""
+    LCOL_X = MARGIN
+    RCOL_X = MARGIN + COL_W + GAP
+
+    PHOTO_H = 58*_mm
+    CARTE_H = 46*_mm
+    BODY_TOP = BAND_Y - 4*_mm   # haut de la zone corps
+
+    PHOTO_Y = BODY_TOP - PHOTO_H
+    CARTE_Y = PHOTO_Y - 4*_mm - CARTE_H
+    TEXT_Y  = CARTE_Y - 3*_mm        # haut de la zone texte (au-dessus footer)
+
+    # === Colonne gauche : photo ===
+    photo_url = d.get("Photo bien", "") or d.get("photo_url", "") or ""
     photo_img = _fetch_photo_image(photo_url) if photo_url else None
+
     if photo_img:
         try:
             iw, ih = photo_img.getSize()
-            scale = min(col_w/iw, photo_h/ih)
-            dw, dh = iw*scale, ih*scale
-            dx = lcol_x+(col_w-dw)/2; dy = photo_y+(photo_h-dh)/2
+            scale = min(COL_W / iw, PHOTO_H / ih)
+            dw, dh = iw * scale, ih * scale
+            dx = LCOL_X + (COL_W - dw) / 2
+            dy = PHOTO_Y + (PHOTO_H - dh) / 2
             c.saveState()
-            p = c.beginPath()
-            p.roundRect(lcol_x, photo_y, col_w, photo_h, 2*_mm)
+            p = c.beginPath(); p.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm)
             c.clipPath(p, stroke=0, fill=0)
             c.drawImage(photo_img, dx, dy, dw, dh, mask="auto")
             c.restoreState()
         except Exception:
             c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
-            c.roundRect(lcol_x, photo_y, col_w, photo_h, 2*_mm, fill=1, stroke=1)
-            c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica",9)
-            c.drawCentredString(lcol_x+col_w/2, photo_y+photo_h/2, "Photo du bien")
+            c.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm, fill=1, stroke=1)
+            c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica", 8)
+            c.drawCentredString(LCOL_X + COL_W/2, PHOTO_Y + PHOTO_H/2, "Photo du bien")
     else:
         c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
-        c.roundRect(lcol_x, photo_y, col_w, photo_h, 2*_mm, fill=1, stroke=1)
-        c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica",8)
-        c.drawCentredString(lcol_x+col_w/2, photo_y+photo_h/2, "Photo non disponible")
+        c.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm, fill=1, stroke=1)
+        c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica", 8)
+        c.drawCentredString(LCOL_X + COL_W/2, PHOTO_Y + PHOTO_H/2, "Photo non disponible")
 
-    # Carte OSM sous la photo
-    carte_h = 50*_mm
-    carte_y = photo_y - 3*_mm - carte_h
-    adresse = d.get("Adresse","") or d.get("adresse","") or ""
-    ville = d.get("Ville","Vannes") or d.get("ville","Vannes")
+    # === Carte OSM ===
+    adresse = d.get("Adresse", "") or d.get("adresse", "") or ""
+    ville   = d.get("Ville", "Vannes") or d.get("ville", "Vannes") or "Vannes"
     try:
         map_img = _osm_map(adresse, ville, zoom=16, tiles=3)
         if map_img:
-            c.roundRect(lcol_x, carte_y, col_w, carte_h, 2*_mm, fill=0, stroke=0)
             c.saveState()
-            p2 = c.beginPath(); p2.roundRect(lcol_x, carte_y, col_w, carte_h, 2*_mm)
+            p2 = c.beginPath(); p2.roundRect(LCOL_X, CARTE_Y, COL_W, CARTE_H, 2*_mm)
             c.clipPath(p2, stroke=0, fill=0)
-            c.drawImage(map_img, lcol_x, carte_y, col_w, carte_h, mask="auto")
+            c.drawImage(map_img, LCOL_X, CARTE_Y, COL_W, CARTE_H, mask="auto")
             c.restoreState()
         else:
             raise Exception("no map")
     except Exception:
         c.setFillColor(_colors.HexColor("#E8EEF4")); c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.5)
-        c.roundRect(lcol_x, carte_y, col_w, carte_h, 2*_mm, fill=1, stroke=1)
-        c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica",8)
-        c.drawCentredString(lcol_x+col_w/2, carte_y+carte_h/2, "Localisation")
+        c.roundRect(LCOL_X, CARTE_Y, COL_W, CARTE_H, 2*_mm, fill=1, stroke=1)
+        c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica", 8)
+        c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y + CARTE_H/2, "Localisation")
 
-    # Légende adresse sous la carte
-    c.setFillColor(_GTEXTE); c.setFont("Helvetica",7)
-    c.drawCentredString(lcol_x+col_w/2, carte_y-4*_mm,
-        f"{adresse}, {ville}".strip(", "))
+    # Légende adresse
+    c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 6.5)
+    adr_line = f"{adresse}, {ville}".strip(", ")
+    c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y - 3.5*_mm, adr_line)
 
     # === Colonne droite : blocs technique + financier ===
-    ry = body_top - 3*_mm  # curseur Y colonne droite
+    ry = BODY_TOP   # curseur Y (descend)
 
-    def _mini_section(title):
+    def _mini_sec(title):
         nonlocal ry
-        ry -= 6*_mm
-        c.setFillColor(_ORANGE); c.rect(rcol_x, ry, 2.5*_mm, 5*_mm, fill=1, stroke=0)
-        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 9)
-        c.drawString(rcol_x+4.5*_mm, ry+1*_mm, title.upper())
-        ry -= 3*_mm
+        ry -= 7*_mm
+        c.setFillColor(_ORANGE_FC); c.rect(RCOL_X, ry, 3*_mm, 5*_mm, fill=1, stroke=0)
+        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
+        c.drawString(RCOL_X + 5*_mm, ry + 1.2*_mm, title.upper())
+        ry -= 2*_mm
 
     def _row(label, value):
         nonlocal ry
-        if not value or value == "—": return
-        ry -= 5.5*_mm
+        # Filtrer : False, None, "", 0
+        if value is None or value == "" or value is False:
+            return
+        try:
+            if float(value) == 0:
+                return
+        except (TypeError, ValueError):
+            pass
+        ry -= 6*_mm
         c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 7.5)
-        c.drawString(rcol_x, ry, label)
+        c.drawString(RCOL_X, ry, label)
         c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8)
-        c.drawRightString(rcol_x+col_w, ry, str(value))
+        c.drawRightString(RCOL_X + COL_W, ry, str(value))
         c.setStrokeColor(_colors.HexColor("#EEEEEE")); c.setLineWidth(0.3)
-        c.line(rcol_x, ry-1.5*_mm, rcol_x+col_w, ry-1.5*_mm)
+        c.line(RCOL_X, ry - 1.5*_mm, RCOL_X + COL_W, ry - 1.5*_mm)
 
-    # --- Bloc Technique ---
-    _mini_section("Caractéristiques")
-    surf_v = d.get("Surface") or d.get("surface","")
-    if surf_v: _row("Surface", f"{int(float(surf_v))} m²")
-    pmr = d.get("PMR","")
-    if pmr: _row("PMR", pmr)
-    dpe = d.get("DPE classe","") or d.get("dpe_classe","")
-    ges = d.get("GES classe","") or d.get("ges_classe","")
+    def _fmt_eur(v, suffix=""):
+        if not v: return None
+        try: return f"{int(float(v)):,} €{suffix}".replace(",", "\u202f")
+        except: return str(v)
+
+    # Bloc Caractéristiques
+    _mini_sec("Caractéristiques")
+    if surf:
+        try: _row("Surface", f"{int(float(surf))} m²")
+        except: pass
+    pmr = d.get("PMR", "") or ""
+    if pmr: _row("PMR / Accessibilité", pmr)
+    dpe = d.get("DPE classe", "") or d.get("dpe_classe", "") or ""
+    ges = d.get("GES classe", "") or d.get("ges_classe", "") or ""
     if dpe: _row("Classe DPE", f"Classe {dpe}")
     if ges: _row("Classe GES", f"Classe {ges}")
-    type_bail = d.get("Type de bail","") or d.get("type_bail","")
-    if type_bail: _row("Type de bail", type_bail)
-    stat_m2 = d.get("Statut mandat","") or d.get("statut_mandat","")
-    if stat_m2: _row("Mandat", stat_m2)
+    tb  = d.get("Type de bail", "") or d.get("type_bail", "") or ""
+    if tb: _row("Type de bail", tb)
+    if stat_m: _row("Mandat", stat_m)
 
-    # --- Bloc Financier ---
-    ry -= 3*_mm
-    _mini_section("Informations financières")
-    loyer_m = d.get("Loyer mensuel") or d.get("loyer_mensuel")
-    loyer_a = d.get("Loyer annuel") or d.get("loyer_annuel")
-    loyer_m2 = d.get("Loyer annuel m2") or d.get("loyer_annuel_m2")
-    hono = d.get("Honoraires locataire") or d.get("honoraires_locataire")
-    depot = d.get("Dépôt de garantie") or d.get("depot_garantie")
-    taxe_f = d.get("Taxe foncière") or d.get("taxe_fonciere")
-    prix_v = d.get("Prix de vente") or d.get("prix_vente")
+    # Séparation
+    ry -= 4*_mm
 
-    if loyer_m: _row("Loyer mensuel", f"{int(float(loyer_m)):,} € HT".replace(",",""))
-    if loyer_a: _row("Loyer annuel", f"{int(float(loyer_a)):,} € HT".replace(",",""))
+    # Bloc Financier
+    _mini_sec("Informations financières")
+    loyer_m  = d.get("Loyer mensuel")    or d.get("loyer_mensuel")    or 0
+    loyer_a  = d.get("Loyer annuel")     or d.get("loyer_annuel")     or 0
+    loyer_m2 = d.get("Loyer annuel m2")  or d.get("loyer_annuel_m2")  or 0
+    hono     = d.get("Honoraires locataire") or d.get("honoraires_locataire") or 0
+    depot    = d.get("Dépôt de garantie")    or d.get("depot_garantie")       or 0
+    taxe_f   = d.get("Taxe foncière")        or d.get("taxe_fonciere")         or 0
+    prix_v   = d.get("Prix de vente")        or d.get("prix_vente")            or 0
+
+    if loyer_m:  _row("Loyer mensuel",      _fmt_eur(loyer_m, " HT/mois"))
+    if loyer_a:  _row("Loyer annuel",       _fmt_eur(loyer_a, " HT"))
     if loyer_m2:
-        try: _row("Loyer/m²/an", f"{float(loyer_m2):.0f} € HT/m²")
+        try: _row("Loyer / m² / an", f"{float(loyer_m2):.0f} € HT/m²")
         except: pass
-    if prix_v: _row("Prix de vente", _pfmt(prix_v))
-    if hono: _row("Honoraires locataire", _pfmt(hono))
-    if depot: _row("Dépôt de garantie", _pfmt(depot))
-    if taxe_f: _row("Taxe foncière", f"{int(float(taxe_f)):,} €/an".replace(",",""))
+    if prix_v:   _row("Prix de vente",      _pfmt(prix_v))
+    if hono:     _row("Honoraires locataire", _pfmt(hono))
+    if depot:    _row("Dépôt de garantie",  _pfmt(depot))
+    if taxe_f:
+        try: _row("Taxe foncière",          _fmt_eur(taxe_f, "/an"))
+        except: pass
 
-    # ── BLOCS TEXTE PLEINE LARGEUR ────────────────────────────
-    # Calcul de l'espace restant (entre carte/colonne droite et le footer)
-    bottom_zone_y = max(carte_y - 7*_mm, ry - 3*_mm, 20*_mm)
-    text_zone_top = bottom_zone_y
-    text_zone_w = _W - 28*_mm
+    # ── ZONE TEXTES PLEINE LARGEUR ────────────────────────────
+    desc_v = d.get("Description ville", "")          or d.get("description_ville", "")          or ""
+    desc_c = d.get("Description commerciale", "")    or d.get("description_commerciale", "")    or ""
+    vp     = d.get("Version portail", "")             or d.get("version_portail", "")             or ""
 
-    desc_ville = d.get("Description ville","") or d.get("description_ville","")
-    desc_comm  = d.get("Description commerciale","") or d.get("description_commerciale","")
+    full = ""
+    if desc_v: full += desc_v.strip()
+    if desc_c:
+        if full: full += "\n\n"
+        full += desc_c.strip()
+    if not full and vp:
+        full = vp.strip()
 
-    # Concaténer les deux descriptions en un bloc
-    full_desc = ""
-    if desc_ville: full_desc += desc_ville.strip()
-    if desc_comm:
-        if full_desc: full_desc += "\n\n"
-        full_desc += desc_comm.strip()
-
-    if full_desc:
-        # Décaler le curseur vers le bas à partir du bas de la zone utile
-        avail_h = text_zone_top - 14*_mm  # espace au-dessus du footer
-        ps_desc = _PS("fdesc", fontName="Helvetica", fontSize=8.5,
-                      textColor=_GTEXTE, leading=13, spaceBefore=0, spaceAfter=0)
-        p_desc = _Para(full_desc.replace("\n\n","<br/><br/>").replace("\n","<br/>"), ps_desc)
-        _, ph_desc = p_desc.wrap(text_zone_w, avail_h)
-        # Placer juste au-dessus du footer
-        txt_y = 14*_mm
-        if ph_desc < avail_h:
-            p_desc.drawOn(c, 14*_mm, txt_y)
+    if full:
+        TW = _W - 2*MARGIN
+        AVAIL = TEXT_Y - 16*_mm   # hauteur dispo au-dessus du footer
+        if AVAIL > 8*_mm:
+            ps = _PS("ftxt", fontName="Helvetica", fontSize=8.5,
+                     textColor=_GTEXTE, leading=13)
+            para = _Para(full.replace("\n\n","<br/><br/>").replace("\n","<br/>"), ps)
+            _, ph = para.wrap(TW, AVAIL)
+            # Dessiner juste au-dessus du footer (16 mm)
+            ty = 16*_mm
+            para.drawOn(c, MARGIN, ty)
 
     _footer(c, 1)
 
 
-# ══════════════════════════════════════════════════════════════
-# FICHE COMMERCIALE — génération PDF
-# ══════════════════════════════════════════════════════════════
 def generate_fiche_commerciale_pdf(d):
     buf = _BytesIO()
     cv  = _canvas.Canvas(buf, pagesize=_A4)
@@ -1914,9 +1925,9 @@ def fiche_commerciale():
         if not d:
             return jsonify({"error": "Payload JSON requis"}), 400
         pdf_bytes = generate_fiche_commerciale_pdf(d)
-        ref = d.get("Reference","") or d.get("reference","bien")
+        ref = d.get("Reference", "") or d.get("reference", "bien")
         return Response(pdf_bytes, mimetype="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=fiche-commerciale-{ref}.pdf"})
+            headers={"Content-Disposition": f"attachment; filename=Fiche_commerciale_{ref}.pdf"})
     except Exception as e:
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
