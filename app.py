@@ -2104,7 +2104,7 @@ def fiche_commerciale():
 def test_gpt():
     import os, traceback
     # Lister toutes les vars qui contiennent OPENAI ou AI ou KEY
-    env_keys = [k for k in os.environ.keys() if any(x in k.upper() for x in ["OPENAI","GPT","AI_KEY","API_KEY"])]
+    env_keys = sorted(os.environ.keys())
     key = os.environ.get("OPENAI_API_KEY","")
     if not key:
         return jsonify({"OPENAI_API_KEY": "ABSENTE", "vars_trouvees": env_keys}), 200
