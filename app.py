@@ -414,19 +414,13 @@ def page1(c, d, logo_buf=None):
             c.drawImage(rl_canvas.ImageReader(photo_buf), ML, y - photo_h,
                         width=CW, height=photo_h, preserveAspectRatio=False)
             y -= photo_h + 14
-            y = sec_title(c, ML, y, "03 — Localisation")
         except Exception as e:
             print(f"Photo error: {e}")
-            y = sec_title(c, ML, y, "02 — Localisation")
-    else:
-        # ── SECTION 02 — LOCALISATION ───────────────────────────────────────────
-        y = sec_title(c, ML, y, "02 — Localisation")
-
     # ── LOCALISATION + ESTIMATION CÔTE À CÔTE ──────────────────────────────
     section_num_loc = "03" if d.get("photo_bien") else "02"
     y = sec_title(c, ML, y, f"{section_num_loc} — Localisation & Estimation de valeur")
 
-    bloc_h = 88*mm   # hauteur commune des deux colonnes
+    bloc_h = 80*mm   # hauteur commune des deux colonnes
     gap    = 8       # espace entre colonne gauche et droite
     map_w  = CW * 0.56
     est_w  = CW - map_w - gap
