@@ -720,7 +720,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.10"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.11"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1648,8 +1648,14 @@ def _footer_fiche(c, n, total=2):
 
 def _page6_fiche(c):
     _page6(c)
-    # Écraser le footer 6/6 par 2/2
-    _footer_fiche(c, 2, 2)
+    # Écraser entièrement le footer 6/6 par 2/2
+    # Redessiner le fond pour masquer le texte précédent
+    c.setFillColor(_BLEU_F)
+    c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
+    c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
+    c.drawString(14*_mm, 3.5*_mm,
+        "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com")
+    c.drawRightString(_W - 14*_mm, 3.5*_mm, "2 / 2")
 
 def _safe_str(v):
     """Retourne une chaîne propre sans \u202f ni caractères non-cp1252."""
@@ -1833,10 +1839,11 @@ def _fiche_page1(c, d):
     def _mini_sec(title):
         nonlocal ry
         ry -= 7*_mm
+        # Barre orange visible
         c.setFillColor(_ORANGE_FC)
-        c.rect(RCOL_X, ry, 3*_mm, 5*_mm, fill=1, stroke=0)
+        c.rect(RCOL_X, ry, 4*_mm, 6*_mm, fill=1, stroke=0)
         c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
-        c.drawString(RCOL_X + 5*_mm, ry + 1.2*_mm, _safe_str(title.upper()))
+        c.drawString(RCOL_X + 6*_mm, ry + 1.2*_mm, _safe_str(title.upper()))
         ry -= 2*_mm
 
     def _row(label, value):
@@ -1892,7 +1899,7 @@ def _fiche_page1(c, d):
         try: _row("Taxe fonciere", _fmt_eur(taxe_f, "EUR/an"))
         except: pass
 
-    # === Textes pleine largeur ===
+    # === Textes pleine largeur (sous la carte) ===
     desc_v = d.get("Description ville", "")       or d.get("description_ville", "")       or ""
     desc_c = d.get("Description commerciale", "") or d.get("description_commerciale", "") or ""
     vp     = d.get("Version portail", "")          or d.get("version_portail", "")          or ""
@@ -1905,16 +1912,20 @@ def _fiche_page1(c, d):
     if not full and vp: full = vp.strip()
 
     if full:
-        TXT_TOP = min(CARTE_Y - 6*_mm, ry - 4*_mm)
-        AVAIL   = TXT_TOP - FOOTER_H
-        if AVAIL > 10*_mm:
+        # Ancrer juste sous la carte, espace 4mm
+        TXT_BOTTOM = FOOTER_H          # footer = 12mm
+        TXT_TOP    = CARTE_Y - 6*_mm   # juste sous la carte
+        AVAIL      = TXT_TOP - TXT_BOTTOM
+        if AVAIL > 8*_mm:
             TW  = _W - 2*MARGIN
             ps  = _PS("ftxt", fontName="Helvetica", fontSize=8.5,
                       textColor=_GTEXTE, leading=13)
             safe_txt = _safe_str(full).replace("\n\n", "<br/><br/>").replace("\n", "<br/>")
             para = _Para(safe_txt, ps)
             _, ph = para.wrap(TW, AVAIL)
-            para.drawOn(c, MARGIN, FOOTER_H)
+            # Aligner par le haut (TXT_TOP - ph) ou forcer au bas si trop long
+            ty = max(TXT_BOTTOM, TXT_TOP - ph)
+            para.drawOn(c, MARGIN, ty)
 
     _footer_fiche(c, 1, 2)
 
