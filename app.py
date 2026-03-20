@@ -720,7 +720,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.9"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.10"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1631,18 +1631,35 @@ def test_modelo():
 
 
 # ══════════════════════════════════════════════════════════════
-# FICHE COMMERCIALE v3 — page 1
+# FICHE COMMERCIALE v4 — page 1 (corrections m², espaces, footer)
 # ══════════════════════════════════════════════════════════════
 
-_ORANGE_FC = _colors.HexColor("#EC795C")   # Orange Barbier correct
+_ORANGE_FC = _colors.HexColor("#EC795C")
+
+def _footer_fiche(c, n, total=2):
+    c.setFillColor(_BLEU_F); c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
+    c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
+    c.drawString(14*_mm, 3.5*_mm, "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com")
+    c.drawRightString(_W - 14*_mm, 3.5*_mm, f"{n} / {total}")
+
 
 def _fiche_page1(c, d):
     import io as _io
 
-    # ── EN-TÊTE BLEU (28 mm) ──────────────────────────────────
-    HDR_H = 28 * _mm
-    c.setFillColor(_BLEU); c.rect(0, _H - HDR_H, _W, HDR_H, fill=1, stroke=0)
+    def _fmt_m2(v):
+        """Surface en m2 sans caractère spécial."""
+        try: return f"{int(float(v))} m2"
+        except: return str(v)
 
+    def _fmt_eur(v, suffix=""):
+        """Montant en euros avec espaces normaux."""
+        if not v: return None
+        try: return f"{int(float(v)):,} {suffix}".replace(",", " ").strip()
+        except: return str(v)
+
+    # ── EN-TÊTE BLEU ─────────────────────────────────────────
+    HDR_H = 28*_mm
+    c.setFillColor(_BLEU); c.rect(0, _H - HDR_H, _W, HDR_H, fill=1, stroke=0)
     _logo(c, _W - 46*_mm, _H - 25*_mm, w=30*_mm)
 
     CIRC_R = 9*_mm; CIRC_X = 14*_mm; CIRC_Y = _H - HDR_H/2 - CIRC_R
@@ -1651,10 +1668,10 @@ def _fiche_page1(c, d):
     if neg_img:
         try:
             from PIL import Image as _PILI; from reportlab.lib.utils import ImageReader as _IR
+            import PIL.ImageDraw as _PID
             sz = int(CIRC_R * 2 * 3)
             pil_src = neg_img._image if hasattr(neg_img, '_image') else None
             if pil_src:
-                import PIL.ImageDraw as _PID
                 pil_sq = pil_src.resize((sz, sz), _PILI.LANCZOS)
                 mask_img = _PILI.new("L", (sz, sz), 0)
                 _PID.Draw(mask_img).ellipse((0, 0, sz, sz), fill=255)
@@ -1670,7 +1687,7 @@ def _fiche_page1(c, d):
 
     TX = CIRC_X + CIRC_R*2 + 3*_mm; TY = CIRC_Y + CIRC_R*2 - 4*_mm
     nom   = d.get("nego_nom_complet", "") or "Barbier Immobilier"
-    titre = d.get("nego_titre", "")        or "Négociatrice"
+    titre = d.get("nego_titre", "")        or "Negociatrice"
     tel   = d.get("nego_telephone", "")    or ""
     email = d.get("nego_email", "")        or ""
     c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10); c.drawString(TX, TY, nom)
@@ -1679,41 +1696,42 @@ def _fiche_page1(c, d):
     parts_ct = [p for p in [tel, email] if p]
     if parts_ct:
         c.setFont("Helvetica", 7.5)
-        c.drawString(TX, TY - 10*_mm, "  ·  ".join(parts_ct))
+        c.drawString(TX, TY - 10*_mm, "  .  ".join(parts_ct))
 
-    # ── BANDEAU TITRE (16 mm) ─────────────────────────────────
+    # ── BANDEAU TITRE ────────────────────────────────────────
     BAND_H = 16*_mm; BAND_Y = _H - HDR_H - BAND_H
     c.setFillColor(_BLEU_F); c.rect(0, BAND_Y, _W, BAND_H, fill=1, stroke=0)
 
-    ref    = d.get("Reference", "")        or d.get("reference", "")
-    type_b = d.get("Type de bien", "")     or d.get("type_bien", "") or "Bien"
-    surf   = d.get("Surface")              or d.get("surface") or 0
-    stat_m = d.get("Statut mandat", "")    or d.get("statut_mandat", "") or ""
-    loyer  = d.get("Loyer mensuel")        or d.get("loyer_mensuel") or 0
-    prix   = d.get("Prix de vente")        or d.get("prix_vente") or 0
+    ref    = d.get("Reference", "") or d.get("reference", "")
+    type_b = d.get("Type de bien", "") or d.get("type_bien", "") or "Bien"
+    surf   = d.get("Surface") or d.get("surface") or 0
+    stat_m = d.get("Statut mandat", "") or d.get("statut_mandat", "") or ""
+    loyer  = d.get("Loyer mensuel") or d.get("loyer_mensuel") or 0
+    prix   = d.get("Prix de vente") or d.get("prix_vente") or 0
 
-    surf_str = f"{int(float(surf))} m²" if surf else ""
+    surf_str = _fmt_m2(surf) if surf else ""
     if loyer:
-        val_str = f"{int(float(loyer)):,} € HT/mois".replace(",", "\u202f")
+        val_str = _fmt_eur(loyer, "E HT/mois")
     elif prix:
         val_str = _pfmt(prix)
     else:
         val_str = ""
 
     band_parts = []
-    if ref:      band_parts.append(f"Réf. {ref}")
+    if ref:      band_parts.append(f"Ref. {ref}")
     if type_b:   band_parts.append(type_b)
     if surf_str: band_parts.append(surf_str)
     if val_str:  band_parts.append(val_str)
     if stat_m:   band_parts.append(stat_m.upper())
+
     c.setFillColor(_BLANC)
-    line = "  ·  ".join(band_parts)
+    line = "  .  ".join(band_parts)
     for fsz in [10.5, 9.5, 8.5, 7.5]:
         c.setFont("Helvetica-Bold", fsz)
         if c.stringWidth(line, "Helvetica-Bold", fsz) < _W - 28*_mm: break
     c.drawString(14*_mm, BAND_Y + 5.5*_mm, line)
 
-    # ── CORPS ─────────────────────────────────────────────────
+    # ── CORPS ────────────────────────────────────────────────
     MARGIN  = 14*_mm; GAP = 4*_mm
     COL_W   = (_W - 2*MARGIN - GAP) / 2
     LCOL_X  = MARGIN; RCOL_X = MARGIN + COL_W + GAP
@@ -1722,7 +1740,7 @@ def _fiche_page1(c, d):
     PHOTO_Y  = BODY_TOP - PHOTO_H
     CARTE_Y  = PHOTO_Y - 4*_mm - CARTE_H
 
-    # === Photo bien (colonne gauche) ===
+    # Photo bien
     photo_url = d.get("Photo bien", "") or d.get("photo_url", "") or ""
     photo_img = _fetch_photo_image(photo_url) if photo_url else None
     if photo_img:
@@ -1739,14 +1757,13 @@ def _fiche_page1(c, d):
             pass
         finally:
             c.restoreState()
-    # Placeholder si pas de photo (dessiné APRÈS restore, hors clip)
     if not photo_img:
         c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
         c.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm, fill=1, stroke=1)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica", 8)
         c.drawCentredString(LCOL_X + COL_W/2, PHOTO_Y + PHOTO_H/2, "Photo non disponible")
 
-    # === Carte OSM ===
+    # Carte OSM
     adresse = d.get("Adresse", "") or d.get("adresse", "") or ""
     ville   = d.get("Ville", "Vannes") or d.get("ville", "Vannes") or "Vannes"
     map_ok  = False
@@ -1771,12 +1788,11 @@ def _fiche_page1(c, d):
         c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica", 8)
         c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y + CARTE_H/2, "Localisation")
 
-    # Légende adresse
     c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 6.5)
     c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y - 4*_mm,
                         f"{adresse}, {ville}".strip(", "))
 
-    # === Colonne droite : blocs ===
+    # Colonne droite
     ry = BODY_TOP
 
     def _mini_sec(title):
@@ -1801,17 +1817,12 @@ def _fiche_page1(c, d):
         c.setStrokeColor(_colors.HexColor("#EEEEEE")); c.setLineWidth(0.3)
         c.line(RCOL_X, ry - 1.5*_mm, RCOL_X + COL_W, ry - 1.5*_mm)
 
-    def _fmt_eur(v, suffix=""):
-        if not v: return None
-        try: return f"{int(float(v)):,} €{suffix}".replace(",", "\u202f")
-        except: return str(v)
-
-    _mini_sec("Caractéristiques")
+    _mini_sec("Caracteristiques")
     if surf:
-        try: _row("Surface", f"{int(float(surf))} m²")
+        try: _row("Surface", _fmt_m2(surf))
         except: pass
     pmr = d.get("PMR", "") or ""
-    if pmr: _row("PMR / Accessibilité", pmr)
+    if pmr: _row("PMR / Accessibilite", pmr)
     dpe = d.get("DPE classe", "") or d.get("dpe_classe", "") or ""
     ges = d.get("GES classe", "") or d.get("ges_classe", "") or ""
     if dpe: _row("Classe DPE", f"Classe {dpe}")
@@ -1821,29 +1832,29 @@ def _fiche_page1(c, d):
     if stat_m: _row("Mandat", stat_m)
 
     ry -= 4*_mm
-    _mini_sec("Informations financières")
+    _mini_sec("Informations financieres")
 
     loyer_m  = d.get("Loyer mensuel")        or d.get("loyer_mensuel")    or 0
     loyer_a  = d.get("Loyer annuel")         or d.get("loyer_annuel")     or 0
     loyer_m2 = d.get("Loyer annuel m2")      or d.get("loyer_annuel_m2") or 0
     hono     = d.get("Honoraires locataire") or d.get("honoraires_locataire") or 0
-    depot    = d.get("Dépôt de garantie")    or d.get("depot_garantie")  or 0
-    taxe_f   = d.get("Taxe foncière")        or d.get("taxe_fonciere")   or 0
+    depot    = d.get("Depot de garantie")    or d.get("Dépôt de garantie") or d.get("depot_garantie") or 0
+    taxe_f   = d.get("Taxe fonciere")        or d.get("Taxe foncière") or d.get("taxe_fonciere") or 0
     prix_v   = d.get("Prix de vente")        or d.get("prix_vente")      or 0
 
-    if loyer_m:  _row("Loyer mensuel",          _fmt_eur(loyer_m,  " HT/mois"))
-    if loyer_a:  _row("Loyer annuel",           _fmt_eur(loyer_a,  " HT"))
+    if loyer_m:  _row("Loyer mensuel",         _fmt_eur(loyer_m, "E HT/mois"))
+    if loyer_a:  _row("Loyer annuel",          _fmt_eur(loyer_a, "E HT"))
     if loyer_m2:
-        try: _row("Loyer / m² / an", f"{float(loyer_m2):.0f} € HT/m²")
+        try: _row("Loyer / m2 / an", f"{float(loyer_m2):.0f} E HT/m2")
         except: pass
-    if prix_v:   _row("Prix de vente",          _pfmt(prix_v))
-    if hono:     _row("Honoraires locataire",   _pfmt(hono))
-    if depot:    _row("Dépôt de garantie",      _pfmt(depot))
+    if prix_v:   _row("Prix de vente",         _pfmt(prix_v))
+    if hono:     _row("Honoraires locataire",  _pfmt(hono))
+    if depot:    _row("Depot de garantie",     _pfmt(depot))
     if taxe_f:
-        try: _row("Taxe foncière",              _fmt_eur(taxe_f,   "/an"))
+        try: _row("Taxe fonciere",             _fmt_eur(taxe_f, "E/an"))
         except: pass
 
-    # ── TEXTES PLEINE LARGEUR ─────────────────────────────────
+    # Textes pleine largeur
     desc_v = d.get("Description ville", "")         or d.get("description_ville", "")         or ""
     desc_c = d.get("Description commerciale", "")   or d.get("description_commerciale", "")   or ""
     vp     = d.get("Version portail", "")            or d.get("version_portail", "")            or ""
@@ -1857,32 +1868,23 @@ def _fiche_page1(c, d):
 
     if full:
         FOOTER_H = 12*_mm
-        TXT_BOTTOM = FOOTER_H
-        TXT_TOP = min(CARTE_Y - 6*_mm, ry - 4*_mm)
-        AVAIL = TXT_TOP - TXT_BOTTOM
+        TXT_TOP  = min(CARTE_Y - 6*_mm, ry - 4*_mm)
+        AVAIL    = TXT_TOP - FOOTER_H
         if AVAIL > 10*_mm:
             TW = _W - 2*MARGIN
             ps = _PS("ftxt", fontName="Helvetica", fontSize=8.5,
                      textColor=_GTEXTE, leading=13)
             para = _Para(full.replace("\n\n", "<br/><br/>").replace("\n", "<br/>"), ps)
             _, ph = para.wrap(TW, AVAIL)
-            if ph <= AVAIL:
-                para.drawOn(c, MARGIN, TXT_BOTTOM)
-            else:
-                # Tronquer si trop long
-                ps2 = _PS("ftxt2", fontName="Helvetica", fontSize=7.5,
-                          textColor=_GTEXTE, leading=11)
-                para2 = _Para(full.replace("\n\n", "<br/><br/>").replace("\n", "<br/>"), ps2)
-                para2.wrap(TW, AVAIL)
-                para2.drawOn(c, MARGIN, TXT_BOTTOM)
+            para.drawOn(c, MARGIN, FOOTER_H)
 
-    _footer(c, 1)
+    _footer_fiche(c, 1, 2)
 
 
 def generate_fiche_commerciale_pdf(d):
     buf = _BytesIO()
     cv  = _canvas.Canvas(buf, pagesize=_A4)
-    cv.setTitle(f"Fiche Commerciale — {d.get('Reference', '')}")
+    cv.setTitle(f"Fiche Commerciale - {d.get('Reference', '')}")
     _fiche_page1(cv, d); cv.showPage()
     _page6(cv);           cv.showPage()
     cv.save(); buf.seek(0)
