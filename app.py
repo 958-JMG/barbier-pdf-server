@@ -407,7 +407,7 @@ def page1(c, d, logo_buf=None):
             photo_h = 70*mm
             y = sec_title(c, ML, y, "02 — Photo du bien")
             c.drawImage(rl_canvas.ImageReader(photo_buf), ML, y - photo_h,
-                        width=CW, height=photo_h, preserveAspectRatio=False)
+                        width=CW, height=photo_h, preserveAspectRatio=True, anchor='c')
             y -= photo_h + 14
             y = sec_title(c, ML, y, "03 — Localisation")
         except Exception as e:
@@ -718,7 +718,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.1"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.5"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
