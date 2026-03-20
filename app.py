@@ -720,7 +720,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.9"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.10"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1764,6 +1764,10 @@ def _fiche_page1(c, d):
     CARTE_Y  = PHOTO_Y - 4*_mm - CARTE_H
     FOOTER_H = 12*_mm
 
+    # === Fond blanc explicite zone corps ===
+    c.setFillColor(_BLANC)
+    c.rect(0, 0, _W, BODY_TOP, fill=1, stroke=0)
+
     # === Colonne gauche : photo ===
     photo_url = d.get("Photo bien", "") or d.get("photo_url", "") or ""
     photo_img = _fetch_photo_image(photo_url) if photo_url else None
@@ -1773,7 +1777,6 @@ def _fiche_page1(c, d):
             scale = min(COL_W/iw, PHOTO_H/ih)
             dw, dh = iw*scale, ih*scale
             dx = LCOL_X + (COL_W-dw)/2; dy = PHOTO_Y + (PHOTO_H-dh)/2
-            # Clip arrondi PUIS dessin PUIS restore — sans roundRect stroke
             c.saveState()
             path = c.beginPath()
             path.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm)
@@ -1781,8 +1784,8 @@ def _fiche_page1(c, d):
             c.drawImage(photo_img, dx, dy, dw, dh, mask="auto")
             c.restoreState()
         except Exception:
-            c.saveState()
-            c.restoreState()
+            try: c.restoreState()
+            except: pass
     # Placeholder si pas de photo
     if not photo_img:
         c.setFillColor(_GRIS)
@@ -1790,6 +1793,9 @@ def _fiche_page1(c, d):
         c.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm, fill=1, stroke=1)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica", 8)
         c.drawCentredString(LCOL_X + COL_W/2, PHOTO_Y + PHOTO_H/2, "Photo non disponible")
+
+    # Reset couleur après gestion photo
+    c.setFillColor(_GTEXTE); c.setStrokeColor(_GTEXTE); c.setLineWidth(1)
 
     # === Carte OSM ===
     adresse = d.get("Adresse", "") or d.get("adresse", "") or ""
@@ -1806,7 +1812,8 @@ def _fiche_page1(c, d):
             c.restoreState()
             map_ok = True
     except Exception:
-        pass
+        try: c.restoreState()
+        except: pass
     if not map_ok:
         c.setFillColor(_colors.HexColor("#E8EEF4"))
         c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.5)
@@ -1814,7 +1821,9 @@ def _fiche_page1(c, d):
         c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica", 8)
         c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y + CARTE_H/2, "Localisation")
 
-    c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 6.5)
+    # Reset couleur après carte
+    c.setFillColor(_colors.HexColor("#888888")); c.setStrokeColor(_GTEXTE); c.setLineWidth(1)
+    c.setFont("Helvetica", 6.5)
     adr_leg = _safe_str(f"{adresse}, {ville}".strip(", "))
     c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y - 4*_mm, adr_leg)
 
