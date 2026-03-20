@@ -128,11 +128,11 @@ app = Flask(__name__)
 SEATABLE_TOKEN = os.environ.get("SEATABLE_TOKEN", "4fcb9688f14c8c6b076a5612c0dbadc0d7e7cf41")
 
 # ── CHARTE GRAPHIQUE ────────────────────────────────────────────────────────
-TEAL         = colors.HexColor("#1B3A5C")
-TEAL_DARK    = colors.HexColor("#0F2641")
-TEAL_LIGHT   = colors.HexColor("#EBF0F8")
-ORANGE       = colors.HexColor("#E8472A")
-ORANGE_LIGHT = colors.HexColor("#FDF2EC")
+TEAL         = colors.HexColor("#16708B")   # extrait du LOGO_B64
+TEAL_DARK    = colors.HexColor("#0D5570")   # variante foncée
+TEAL_LIGHT   = colors.HexColor("#E8F5F8")
+ORANGE       = colors.HexColor("#F0795B")   # extrait du LOGO_B64
+ORANGE_LIGHT = colors.HexColor("#FDF0EC")
 GRAY_DARK    = colors.HexColor("#1F2937")
 GRAY_MID     = colors.HexColor("#6B7280")
 GRAY_LIGHT   = colors.HexColor("#F3F4F6")
@@ -875,9 +875,9 @@ from reportlab.lib.units import mm as _mm
 from PIL import Image as _PILImage
 
 _W, _H = _A4
-_BLEU   = _colors.HexColor("#1B3A5C")
-_ORANGE = _colors.HexColor("#E8472A")
-_BLEU_F = _colors.HexColor("#0F2641")
+_BLEU   = _colors.HexColor("#16708B")   # extrait du LOGO_B64
+_ORANGE = _colors.HexColor("#F0795B")   # extrait du LOGO_B64
+_BLEU_F = _colors.HexColor("#0D5570")   # variante foncée du teal logo
 _GRIS   = _colors.HexColor("#F3F4F6")
 _GTEXTE = _colors.HexColor("#333333")
 _BLANC  = _colors.white
@@ -1637,7 +1637,7 @@ def test_modelo():
 # FICHE COMMERCIALE — v3.9
 # ═══════════════════════════════════════════════
 
-_ORANGE_FC = _colors.HexColor("#EC795C")
+_ORANGE_FC = _colors.HexColor("#F0795B")   # identique _ORANGE — extrait du LOGO_B64
 
 def _footer_fiche(c, n, total=2):
     c.setFillColor(_BLEU_F); c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
@@ -1647,15 +1647,36 @@ def _footer_fiche(c, n, total=2):
     c.drawRightString(_W - 14*_mm, 3.5*_mm, f"{n} / {total}")
 
 def _page6_fiche(c):
-    _page6(c)
-    # Écraser entièrement le footer 6/6 par 2/2
-    # Redessiner le fond pour masquer le texte précédent
-    c.setFillColor(_BLEU_F)
-    c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
-    c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
-    c.drawString(14*_mm, 3.5*_mm,
-        "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com")
-    c.drawRightString(_W - 14*_mm, 3.5*_mm, "2 / 2")
+    """Page 'Pourquoi Barbier' pour la fiche commerciale — footer 2/2.
+    Contenu identique à _page6() mais avec _footer_fiche(c,2,2) au lieu de _footer(c,6).
+    NE PAS appeler _page6() pour éviter tout résidu du footer 6/6."""
+    c.setFillColor(_BLEU); c.rect(0,_H*0.5,_W,_H*0.5,fill=1,stroke=0)
+    c.setFillColor(_BLANC); c.rect(0,0,_W,_H*0.5,fill=1,stroke=0)
+    _logo(c, _W-54*_mm, _H-56*_mm, w=36*_mm)
+    c.setFillColor(_BLANC); c.setFont("Helvetica",11); c.drawString(14*_mm,_H-20*_mm,"VOTRE PARTENAIRE EN IMMOBILIER COMMERCIAL")
+    c.setFont("Helvetica-Bold",28); c.drawString(14*_mm,_H-38*_mm,"Barbier Immobilier")
+    c.setFont("Helvetica",14); c.setFillColor(_colors.HexColor("#FFFFFFCC")); c.drawString(14*_mm,_H-50*_mm,"Votre projet devient le nôtre")
+    c.setFillColor(_ORANGE); c.rect(14*_mm,_H-54*_mm,50*_mm,2.5*_mm,fill=1,stroke=0)
+    for i,(num,lbl) in enumerate([("33 ans","d'expertise locale"),("+5 000","clients accompagnés"),("3 métiers","vente · location · cession")]):
+        sx=14*_mm+i*(_W-28*_mm)/3
+        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",20); c.drawString(sx+3*_mm,_H*0.52+14*_mm,num)
+        c.setFont("Helvetica",9); c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.drawString(sx+3*_mm,_H*0.52+8*_mm,lbl)
+    for i,(title,desc) in enumerate([
+        ("Estimation & Valorisation","Analyse précise de la valeur vénale basée sur les données du marché local et notre expertise terrain."),
+        ("Vente & Transaction","Diffusion multi-portails, sélection d'acquéreurs qualifiés, négociation et suivi jusqu'à la signature."),
+        ("Location Commerciale","Recherche de locataires, rédaction des baux, gestion locative complète."),
+        ("Cession d'Entreprise","Accompagnement expert pour la cession ou reprise de fonds de commerce.")]):
+        sws=(_W-28*_mm-8*_mm)/2; shs=32*_mm; col=i%2; row2=i//2
+        sx4=14*_mm+col*(sws+8*_mm); sy4=_H*0.48-4*_mm-row2*(shs+5*_mm)
+        c.setFillColor(_GRIS); c.roundRect(sx4,sy4-shs,sws,shs,2*_mm,fill=1,stroke=0)
+        c.setFillColor(_ORANGE); c.rect(sx4,sy4-shs,3*_mm,shs,fill=1,stroke=0)
+        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",10); c.drawString(sx4+6*_mm,sy4-8*_mm,title)
+        p=_Para(desc,_PS("ds2",fontName="Helvetica",fontSize=8.5,textColor=_GTEXTE,leading=12))
+        _,ph=p.wrap(sws-10*_mm,9999); p.drawOn(c,sx4+6*_mm,sy4-shs+5*_mm)
+    c.setFillColor(_BLEU_F); c.roundRect(14*_mm,14*_mm,_W-28*_mm,20*_mm,2*_mm,fill=1,stroke=0)
+    c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",10); c.drawString(20*_mm,28*_mm,"2 place Albert Einstein, 56000 Vannes")
+    c.setFont("Helvetica",9); c.drawString(20*_mm,21*_mm,"02.97.47.11.11  ·  contact@barbierimmobilier.com  ·  barbierimmobilier.com")
+    _footer_fiche(c, 2, 2)
 
 def _safe_str(v):
     """Retourne une chaîne propre sans \u202f ni caractères non-cp1252."""
@@ -1890,7 +1911,15 @@ def _fiche_page1(c, d):
     if loyer_m:  _row("Loyer mensuel",        _fmt_eur(loyer_m,  "EUR HT/mois"))
     if loyer_a:  _row("Loyer annuel",         _fmt_eur(loyer_a,  "EUR HT"))
     if loyer_m2:
-        try: _row("Loyer / m2 / an", f"{float(loyer_m2):.0f} EUR HT/m2")
+        try:
+            lm2_val = float(loyer_m2)
+            # Recalculer si valeur aberrante (< 50 ou > 1000 pour local commercial)
+            surf = d.get("Surface") or d.get("surface") or 0
+            la   = d.get("Loyer annuel") or d.get("loyer_annuel") or 0
+            if (lm2_val < 50 or lm2_val > 1000) and surf and la:
+                try: lm2_val = float(la) / float(surf)
+                except: pass
+            _row("Loyer / m2 / an", f"{lm2_val:.0f} EUR HT/m2")
         except: pass
     if prix_v:   _row("Prix de vente",        _pfmt(prix_v))
     if hono:     _row("Honoraires locataire", _pfmt(hono))
@@ -1903,6 +1932,18 @@ def _fiche_page1(c, d):
     desc_v = d.get("Description ville", "")       or d.get("description_ville", "")       or ""
     desc_c = d.get("Description commerciale", "") or d.get("description_commerciale", "") or ""
     vp     = d.get("Version portail", "")          or d.get("version_portail", "")          or ""
+
+    # Générer Description ville en autonomie si absent (même logique que dossier vente)
+    if not desc_v:
+        try:
+            desc_v = _gpt_quartier(
+                d.get("Adresse", ""),
+                d.get("Ville", "Vannes"),
+                d.get("Type de bien", ""),
+                d.get("Surface", "")
+            )
+        except Exception:
+            desc_v = ""
 
     full = ""
     if desc_v: full += desc_v.strip()
