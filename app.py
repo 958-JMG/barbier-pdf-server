@@ -490,16 +490,6 @@ def page1(c, d, logo_buf=None):
 
     y -= card_h + 10
 
-    # Bandeau prix conseillé
-    b_h = 24
-    rrect(c, ML, y - b_h, CW, b_h, r=4, fill=ORANGE_LIGHT, stroke=ORANGE, sw=0.8)
-    c.saveState()
-    c.setFillColor(ORANGE);    c.setFont("Helvetica-Bold", 7.5)
-    c.drawString(ML + 10, y - b_h/2 - 3, "PRIX DE MISE EN MARCH\u00c9 CONSEILL\u00c9")
-    c.setFillColor(GRAY_DARK); c.setFont("Helvetica-Bold", 12)
-    c.drawRightString(PAGE_W - MR - 10, y - b_h/2 - 4, fmt(d["prix_retenu"]))
-    c.restoreState()
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE 2 — Analyse + Synthèse + Signatures (tout tient sur la page)
@@ -610,21 +600,6 @@ def page2(c, d, logo_buf=None):
         rrect(c, ML, y - ann_h, CW, ann_h, r=4, fill=GRAY_LIGHT, stroke=GRAY_BORDER, sw=0.5)
         pa.drawOn(c, ML + 8, y - ann_h + 8)
         y -= ann_h + 14
-
-    # Méthodologie
-    y = sec_title(c, ML, y, "Méthodologie d'évaluation")
-
-    methodo = (
-        "L'estimation est établie par comparaison avec les transactions récentes sur le marché local "
-        "et les biens actuellement proposés à la vente. Les éléments pris en compte incluent la "
-        "localisation, l'état général, la surface, la configuration et les tendances du marché "
-        "immobilier commercial à Vannes et son agglomération."
-    )
-    style_m = ParagraphStyle("m", fontName="Helvetica", fontSize=7.5, leading=11, textColor=GRAY_MID)
-    pm = Paragraph(methodo, style_m)
-    pm.wrap(CW, 50)
-    pm.drawOn(c, ML, y - pm.height)
-    y -= pm.height + 14
 
     # Section 05 — Signatures
     y = sec_title(c, ML, y, "05 — Signatures & Validation")
