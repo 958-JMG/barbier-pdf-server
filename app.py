@@ -404,10 +404,15 @@ def page1(c, d, logo_buf=None):
     if photo_b64:
         try:
             photo_buf = io.BytesIO(base64.b64decode(photo_b64))
-            photo_h = 70*mm
+            # Calculer hauteur selon ratio réel de l'image — max 95mm
+            from PIL import Image as _PILImage
+            _pil = _PILImage.open(io.BytesIO(base64.b64decode(photo_b64)))
+            _w, _h = _pil.size
+            _ratio = _h / _w if _w > 0 else 0.75
+            photo_h = min(CW * _ratio, 95*mm)
             y = sec_title(c, ML, y, "02 — Photo du bien")
             c.drawImage(rl_canvas.ImageReader(photo_buf), ML, y - photo_h,
-                        width=CW, height=photo_h, preserveAspectRatio=True, anchor='c')
+                        width=CW, height=photo_h, preserveAspectRatio=False)
             y -= photo_h + 14
             y = sec_title(c, ML, y, "03 — Localisation")
         except Exception as e:
