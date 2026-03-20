@@ -720,7 +720,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.13"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.14"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -990,17 +990,17 @@ def _gpt_quartier(adresse, ville, type_bien, surface):
     adresse_str = adresse or ville_str
     prompt = (
         f"Tu es un expert en immobilier commercial dans le Golfe du Morbihan (Bretagne Sud).\n"
-        f"Rédige un texte de présentation du quartier pour ce bien, destiné à un acquéreur professionnel.\n\n"
-        f"Bien : {type_bien or 'Local commercial'} de {surface or '?'} m²\n"
-        f"Localisation : {adresse_str}, {ville_str} (Morbihan, 56)\n\n"
+        f"Rédige un texte de présentation de la ville et du secteur, destiné à un futur locataire ou acquéreur.\n\n"
+        f"Secteur : {adresse_str}, {ville_str} (Morbihan, 56)\n"
+        f"Type de bien : {type_bien or 'Local commercial'} — {surface or '?'} m²\n\n"
         f"Le texte doit comporter 5 à 6 phrases riches (160-220 mots), en texte continu, sans titre ni liste.\n"
         f"Aborde obligatoirement :\n"
-        f"1. Le dynamisme économique et commercial du secteur de {ville_str}\n"
-        f"2. L'accessibilité : axes routiers (N165/rocade de {ville_str}), parkings, transports\n"
-        f"3. Le flux de clientèle et la visibilité du bien dans ce secteur\n"
-        f"4. Les commerces, services et équipements à proximité\n"
-        f"5. L'atout stratégique de cet emplacement pour une activité commerciale\n\n"
-        f"Ton : professionnel, valorisant, factuel. Pas de formule vague comme 'bien desservi' seul."
+        f"1. L'attractivité économique de {ville_str} (bassin d'emploi, tourisme, démographie, dynamisme)\n"
+        f"2. Le secteur spécifique : {adresse_str} — son positionnement, sa fréquentation, ses atouts\n"
+        f"3. L'accessibilité : axes routiers, parkings, transports en commun\n"
+        f"4. L'environnement commercial à proximité : enseignes, services, flux de clientèle\n"
+        f"5. Pourquoi ce secteur est stratégique pour implanter une activité\n\n"
+        f"Ton : éditorial, valorisant, vendeur. Pas de formule vague. Donner des éléments concrets sur {ville_str}."
     )
     payload = _json.dumps({
         "model": "gpt-4o-mini",
@@ -1647,12 +1647,17 @@ def _footer_fiche(c, n, total=3):
     c.drawRightString(_W - 14*_mm, 3.5*_mm, f"{n} / {total}")
 
 def _safe_str(v):
+    """Nettoie les caractères problématiques sans perdre les accents."""
     if v is None: return ""
-    s = str(v).replace("\u202f", " ").replace("\u00b2", "2")
-    try:
-        return s.encode("cp1252").decode("cp1252")
-    except Exception:
-        return s.encode("ascii", errors="replace").decode("ascii")
+    s = str(v)
+    s = s.replace("\u202f", " ").replace("\u00a0", " ")
+    s = s.replace("\u00b2", "2").replace("\u00b3", "3")
+    # Remplacer les guillemets typographiques par des guillemets droits
+    s = s.replace("\u2018", "'").replace("\u2019", "'")
+    s = s.replace("\u201c", '"').replace("\u201d", '"')
+    s = s.replace("\u2013", "-").replace("\u2014", "-")
+    s = s.replace("\u2026", "...")
+    return s
 
 def _fmt_m2(v):
     try: return f"{int(float(v))} m2"
@@ -1844,7 +1849,7 @@ def _fiche_page1(c, d):
     CARTE_H = 70*_mm
     map_ok = False
     try:
-        map_result = _osm_map(adresse, ville, zoom=16, tiles=3)
+        map_result = _osm_map(adresse, ville, zoom=15, tiles=3)
         if map_result:
             map_pil, _lat, _lon = map_result
             buf_map = _BytesIO()
@@ -2042,16 +2047,16 @@ def _page6_fiche(c):
     c.drawString(14*_mm,_H-20*_mm,"VOTRE PARTENAIRE EN IMMOBILIER COMMERCIAL")
     c.setFont("Helvetica-Bold",28); c.drawString(14*_mm,_H-38*_mm,"Barbier Immobilier")
     c.setFont("Helvetica",14); c.setFillColor(_colors.HexColor("#FFFFFFCC"))
-    c.drawString(14*_mm,_H-50*_mm,"Votre projet devient le notre")
+    c.drawString(14*_mm,_H-50*_mm,"Votre projet devient le n\u00f4tre")
     c.setFillColor(_ORANGE); c.rect(14*_mm,_H-54*_mm,50*_mm,2.5*_mm,fill=1,stroke=0)
-    for i,(num,lbl) in enumerate([("33 ans","d'expertise locale"),("+5 000","clients accompagnes"),("3 metiers","vente · location · cession")]):
+    for i,(num,lbl) in enumerate([("33 ans","d'expertise locale"),("+5 000","clients accompagn\u00e9s"),("3 m\u00e9tiers","vente · location · cession")]):
         sx=14*_mm+i*(_W-28*_mm)/3
         c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",20); c.drawString(sx+3*_mm,_H*0.52+14*_mm,num)
         c.setFont("Helvetica",9); c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.drawString(sx+3*_mm,_H*0.52+8*_mm,lbl)
     for i,(title,desc) in enumerate([
-        ("Estimation & Valorisation","Analyse precise de la valeur venale basee sur les donnees du marche local et notre expertise terrain."),
-        ("Vente & Transaction","Diffusion multi-portails, selection d'acquereurs qualifies, negociation et suivi jusqu'a la signature."),
-        ("Location Commerciale","Recherche de locataires, redaction des baux, gestion locative complete."),
+        ("Estimation & Valorisation","Analyse pr\u00e9cise de la valeur v\u00e9nale bas\u00e9e sur les donn\u00e9es du march\u00e9 local et notre expertise terrain."),
+        ("Vente & Transaction","Diffusion multi-portails, s\u00e9lection d'acqu\u00e9reurs qualifi\u00e9s, n\u00e9gociation et suivi jusqu'\u00e0 la signature."),
+        ("Location Commerciale","Recherche de locataires, r\u00e9daction des baux, gestion locative compl\u00e8te."),
         ("Cession d'Entreprise","Accompagnement expert pour la cession ou reprise de fonds de commerce.")]):
         sws=(_W-28*_mm-8*_mm)/2; shs=32*_mm; col=i%2; row2=i//2
         sx4=14*_mm+col*(sws+8*_mm); sy4=_H*0.48-4*_mm-row2*(shs+5*_mm)
