@@ -422,33 +422,35 @@ def page1(c, d, logo_buf=None):
         # ── SECTION 02 — LOCALISATION ───────────────────────────────────────────
         y = sec_title(c, ML, y, "02 — Localisation")
 
-    map_h = 75*mm
+    # ── LOCALISATION + ESTIMATION CÔTE À CÔTE ──────────────────────────────
+    section_num_loc = "03" if d.get("photo_bien") else "02"
+    y = sec_title(c, ML, y, f"{section_num_loc} — Localisation & Estimation de valeur")
+
+    bloc_h = 88*mm   # hauteur commune des deux colonnes
+    gap    = 8       # espace entre colonne gauche et droite
+    map_w  = CW * 0.56
+    est_w  = CW - map_w - gap
+
+    # ── Colonne gauche : carte OSM ───────────────────────────────────────────
     _addr_geo = " ".join(filter(None, [d.get("adresse",""), d.get("code_postal","") or "56000", d.get("ville","") or "Vannes", "France"]))
-    map_buf = get_osm_map(_addr_geo, out_w=840, out_h=340, zoom=18)
+    map_buf = get_osm_map(_addr_geo, out_w=640, out_h=420, zoom=18)
 
     if map_buf:
-        c.drawImage(rl_canvas.ImageReader(map_buf), ML, y - map_h,
-                    width=CW, height=map_h, preserveAspectRatio=False)
+        c.drawImage(rl_canvas.ImageReader(map_buf), ML, y - bloc_h,
+                    width=map_w, height=bloc_h, preserveAspectRatio=False)
     else:
-        rrect(c, ML, y - map_h, CW, map_h, fill=GRAY_LIGHT, stroke=GRAY_BORDER)
-        c.setFillColor(GRAY_MID); c.setFont("Helvetica", 9)
-        c.drawCentredString(ML + CW/2, y - map_h/2, "Carte de localisation indisponible")
+        rrect(c, ML, y - bloc_h, map_w, bloc_h, fill=GRAY_LIGHT, stroke=GRAY_BORDER)
+        c.setFillColor(GRAY_MID); c.setFont("Helvetica", 8)
+        c.drawCentredString(ML + map_w/2, y - bloc_h/2, "Carte indisponible")
 
     # Légende sous la carte
-    y -= map_h + 4
     c.saveState()
-    c.setFillColor(TEAL); c.setFont("Helvetica-Bold", 7.5)
-    c.drawString(ML, y, f"\u25a0  {d['adresse']}")
+    c.setFillColor(TEAL); c.setFont("Helvetica-Bold", 7)
+    c.drawString(ML, y - bloc_h - 9, f"\u25a0  {d.get('adresse','')}")
     c.restoreState()
-    y -= 14
 
-    # ── SECTION 03 — ESTIMATION DE VALEUR ───────────────────────────────────
-    section_num = "04" if d.get("photo_bien") else "03"
-    y = sec_title(c, ML, y, f"{section_num} — Estimation de valeur")
-
-    card_gap = 6
-    card_w = (CW - 2*card_gap) / 3
-    card_h = 58
+    # ── Colonne droite : 3 cartes estimation ────────────────────────────────
+    ex = ML + map_w + gap   # x de départ colonne droite
 
     cards = [
         ("VALEUR BASSE",   d["prix_min"],    False),
@@ -456,45 +458,45 @@ def page1(c, d, logo_buf=None):
         ("VALEUR HAUTE",   d["prix_max"],    False),
     ]
 
+    card_gap = 5
+    card_h   = (bloc_h - 2*card_gap) / 3   # 3 cartes empilées
+
     for i, (lbl, prix, rec) in enumerate(cards):
-        cx = ML + i * (card_w + card_gap)
-        cy = y - card_h
+        cy = y - (i * (card_h + card_gap)) - card_h
 
         if rec:
-            rrect(c, cx, cy, card_w, card_h, r=5, fill=TEAL, stroke=TEAL_DARK, sw=1.5)
+            rrect(c, ex, cy, est_w, card_h, r=5, fill=TEAL, stroke=TEAL_DARK, sw=1.5)
             tc, pc = WHITE, WHITE
         else:
-            rrect(c, cx, cy, card_w, card_h, r=5, fill=WHITE, stroke=GRAY_BORDER, sw=0.8)
+            rrect(c, ex, cy, est_w, card_h, r=5, fill=WHITE, stroke=GRAY_BORDER, sw=0.8)
             tc, pc = GRAY_MID, GRAY_DARK
 
-        # Badge RECOMMANDÉ (en haut, dans la carte)
+        # Badge RECOMMANDÉ
         if rec:
-            bw, bh = 72, 13
-            bx = cx + (card_w - bw)/2
-            by = cy + card_h - bh - 5
+            bw, bh = 78, 13
+            bx = ex + (est_w - bw)/2
+            by = cy + card_h - bh - 4
             rrect(c, bx, by, bw, bh, r=6, fill=ORANGE)
             c.saveState()
             c.setFillColor(WHITE); c.setFont("Helvetica-Bold", 6)
-            c.drawCentredString(cx + card_w/2, by + 3, "\u2605  RECOMMAND\u00c9")
+            c.drawCentredString(ex + est_w/2, by + 3.5, "\u2605  RECOMMAND\u00c9")
             c.restoreState()
 
         # Label
-        label_y = cy + card_h - (rec and 30 or 14)
+        label_y = cy + card_h - (rec and 30 or 13)
         c.saveState()
         c.setFillColor(tc); c.setFont("Helvetica", 6.5)
-        c.drawCentredString(cx + card_w/2, label_y, lbl)
+        c.drawCentredString(ex + est_w/2, label_y, lbl)
         c.restoreState()
 
-        # Prix — centré verticalement dans la carte
-        prix_str = fmt(prix)
-        # Centre vertical = cy + card_h/2, on retire demi-hauteur de la fonte (~8pt)
-        prix_y = cy + card_h/2 - (rec and 19 or 18)
+        # Prix
+        prix_y = cy + card_h/2 - (rec and 17 or 15)
         c.saveState()
-        c.setFillColor(pc); c.setFont("Helvetica-Bold", rec and 15 or 13)
-        c.drawCentredString(cx + card_w/2, prix_y, prix_str)
+        c.setFillColor(pc); c.setFont("Helvetica-Bold", rec and 13 or 11)
+        c.drawCentredString(ex + est_w/2, prix_y, fmt(prix))
         c.restoreState()
 
-    y -= card_h + 10
+    y -= bloc_h + 18
 
 
 # ══════════════════════════════════════════════════════════════════════════════
