@@ -720,7 +720,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.11"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.9"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1632,49 +1632,52 @@ def test_modelo():
 
 # ══════════════════════════════════════════════════════════════
 # FICHE COMMERCIALE v5 — page 1 + helpers
-# ══════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════
+# FICHE COMMERCIALE — v3.9
+# ═══════════════════════════════════════════════
 
 _ORANGE_FC = _colors.HexColor("#EC795C")
 
-def _rl(s):
-    """Encode une chaîne pour Helvetica ReportLab (cp1252 : €, ², ·, accents)."""
-    if not s: return ""
-    try:
-        return s.encode('cp1252').decode('cp1252')
-    except Exception:
-        return s.encode('ascii', errors='replace').decode('ascii')
-
 def _footer_fiche(c, n, total=2):
-    """Footer pour la fiche commerciale : n / total."""
     c.setFillColor(_BLEU_F); c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
     c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
-    c.drawString(14*_mm, 3.5*_mm, _rl(
-        "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com"
-    ))
+    c.drawString(14*_mm, 3.5*_mm,
+        "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com")
     c.drawRightString(_W - 14*_mm, 3.5*_mm, f"{n} / {total}")
 
 def _page6_fiche(c):
-    """Page 'Pourquoi Barbier' avec footer 2/2."""
     _page6(c)
     # Écraser le footer 6/6 par 2/2
     _footer_fiche(c, 2, 2)
 
+def _safe_str(v):
+    """Retourne une chaîne propre sans \u202f ni caractères non-cp1252."""
+    if v is None: return ""
+    s = str(v).replace("\u202f", " ").replace("\u00b2", "2")
+    try:
+        return s.encode("cp1252").decode("cp1252")
+    except Exception:
+        return s.encode("ascii", errors="replace").decode("ascii")
+
+def _fmt_m2(v):
+    try: return f"{int(float(v))} m2"
+    except: return str(v)
+
+def _fmt_eur(v, suffix=""):
+    if not v: return None
+    try:
+        s = f"{int(float(v)):,}".replace(",", " ")
+        return f"{s} {suffix}".strip() if suffix else f"{s} EUR"
+    except: return str(v)
 
 def _fiche_page1(c, d):
     import io as _io
 
-    def _fmt_m2(v):
-        try: return _rl(f"{int(float(v))} m²")
-        except: return str(v)
-
-    def _fmt_eur(v, suffix=""):
-        if not v: return None
-        try: return _rl(f"{int(float(v)):,} €{(' ' + suffix) if suffix else ''}".replace(",", " "))
-        except: return str(v)
-
-    # ── EN-TÊTE BLEU ─────────────────────────────────────────
+    # ── EN-TÊTE BLEU (28 mm) ─────────────────────────────────
     HDR_H = 28*_mm
-    c.setFillColor(_BLEU); c.rect(0, _H - HDR_H, _W, HDR_H, fill=1, stroke=0)
+    c.setFillColor(_BLEU)
+    c.rect(0, _H - HDR_H, _W, HDR_H, fill=1, stroke=0)
     _logo(c, _W - 46*_mm, _H - 25*_mm, w=30*_mm)
 
     CIRC_R = 9*_mm; CIRC_X = 14*_mm; CIRC_Y = _H - HDR_H/2 - CIRC_R
@@ -1682,10 +1685,11 @@ def _fiche_page1(c, d):
     neg_img = _fetch_photo_image(nego_photo_url) if nego_photo_url else None
     if neg_img:
         try:
-            from PIL import Image as _PILI; from reportlab.lib.utils import ImageReader as _IR
-            import PIL.ImageDraw as _PID
+            from PIL import Image as _PILI
+            from PIL import ImageDraw as _PID
+            from reportlab.lib.utils import ImageReader as _IR
             sz = int(CIRC_R * 2 * 3)
-            pil_src = neg_img._image if hasattr(neg_img, '_image') else None
+            pil_src = neg_img._image if hasattr(neg_img, "_image") else None
             if pil_src:
                 pil_sq = pil_src.resize((sz, sz), _PILI.LANCZOS)
                 mask_img = _PILI.new("L", (sz, sz), 0)
@@ -1696,90 +1700,98 @@ def _fiche_page1(c, d):
             else:
                 c.drawImage(neg_img, CIRC_X, CIRC_Y, CIRC_R*2, CIRC_R*2, mask="auto")
         except Exception:
-            c.setFillColor(_ORANGE_FC); c.circle(CIRC_X + CIRC_R, CIRC_Y + CIRC_R, CIRC_R, fill=1, stroke=0)
+            c.setFillColor(_ORANGE_FC)
+            c.circle(CIRC_X + CIRC_R, CIRC_Y + CIRC_R, CIRC_R, fill=1, stroke=0)
     else:
-        c.setFillColor(_ORANGE_FC); c.circle(CIRC_X + CIRC_R, CIRC_Y + CIRC_R, CIRC_R, fill=1, stroke=0)
+        c.setFillColor(_ORANGE_FC)
+        c.circle(CIRC_X + CIRC_R, CIRC_Y + CIRC_R, CIRC_R, fill=1, stroke=0)
 
     TX = CIRC_X + CIRC_R*2 + 3*_mm; TY = CIRC_Y + CIRC_R*2 - 4*_mm
-    nom   = d.get("nego_nom_complet", "") or "Barbier Immobilier"
-    titre = d.get("nego_titre", "")        or "Negociatrice"
-    tel   = d.get("nego_telephone", "")    or ""
-    email = d.get("nego_email", "")        or ""
+    nom   = _safe_str(d.get("nego_nom_complet") or "Barbier Immobilier")
+    titre = _safe_str(d.get("nego_titre")        or "Negociatrice")
+    tel   = _safe_str(d.get("nego_telephone")    or "")
+    email = _safe_str(d.get("nego_email")        or "")
     c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10)
-    c.drawString(TX, TY, _rl(nom))
+    c.drawString(TX, TY, nom)
     c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#FFFFFFBB"))
-    c.drawString(TX, TY - 5*_mm, _rl(titre))
+    c.drawString(TX, TY - 5*_mm, titre)
     parts_ct = [p for p in [tel, email] if p]
     if parts_ct:
         c.setFont("Helvetica", 7.5)
-        c.drawString(TX, TY - 10*_mm, _rl("  ·  ".join(parts_ct)))
+        c.drawString(TX, TY - 10*_mm, "  .  ".join(parts_ct))
 
-    # ── BANDEAU TITRE ─────────────────────────────────────────
+    # ── BANDEAU TITRE (16 mm) ─────────────────────────────────
     BAND_H = 16*_mm; BAND_Y = _H - HDR_H - BAND_H
     c.setFillColor(_BLEU_F); c.rect(0, BAND_Y, _W, BAND_H, fill=1, stroke=0)
 
     ref    = d.get("Reference", "")     or d.get("reference", "")
-    type_b = d.get("Type de bien", "")  or d.get("type_bien", "") or "Bien"
-    surf   = d.get("Surface")           or d.get("surface") or 0
+    type_b = d.get("Type de bien", "")  or d.get("type_bien", "")   or "Bien"
+    surf   = d.get("Surface")           or d.get("surface")         or 0
     stat_m = d.get("Statut mandat", "") or d.get("statut_mandat", "") or ""
-    loyer  = d.get("Loyer mensuel")     or d.get("loyer_mensuel") or 0
-    prix   = d.get("Prix de vente")     or d.get("prix_vente") or 0
+    loyer  = d.get("Loyer mensuel")     or d.get("loyer_mensuel")   or 0
+    prix   = d.get("Prix de vente")     or d.get("prix_vente")      or 0
 
     surf_str = _fmt_m2(surf) if surf else ""
     if loyer:
-        val_str = _fmt_eur(loyer, "HT/mois")
+        try:   val_str = f"{int(float(loyer)):,} EUR HT/mois".replace(",", " ")
+        except: val_str = str(loyer)
     elif prix:
         val_str = _pfmt(prix)
     else:
         val_str = ""
 
     band_parts = []
-    if ref:      band_parts.append(_rl(f"Réf. {ref}"))
-    if type_b:   band_parts.append(_rl(type_b))
+    if ref:      band_parts.append(f"Ref. {_safe_str(ref)}")
+    if type_b:   band_parts.append(_safe_str(type_b))
     if surf_str: band_parts.append(surf_str)
     if val_str:  band_parts.append(val_str)
-    if stat_m:   band_parts.append(_rl(stat_m.upper()))
+    if stat_m:   band_parts.append(_safe_str(stat_m.upper()))
 
     c.setFillColor(_BLANC)
-    line = _rl("  ·  ").join(band_parts)
+    line = "  .  ".join(band_parts)
     for fsz in [10.5, 9.5, 8.5, 7.5]:
         c.setFont("Helvetica-Bold", fsz)
         if c.stringWidth(line, "Helvetica-Bold", fsz) < _W - 28*_mm: break
     c.drawString(14*_mm, BAND_Y + 5.5*_mm, line)
 
-    # ── CORPS ─────────────────────────────────────────────────
-    MARGIN  = 14*_mm; GAP = 4*_mm
-    COL_W   = (_W - 2*MARGIN - GAP) / 2
-    LCOL_X  = MARGIN; RCOL_X = MARGIN + COL_W + GAP
-    PHOTO_H = 58*_mm; CARTE_H = 46*_mm
+    # ── CORPS : positions fixes ───────────────────────────────
+    MARGIN   = 14*_mm; GAP = 4*_mm
+    COL_W    = (_W - 2*MARGIN - GAP) / 2
+    LCOL_X   = MARGIN; RCOL_X = MARGIN + COL_W + GAP
+    PHOTO_H  = 58*_mm; CARTE_H = 46*_mm
     BODY_TOP = BAND_Y - 4*_mm
     PHOTO_Y  = BODY_TOP - PHOTO_H
     CARTE_Y  = PHOTO_Y - 4*_mm - CARTE_H
+    FOOTER_H = 12*_mm
 
-    # Photo bien
+    # === Colonne gauche : photo ===
     photo_url = d.get("Photo bien", "") or d.get("photo_url", "") or ""
     photo_img = _fetch_photo_image(photo_url) if photo_url else None
     if photo_img:
-        c.saveState()
         try:
             iw, ih = photo_img.getSize()
             scale = min(COL_W/iw, PHOTO_H/ih)
             dw, dh = iw*scale, ih*scale
             dx = LCOL_X + (COL_W-dw)/2; dy = PHOTO_Y + (PHOTO_H-dh)/2
-            p = c.beginPath(); p.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm)
-            c.clipPath(p, stroke=0, fill=0)
+            # Clip arrondi PUIS dessin PUIS restore — sans roundRect stroke
+            c.saveState()
+            path = c.beginPath()
+            path.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm)
+            c.clipPath(path, stroke=0, fill=0)
             c.drawImage(photo_img, dx, dy, dw, dh, mask="auto")
-        except Exception:
-            pass
-        finally:
             c.restoreState()
+        except Exception:
+            c.saveState()
+            c.restoreState()
+    # Placeholder si pas de photo
     if not photo_img:
-        c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
+        c.setFillColor(_GRIS)
+        c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
         c.roundRect(LCOL_X, PHOTO_Y, COL_W, PHOTO_H, 2*_mm, fill=1, stroke=1)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica", 8)
         c.drawCentredString(LCOL_X + COL_W/2, PHOTO_Y + PHOTO_H/2, "Photo non disponible")
 
-    # Carte OSM
+    # === Carte OSM ===
     adresse = d.get("Adresse", "") or d.get("adresse", "") or ""
     ville   = d.get("Ville", "Vannes") or d.get("ville", "Vannes") or "Vannes"
     map_ok  = False
@@ -1787,36 +1799,35 @@ def _fiche_page1(c, d):
         map_img = _osm_map(adresse, ville, zoom=16, tiles=3)
         if map_img:
             c.saveState()
-            try:
-                p2 = c.beginPath(); p2.roundRect(LCOL_X, CARTE_Y, COL_W, CARTE_H, 2*_mm)
-                c.clipPath(p2, stroke=0, fill=0)
-                c.drawImage(map_img, LCOL_X, CARTE_Y, COL_W, CARTE_H, mask="auto")
-                map_ok = True
-            except Exception:
-                pass
-            finally:
-                c.restoreState()
+            path2 = c.beginPath()
+            path2.roundRect(LCOL_X, CARTE_Y, COL_W, CARTE_H, 2*_mm)
+            c.clipPath(path2, stroke=0, fill=0)
+            c.drawImage(map_img, LCOL_X, CARTE_Y, COL_W, CARTE_H, mask="auto")
+            c.restoreState()
+            map_ok = True
     except Exception:
         pass
     if not map_ok:
-        c.setFillColor(_colors.HexColor("#E8EEF4")); c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.5)
+        c.setFillColor(_colors.HexColor("#E8EEF4"))
+        c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.5)
         c.roundRect(LCOL_X, CARTE_Y, COL_W, CARTE_H, 2*_mm, fill=1, stroke=1)
         c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica", 8)
         c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y + CARTE_H/2, "Localisation")
 
     c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 6.5)
-    c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y - 4*_mm,
-                        _rl(f"{adresse}, {ville}".strip(", ")))
+    adr_leg = _safe_str(f"{adresse}, {ville}".strip(", "))
+    c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y - 4*_mm, adr_leg)
 
-    # Colonne droite
+    # === Colonne droite : blocs ===
     ry = BODY_TOP
 
     def _mini_sec(title):
         nonlocal ry
         ry -= 7*_mm
-        c.setFillColor(_ORANGE_FC); c.rect(RCOL_X, ry, 3*_mm, 5*_mm, fill=1, stroke=0)
+        c.setFillColor(_ORANGE_FC)
+        c.rect(RCOL_X, ry, 3*_mm, 5*_mm, fill=1, stroke=0)
         c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
-        c.drawString(RCOL_X + 5*_mm, ry + 1.2*_mm, _rl(title.upper()))
+        c.drawString(RCOL_X + 5*_mm, ry + 1.2*_mm, _safe_str(title.upper()))
         ry -= 2*_mm
 
     def _row(label, value):
@@ -1827,53 +1838,55 @@ def _fiche_page1(c, d):
         except (TypeError, ValueError): pass
         ry -= 6*_mm
         c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 7.5)
-        c.drawString(RCOL_X, ry, _rl(label))
+        c.drawString(RCOL_X, ry, _safe_str(label))
         c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8)
-        c.drawRightString(RCOL_X + COL_W, ry, _rl(str(value)))
+        c.drawRightString(RCOL_X + COL_W, ry, _safe_str(str(value)))
         c.setStrokeColor(_colors.HexColor("#EEEEEE")); c.setLineWidth(0.3)
         c.line(RCOL_X, ry - 1.5*_mm, RCOL_X + COL_W, ry - 1.5*_mm)
 
-    _mini_sec("Caractéristiques")
+    _mini_sec("Caracteristiques")
     if surf:
         try: _row("Surface", _fmt_m2(surf))
         except: pass
     pmr = d.get("PMR", "") or ""
-    if pmr: _row("PMR / Accessibilité", pmr)
+    if pmr: _row("PMR / Accessibilite", pmr)
     dpe = d.get("DPE classe", "") or d.get("dpe_classe", "") or ""
-    ges = d.get("GES classe", "") or d.get("ges_classe", "") or ""
+    ges = d.get("GES classe",  "") or d.get("ges_classe",  "") or ""
     if dpe: _row("Classe DPE", f"Classe {dpe}")
     if ges: _row("Classe GES", f"Classe {ges}")
     tb = d.get("Type de bail", "") or d.get("type_bail", "") or ""
-    if tb: _row("Type de bail", tb)
-    if stat_m: _row("Mandat", stat_m)
+    if tb: _row("Type de bail", _safe_str(tb))
+    if stat_m: _row("Mandat", _safe_str(stat_m))
 
     ry -= 4*_mm
-    _mini_sec("Informations financières")
+    _mini_sec("Informations financieres")
 
-    loyer_m  = d.get("Loyer mensuel")        or d.get("loyer_mensuel")    or 0
-    loyer_a  = d.get("Loyer annuel")         or d.get("loyer_annuel")     or 0
-    loyer_m2 = d.get("Loyer annuel m2")      or d.get("loyer_annuel_m2") or 0
+    loyer_m  = d.get("Loyer mensuel")        or d.get("loyer_mensuel")        or 0
+    loyer_a  = d.get("Loyer annuel")         or d.get("loyer_annuel")         or 0
+    loyer_m2 = d.get("Loyer annuel m2")      or d.get("loyer_annuel_m2")      or 0
     hono     = d.get("Honoraires locataire") or d.get("honoraires_locataire") or 0
-    depot    = d.get("Dépôt de garantie")    or d.get("Depot de garantie") or d.get("depot_garantie") or 0
-    taxe_f   = d.get("Taxe foncière")        or d.get("Taxe fonciere") or d.get("taxe_fonciere") or 0
-    prix_v   = d.get("Prix de vente")        or d.get("prix_vente") or 0
+    depot    = d.get("Depot de garantie")    or d.get("depot_garantie")       or \
+               d.get("Dépôt de garantie")   or 0
+    taxe_f   = d.get("Taxe fonciere")        or d.get("taxe_fonciere")        or \
+               d.get("Taxe foncière")        or 0
+    prix_v   = d.get("Prix de vente")        or d.get("prix_vente")           or 0
 
-    if loyer_m:  _row("Loyer mensuel",          _fmt_eur(loyer_m,  "HT/mois"))
-    if loyer_a:  _row("Loyer annuel",           _fmt_eur(loyer_a,  "HT"))
+    if loyer_m:  _row("Loyer mensuel",        _fmt_eur(loyer_m,  "EUR HT/mois"))
+    if loyer_a:  _row("Loyer annuel",         _fmt_eur(loyer_a,  "EUR HT"))
     if loyer_m2:
-        try: _row("Loyer / m² / an", _rl(f"{float(loyer_m2):.0f} € HT/m²"))
+        try: _row("Loyer / m2 / an", f"{float(loyer_m2):.0f} EUR HT/m2")
         except: pass
-    if prix_v:   _row("Prix de vente",          _pfmt(prix_v))
-    if hono:     _row("Honoraires locataire",   _pfmt(hono))
-    if depot:    _row(_rl("Dépôt de garantie"), _pfmt(depot))
+    if prix_v:   _row("Prix de vente",        _pfmt(prix_v))
+    if hono:     _row("Honoraires locataire", _pfmt(hono))
+    if depot:    _row("Depot de garantie",    _pfmt(depot))
     if taxe_f:
-        try: _row("Taxe foncière",              _fmt_eur(taxe_f, "/an"))
+        try: _row("Taxe fonciere", _fmt_eur(taxe_f, "EUR/an"))
         except: pass
 
-    # Textes pleine largeur
-    desc_v = d.get("Description ville", "")         or d.get("description_ville", "")         or ""
-    desc_c = d.get("Description commerciale", "")   or d.get("description_commerciale", "")   or ""
-    vp     = d.get("Version portail", "")            or d.get("version_portail", "")            or ""
+    # === Textes pleine largeur ===
+    desc_v = d.get("Description ville", "")       or d.get("description_ville", "")       or ""
+    desc_c = d.get("Description commerciale", "") or d.get("description_commerciale", "") or ""
+    vp     = d.get("Version portail", "")          or d.get("version_portail", "")          or ""
 
     full = ""
     if desc_v: full += desc_v.strip()
@@ -1883,15 +1896,14 @@ def _fiche_page1(c, d):
     if not full and vp: full = vp.strip()
 
     if full:
-        FOOTER_H = 12*_mm
-        TXT_TOP  = min(CARTE_Y - 6*_mm, ry - 4*_mm)
-        AVAIL    = TXT_TOP - FOOTER_H
+        TXT_TOP = min(CARTE_Y - 6*_mm, ry - 4*_mm)
+        AVAIL   = TXT_TOP - FOOTER_H
         if AVAIL > 10*_mm:
-            TW = _W - 2*MARGIN
-            ps = _PS("ftxt", fontName="Helvetica", fontSize=8.5,
-                     textColor=_GTEXTE, leading=13)
-            safe_full = _rl(full)
-            para = _Para(safe_full.replace("\n\n", "<br/><br/>").replace("\n", "<br/>"), ps)
+            TW  = _W - 2*MARGIN
+            ps  = _PS("ftxt", fontName="Helvetica", fontSize=8.5,
+                      textColor=_GTEXTE, leading=13)
+            safe_txt = _safe_str(full).replace("\n\n", "<br/><br/>").replace("\n", "<br/>")
+            para = _Para(safe_txt, ps)
             _, ph = para.wrap(TW, AVAIL)
             para.drawOn(c, MARGIN, FOOTER_H)
 
@@ -1901,7 +1913,7 @@ def _fiche_page1(c, d):
 def generate_fiche_commerciale_pdf(d):
     buf = _BytesIO()
     cv  = _canvas.Canvas(buf, pagesize=_A4)
-    cv.setTitle(_rl(f"Fiche Commerciale - {d.get('Reference', '')}"))
+    cv.setTitle(f"Fiche Commerciale - {d.get('Reference', '')}")
     _fiche_page1(cv, d); cv.showPage()
     _page6_fiche(cv);    cv.showPage()
     cv.save(); buf.seek(0)
@@ -1922,10 +1934,7 @@ def fiche_commerciale():
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-
-
-
-
