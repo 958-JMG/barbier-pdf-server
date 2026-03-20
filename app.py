@@ -2099,6 +2099,19 @@ def fiche_commerciale():
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 
+
+@app.route("/test-gpt", methods=["GET"])
+def test_gpt():
+    import os, traceback
+    key = os.environ.get("OPENAI_API_KEY","")
+    if not key:
+        return jsonify({"error": "OPENAI_API_KEY manquante"}), 500
+    try:
+        result = _gpt_quartier("Zone de Luscanen", "Vannes", "Local commercial", "740")
+        return jsonify({"ok": True, "key_prefix": key[:8], "text_len": len(result), "text": result[:300]})
+    except Exception as e:
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
