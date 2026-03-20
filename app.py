@@ -2103,9 +2103,11 @@ def fiche_commerciale():
 @app.route("/test-gpt", methods=["GET"])
 def test_gpt():
     import os, traceback
+    # Lister toutes les vars qui contiennent OPENAI ou AI ou KEY
+    env_keys = [k for k in os.environ.keys() if any(x in k.upper() for x in ["OPENAI","GPT","AI_KEY","API_KEY"])]
     key = os.environ.get("OPENAI_API_KEY","")
     if not key:
-        return jsonify({"error": "OPENAI_API_KEY manquante"}), 500
+        return jsonify({"OPENAI_API_KEY": "ABSENTE", "vars_trouvees": env_keys}), 200
     try:
         result = _gpt_quartier("Zone de Luscanen", "Vannes", "Local commercial", "740")
         return jsonify({"ok": True, "key_prefix": key[:8], "text_len": len(result), "text": result[:300]})
