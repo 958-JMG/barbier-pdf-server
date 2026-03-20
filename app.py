@@ -417,8 +417,8 @@ def page1(c, d, logo_buf=None):
         # ── SECTION 02 — LOCALISATION ───────────────────────────────────────────
         y = sec_title(c, ML, y, "02 — Localisation")
 
-    map_h = 88*mm
-    _addr_geo = " ".join(filter(None, [d.get("adresse",""), d.get("code_postal",""), d.get("ville",""), "France"]))
+    map_h = 75*mm
+    _addr_geo = " ".join(filter(None, [d.get("adresse",""), d.get("code_postal","") or "56000", d.get("ville","") or "Vannes", "France"]))
     map_buf = get_osm_map(_addr_geo, out_w=840, out_h=340, zoom=18)
 
     if map_buf:
@@ -438,7 +438,8 @@ def page1(c, d, logo_buf=None):
     y -= 14
 
     # ── SECTION 03 — ESTIMATION DE VALEUR ───────────────────────────────────
-    y = sec_title(c, ML, y, "03 — Estimation de valeur")
+    section_num = "04" if d.get("photo_bien") else "03"
+    y = sec_title(c, ML, y, f"{section_num} — Estimation de valeur")
 
     card_gap = 6
     card_w = (CW - 2*card_gap) / 3
