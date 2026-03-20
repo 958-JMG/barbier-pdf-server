@@ -720,7 +720,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.10"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.11"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1631,30 +1631,45 @@ def test_modelo():
 
 
 # ══════════════════════════════════════════════════════════════
-# FICHE COMMERCIALE v4 — page 1 (corrections m², espaces, footer)
+# FICHE COMMERCIALE v5 — page 1 + helpers
 # ══════════════════════════════════════════════════════════════
 
 _ORANGE_FC = _colors.HexColor("#EC795C")
 
+def _rl(s):
+    """Encode une chaîne pour Helvetica ReportLab (cp1252 : €, ², ·, accents)."""
+    if not s: return ""
+    try:
+        return s.encode('cp1252').decode('cp1252')
+    except Exception:
+        return s.encode('ascii', errors='replace').decode('ascii')
+
 def _footer_fiche(c, n, total=2):
+    """Footer pour la fiche commerciale : n / total."""
     c.setFillColor(_BLEU_F); c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
     c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
-    c.drawString(14*_mm, 3.5*_mm, "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com")
+    c.drawString(14*_mm, 3.5*_mm, _rl(
+        "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com"
+    ))
     c.drawRightString(_W - 14*_mm, 3.5*_mm, f"{n} / {total}")
+
+def _page6_fiche(c):
+    """Page 'Pourquoi Barbier' avec footer 2/2."""
+    _page6(c)
+    # Écraser le footer 6/6 par 2/2
+    _footer_fiche(c, 2, 2)
 
 
 def _fiche_page1(c, d):
     import io as _io
 
     def _fmt_m2(v):
-        """Surface en m2 sans caractère spécial."""
-        try: return f"{int(float(v))} m2"
+        try: return _rl(f"{int(float(v))} m²")
         except: return str(v)
 
     def _fmt_eur(v, suffix=""):
-        """Montant en euros avec espaces normaux."""
         if not v: return None
-        try: return f"{int(float(v)):,} {suffix}".replace(",", " ").strip()
+        try: return _rl(f"{int(float(v)):,} €{(' ' + suffix) if suffix else ''}".replace(",", " "))
         except: return str(v)
 
     # ── EN-TÊTE BLEU ─────────────────────────────────────────
@@ -1690,48 +1705,49 @@ def _fiche_page1(c, d):
     titre = d.get("nego_titre", "")        or "Negociatrice"
     tel   = d.get("nego_telephone", "")    or ""
     email = d.get("nego_email", "")        or ""
-    c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10); c.drawString(TX, TY, nom)
+    c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10)
+    c.drawString(TX, TY, _rl(nom))
     c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#FFFFFFBB"))
-    c.drawString(TX, TY - 5*_mm, titre)
+    c.drawString(TX, TY - 5*_mm, _rl(titre))
     parts_ct = [p for p in [tel, email] if p]
     if parts_ct:
         c.setFont("Helvetica", 7.5)
-        c.drawString(TX, TY - 10*_mm, "  .  ".join(parts_ct))
+        c.drawString(TX, TY - 10*_mm, _rl("  ·  ".join(parts_ct)))
 
-    # ── BANDEAU TITRE ────────────────────────────────────────
+    # ── BANDEAU TITRE ─────────────────────────────────────────
     BAND_H = 16*_mm; BAND_Y = _H - HDR_H - BAND_H
     c.setFillColor(_BLEU_F); c.rect(0, BAND_Y, _W, BAND_H, fill=1, stroke=0)
 
-    ref    = d.get("Reference", "") or d.get("reference", "")
-    type_b = d.get("Type de bien", "") or d.get("type_bien", "") or "Bien"
-    surf   = d.get("Surface") or d.get("surface") or 0
+    ref    = d.get("Reference", "")     or d.get("reference", "")
+    type_b = d.get("Type de bien", "")  or d.get("type_bien", "") or "Bien"
+    surf   = d.get("Surface")           or d.get("surface") or 0
     stat_m = d.get("Statut mandat", "") or d.get("statut_mandat", "") or ""
-    loyer  = d.get("Loyer mensuel") or d.get("loyer_mensuel") or 0
-    prix   = d.get("Prix de vente") or d.get("prix_vente") or 0
+    loyer  = d.get("Loyer mensuel")     or d.get("loyer_mensuel") or 0
+    prix   = d.get("Prix de vente")     or d.get("prix_vente") or 0
 
     surf_str = _fmt_m2(surf) if surf else ""
     if loyer:
-        val_str = _fmt_eur(loyer, "E HT/mois")
+        val_str = _fmt_eur(loyer, "HT/mois")
     elif prix:
         val_str = _pfmt(prix)
     else:
         val_str = ""
 
     band_parts = []
-    if ref:      band_parts.append(f"Ref. {ref}")
-    if type_b:   band_parts.append(type_b)
+    if ref:      band_parts.append(_rl(f"Réf. {ref}"))
+    if type_b:   band_parts.append(_rl(type_b))
     if surf_str: band_parts.append(surf_str)
     if val_str:  band_parts.append(val_str)
-    if stat_m:   band_parts.append(stat_m.upper())
+    if stat_m:   band_parts.append(_rl(stat_m.upper()))
 
     c.setFillColor(_BLANC)
-    line = "  .  ".join(band_parts)
+    line = _rl("  ·  ").join(band_parts)
     for fsz in [10.5, 9.5, 8.5, 7.5]:
         c.setFont("Helvetica-Bold", fsz)
         if c.stringWidth(line, "Helvetica-Bold", fsz) < _W - 28*_mm: break
     c.drawString(14*_mm, BAND_Y + 5.5*_mm, line)
 
-    # ── CORPS ────────────────────────────────────────────────
+    # ── CORPS ─────────────────────────────────────────────────
     MARGIN  = 14*_mm; GAP = 4*_mm
     COL_W   = (_W - 2*MARGIN - GAP) / 2
     LCOL_X  = MARGIN; RCOL_X = MARGIN + COL_W + GAP
@@ -1790,7 +1806,7 @@ def _fiche_page1(c, d):
 
     c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 6.5)
     c.drawCentredString(LCOL_X + COL_W/2, CARTE_Y - 4*_mm,
-                        f"{adresse}, {ville}".strip(", "))
+                        _rl(f"{adresse}, {ville}".strip(", ")))
 
     # Colonne droite
     ry = BODY_TOP
@@ -1800,7 +1816,7 @@ def _fiche_page1(c, d):
         ry -= 7*_mm
         c.setFillColor(_ORANGE_FC); c.rect(RCOL_X, ry, 3*_mm, 5*_mm, fill=1, stroke=0)
         c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
-        c.drawString(RCOL_X + 5*_mm, ry + 1.2*_mm, title.upper())
+        c.drawString(RCOL_X + 5*_mm, ry + 1.2*_mm, _rl(title.upper()))
         ry -= 2*_mm
 
     def _row(label, value):
@@ -1811,18 +1827,18 @@ def _fiche_page1(c, d):
         except (TypeError, ValueError): pass
         ry -= 6*_mm
         c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 7.5)
-        c.drawString(RCOL_X, ry, label)
+        c.drawString(RCOL_X, ry, _rl(label))
         c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8)
-        c.drawRightString(RCOL_X + COL_W, ry, str(value))
+        c.drawRightString(RCOL_X + COL_W, ry, _rl(str(value)))
         c.setStrokeColor(_colors.HexColor("#EEEEEE")); c.setLineWidth(0.3)
         c.line(RCOL_X, ry - 1.5*_mm, RCOL_X + COL_W, ry - 1.5*_mm)
 
-    _mini_sec("Caracteristiques")
+    _mini_sec("Caractéristiques")
     if surf:
         try: _row("Surface", _fmt_m2(surf))
         except: pass
     pmr = d.get("PMR", "") or ""
-    if pmr: _row("PMR / Accessibilite", pmr)
+    if pmr: _row("PMR / Accessibilité", pmr)
     dpe = d.get("DPE classe", "") or d.get("dpe_classe", "") or ""
     ges = d.get("GES classe", "") or d.get("ges_classe", "") or ""
     if dpe: _row("Classe DPE", f"Classe {dpe}")
@@ -1832,26 +1848,26 @@ def _fiche_page1(c, d):
     if stat_m: _row("Mandat", stat_m)
 
     ry -= 4*_mm
-    _mini_sec("Informations financieres")
+    _mini_sec("Informations financières")
 
     loyer_m  = d.get("Loyer mensuel")        or d.get("loyer_mensuel")    or 0
     loyer_a  = d.get("Loyer annuel")         or d.get("loyer_annuel")     or 0
     loyer_m2 = d.get("Loyer annuel m2")      or d.get("loyer_annuel_m2") or 0
     hono     = d.get("Honoraires locataire") or d.get("honoraires_locataire") or 0
-    depot    = d.get("Depot de garantie")    or d.get("Dépôt de garantie") or d.get("depot_garantie") or 0
-    taxe_f   = d.get("Taxe fonciere")        or d.get("Taxe foncière") or d.get("taxe_fonciere") or 0
-    prix_v   = d.get("Prix de vente")        or d.get("prix_vente")      or 0
+    depot    = d.get("Dépôt de garantie")    or d.get("Depot de garantie") or d.get("depot_garantie") or 0
+    taxe_f   = d.get("Taxe foncière")        or d.get("Taxe fonciere") or d.get("taxe_fonciere") or 0
+    prix_v   = d.get("Prix de vente")        or d.get("prix_vente") or 0
 
-    if loyer_m:  _row("Loyer mensuel",         _fmt_eur(loyer_m, "E HT/mois"))
-    if loyer_a:  _row("Loyer annuel",          _fmt_eur(loyer_a, "E HT"))
+    if loyer_m:  _row("Loyer mensuel",          _fmt_eur(loyer_m,  "HT/mois"))
+    if loyer_a:  _row("Loyer annuel",           _fmt_eur(loyer_a,  "HT"))
     if loyer_m2:
-        try: _row("Loyer / m2 / an", f"{float(loyer_m2):.0f} E HT/m2")
+        try: _row("Loyer / m² / an", _rl(f"{float(loyer_m2):.0f} € HT/m²"))
         except: pass
-    if prix_v:   _row("Prix de vente",         _pfmt(prix_v))
-    if hono:     _row("Honoraires locataire",  _pfmt(hono))
-    if depot:    _row("Depot de garantie",     _pfmt(depot))
+    if prix_v:   _row("Prix de vente",          _pfmt(prix_v))
+    if hono:     _row("Honoraires locataire",   _pfmt(hono))
+    if depot:    _row(_rl("Dépôt de garantie"), _pfmt(depot))
     if taxe_f:
-        try: _row("Taxe fonciere",             _fmt_eur(taxe_f, "E/an"))
+        try: _row("Taxe foncière",              _fmt_eur(taxe_f, "/an"))
         except: pass
 
     # Textes pleine largeur
@@ -1874,7 +1890,8 @@ def _fiche_page1(c, d):
             TW = _W - 2*MARGIN
             ps = _PS("ftxt", fontName="Helvetica", fontSize=8.5,
                      textColor=_GTEXTE, leading=13)
-            para = _Para(full.replace("\n\n", "<br/><br/>").replace("\n", "<br/>"), ps)
+            safe_full = _rl(full)
+            para = _Para(safe_full.replace("\n\n", "<br/><br/>").replace("\n", "<br/>"), ps)
             _, ph = para.wrap(TW, AVAIL)
             para.drawOn(c, MARGIN, FOOTER_H)
 
@@ -1884,9 +1901,9 @@ def _fiche_page1(c, d):
 def generate_fiche_commerciale_pdf(d):
     buf = _BytesIO()
     cv  = _canvas.Canvas(buf, pagesize=_A4)
-    cv.setTitle(f"Fiche Commerciale - {d.get('Reference', '')}")
+    cv.setTitle(_rl(f"Fiche Commerciale - {d.get('Reference', '')}"))
     _fiche_page1(cv, d); cv.showPage()
-    _page6(cv);           cv.showPage()
+    _page6_fiche(cv);    cv.showPage()
     cv.save(); buf.seek(0)
     return buf.read()
 
