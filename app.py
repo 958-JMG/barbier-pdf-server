@@ -1916,6 +1916,10 @@ def _fiche_page1(c, d):
             # Recalculer si valeur aberrante (< 50 ou > 1000 pour local commercial)
             surf = d.get("Surface") or d.get("surface") or 0
             la   = d.get("Loyer annuel") or d.get("loyer_annuel") or 0
+            lm   = d.get("Loyer mensuel") or d.get("loyer_mensuel") or 0
+            if not la and lm:
+                try: la = float(lm) * 12
+                except: pass
             if (lm2_val < 50 or lm2_val > 1000) and surf and la:
                 try: lm2_val = float(la) / float(surf)
                 except: pass
