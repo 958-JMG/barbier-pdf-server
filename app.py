@@ -2101,6 +2101,25 @@ def fiche_commerciale():
 
 
 
+
+@app.route("/n8n-create-wfd", methods=["POST"])
+def n8n_create_wfd():
+    """Route temporaire pour créer WF-D dans n8n — à supprimer après usage."""
+    import urllib.request as _ur2
+    import json as _json2
+    N8N_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ODI1ODE2My1iY2YyLTQ3ZmYtYjRhNi02ZTMwMGJmNGFjNWQiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiOGIxNjNhY2EtNjc2OS00ZTg3LWEzNTctYmU1ODM5MGVmM2I3IiwiaWF0IjoxNzczNDAyOTMzLCJleHAiOjE4MDY0NDQwMDB9.iDTGX-sXoqPh3Xd13FhYppKFcRXdul506hXp3PUrQ-4"
+    wf_payload = request.get_json(silent=True) or {}
+    data = _json2.dumps(wf_payload).encode()
+    req = _ur2.Request("https://jmg958.app.n8n.cloud/api/v1/workflows",
+        data=data, method="POST",
+        headers={"X-N8N-API-KEY": N8N_KEY, "Content-Type": "application/json"})
+    try:
+        with _ur2.urlopen(req, timeout=15) as resp:
+            result = _json2.load(resp)
+            return jsonify({"ok": True, "id": result.get("id"), "name": result.get("name")})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
