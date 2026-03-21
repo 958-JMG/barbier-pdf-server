@@ -1,2 +1,5 @@
 [phases.setup]
-nixPkgs = ["libjpeg", "zlib", "freetype", "lcms2", "libwebp", "openjpeg"]
+nixPkgs = ["libjpeg", "zlib", "freetype", "libwebp"]
+
+[variables]
+NIXPACKS_PYTHON_VERSION = "3.11"
