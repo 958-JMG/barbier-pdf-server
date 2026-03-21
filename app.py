@@ -720,7 +720,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.14b"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.15"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -980,6 +980,125 @@ def _osm_map(adresse, ville, zoom=16, tiles=3):
         for col in range(tiles):
             result.paste(rows[row][col], (col*tw, row*th))
     return result, lat, lon
+
+
+def _cadastre_map(adresse, ville, ref_cadastrale=""):
+    """Carte cadastrale IGN centrée sur la parcelle.
+    Utilise le WMTS public Géoportail (pas de clé API).
+    Retourne (PIL.Image, lat, lon) ou lève une exception."""
+    import urllib.parse as _up2, math as _math2
+
+    # 1. Géocoder la parcelle via l'API Géoplateforme IGN
+    lat, lon = None, None
+
+    if ref_cadastrale and len(ref_cadastrale) >= 8:
+        # Parser la référence : ex. "56260 DE 0107" → dept=56, commune=260, section=DE, num=0107
+        import re as _re2
+        m = _re2.match(r'(\d{5})\s+([A-Z]{1,2})\s+(\d+)', ref_cadastrale.strip().upper())
+        if m:
+            code_insee = m.group(1)   # 56260
+            section    = m.group(2)   # DE
+            numero     = m.group(3).zfill(4)  # 0107
+            dept_code  = code_insee[:2]
+            muni_code  = code_insee[2:]
+            try:
+                url_cad = (f"https://data.geopf.fr/geocodage/search?"
+                           f"departmentcode={dept_code}&municipalitycode={muni_code}"
+                           f"&section={section}&number={numero}&index=parcel&limit=1")
+                req = _ur.Request(url_cad, headers={"User-Agent": "BarbierImmo/1.0"})
+                with _ur.urlopen(req, timeout=8) as r:
+                    data = _json.load(r)
+                feats = data.get("features", [])
+                if feats:
+                    coords = feats[0]["geometry"]["coordinates"]
+                    lon, lat = coords[0], coords[1]
+            except Exception:
+                pass
+
+    # 2. Fallback : géocoder l'adresse via BAN
+    if lat is None:
+        try:
+            q = _up2.quote_plus(f"{adresse}, {ville}, France")
+            req2 = _ur.Request(f"https://api-adresse.data.gouv.fr/search/?q={q}&limit=1",
+                               headers={"User-Agent": "BarbierImmo/1.0"})
+            with _ur.urlopen(req2, timeout=8) as r2:
+                ban = _json.load(r2)
+            feats2 = ban.get("features", [])
+            if feats2:
+                coords2 = feats2[0]["geometry"]["coordinates"]
+                lon, lat = coords2[0], coords2[1]
+        except Exception:
+            pass
+
+    if lat is None:
+        lat, lon = 47.6580, -2.7600   # Vannes centre par défaut
+
+    # 3. Construire la carte : grille 3x3 WMTS cadastre IGN + OSM en fond
+    zoom = 18
+    n = 2**zoom
+
+    def _deg2tile(la, lo):
+        x = int((lo + 180) / 360 * n)
+        y = int((1 - _math2.log(_math2.tan(_math2.radians(la)) +
+                 1 / _math2.cos(_math2.radians(la))) / _math2.pi) / 2 * n)
+        return x, y
+
+    def _latlon2px(la, lo, origin_tx, origin_ty, tw=256):
+        px_g = ((lo + 180) / 360) * n * tw
+        py_g = ((1 - _math2.log(_math2.tan(_math2.radians(la)) +
+                 1 / _math2.cos(_math2.radians(la))) / _math2.pi) / 2) * n * tw
+        return int(px_g - origin_tx * tw), int(py_g - origin_ty * tw)
+
+    cx, cy = _deg2tile(lat, lon)
+    tiles = 3; half = tiles // 2
+    tw = 256
+
+    # Fond OSM
+    osm_grid = _PILImage.new("RGB", (tw * tiles, tw * tiles), (240, 240, 240))
+    for row in range(tiles):
+        for col in range(tiles):
+            tx2, ty2 = cx - half + col, cy - half + row
+            try:
+                u = f"https://tile.openstreetmap.org/{zoom}/{tx2}/{ty2}.png"
+                rq = _ur.Request(u, headers={"User-Agent": "BarbierImmo/1.0"})
+                with _ur.urlopen(rq, timeout=8) as res:
+                    t = _PILImage.open(_BytesIO(res.read())).convert("RGB")
+                osm_grid.paste(t, (col * tw, row * tw))
+            except Exception:
+                pass
+
+    # Couche cadastre IGN par-dessus (RGBA pour transparence)
+    cad_grid = _PILImage.new("RGBA", (tw * tiles, tw * tiles), (0, 0, 0, 0))
+    for row in range(tiles):
+        for col in range(tiles):
+            tx2, ty2 = cx - half + col, cy - half + row
+            try:
+                u_cad = (f"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile"
+                         f"&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
+                         f"&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={zoom}"
+                         f"&TILEROW={ty2}&TILECOL={tx2}&FORMAT=image/png")
+                rq2 = _ur.Request(u_cad, headers={"User-Agent": "BarbierImmo/1.0"})
+                with _ur.urlopen(rq2, timeout=10) as res2:
+                    t2 = _PILImage.open(_BytesIO(res2.read())).convert("RGBA")
+                cad_grid.paste(t2, (col * tw, row * tw), t2)
+            except Exception:
+                pass
+
+    # Fusionner OSM + cadastre
+    result = osm_grid.copy()
+    result.paste(cad_grid, mask=cad_grid.split()[3])
+
+    # Marqueur rouge sur la parcelle
+    from PIL import ImageDraw as _PID2
+    px, py = _latlon2px(lat, lon, cx - half, cy - half)
+    draw = _PID2.Draw(result)
+    r_c = 10
+    draw.ellipse([px-r_c, py-r_c, px+r_c, py+r_c], outline=(220, 50, 50), width=3)
+    draw.line([px-r_c-5, py, px+r_c+5, py], fill=(220, 50, 50), width=2)
+    draw.line([px, py-r_c-5, px, py+r_c+5], fill=(220, 50, 50), width=2)
+
+    return result, lat, lon
+
 
 # ── GPT texte quartier ──────────────────────────────────────
 def _gpt_quartier(adresse, ville, type_bien, surface):
@@ -1675,8 +1794,12 @@ def _fiche_header(c, d):
     from reportlab.lib.units import mm as _mm2
     ML = 14*_mm; MR = 14*_mm; PAGE_W = _W; PAGE_H = _H
 
-    # Logo petit coin haut gauche
-    _logo(c, ML, PAGE_H - 22*_mm, w=28*_mm)
+    # Logo petit coin haut gauche — positionné par le bas pour ne pas déborder
+    LOGO_W = 26*_mm
+    LOGO_RATIO = 406/300   # ratio réel du PNG logo
+    LOGO_H = LOGO_W * LOGO_RATIO
+    LOGO_Y = PAGE_H - 5*_mm - LOGO_H   # y = bas du logo, 5mm du bord supérieur
+    _logo(c, ML, LOGO_Y, w=LOGO_W)
 
     # Titre droit
     c.saveState()
@@ -1826,14 +1949,21 @@ def _fiche_page1(c, d):
 
     if photo_img:
         y = _fiche_sec(c, ML, y, "02 — Photo du bien")
-        PHOTO_H = 65*_mm
+        PHOTO_MAX_H = 70*_mm
         try:
             iw, ih = photo_img.getSize()
-            scale = min(CW/iw, PHOTO_H/ih)
-            dw, dh = iw*scale, ih*scale
-            dx = ML + (CW-dw)/2; dy = y - dh
+            # Pleine largeur, hauteur calculée en respectant le ratio
+            dw = CW
+            dh = dw * ih / iw if iw > 0 else PHOTO_MAX_H
+            dh = min(dh, PHOTO_MAX_H)   # jamais plus haut que PHOTO_MAX_H
+            # Recalculer dw si contrainte hauteur active
+            if dh == PHOTO_MAX_H:
+                dw = dh * iw / ih if ih > 0 else CW
+                dw = min(dw, CW)
+            dx = ML + (CW - dw) / 2
+            dy = y - dh
             c.saveState()
-            path = c.beginPath(); path.roundRect(ML, dy, dw, dh, 3*_mm)
+            path = c.beginPath(); path.roundRect(dx, dy, dw, dh, 3*_mm)
             c.clipPath(path, stroke=0, fill=0)
             c.drawImage(photo_img, dx, dy, dw, dh, mask="auto")
             c.restoreState()
@@ -1848,10 +1978,14 @@ def _fiche_page1(c, d):
 
     CARTE_H = 70*_mm
     map_ok = False
+
+    # Référence cadastrale depuis le payload
+    ref_cad = d.get("ref_cadastrale","") or d.get("Ref. cadastrale","") or ""
+
+    # 1. Essai cadastre IGN (précis sur la parcelle)
     try:
-        map_result = _osm_map(adresse, ville, zoom=15, tiles=3)
-        if map_result:
-            map_pil, _lat, _lon = map_result
+        map_pil, _mlat, _mlon = _cadastre_map(adresse, ville, ref_cad)
+        if map_pil:
             buf_map = _BytesIO()
             map_pil.save(buf_map, "PNG"); buf_map.seek(0)
             from reportlab.lib.utils import ImageReader as _IR2
@@ -1865,6 +1999,26 @@ def _fiche_page1(c, d):
     except Exception:
         try: c.restoreState()
         except: pass
+
+    # 2. Fallback OSM zoom 17
+    if not map_ok:
+        try:
+            map_result = _osm_map(adresse, ville, zoom=17, tiles=3)
+            if map_result:
+                map_pil, _lat, _lon = map_result
+                buf_map = _BytesIO()
+                map_pil.save(buf_map, "PNG"); buf_map.seek(0)
+                from reportlab.lib.utils import ImageReader as _IR2
+                map_rl = _IR2(buf_map)
+                c.saveState()
+                path3 = c.beginPath(); path3.roundRect(ML, y - CARTE_H, CW, CARTE_H, 3*_mm)
+                c.clipPath(path3, stroke=0, fill=0)
+                c.drawImage(map_rl, ML, y - CARTE_H, CW, CARTE_H, mask="auto")
+                c.restoreState()
+                map_ok = True
+        except Exception:
+            try: c.restoreState()
+            except: pass
 
     if not map_ok:
         c.setFillColor(_colors.HexColor("#E8EEF4"))
@@ -2100,25 +2254,6 @@ def fiche_commerciale():
 
 
 
-
-
-@app.route("/n8n-create-wfd", methods=["POST"])
-def n8n_create_wfd():
-    """Route temporaire pour créer WF-D dans n8n — à supprimer après usage."""
-    import urllib.request as _ur2
-    import json as _json2
-    N8N_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ODI1ODE2My1iY2YyLTQ3ZmYtYjRhNi02ZTMwMGJmNGFjNWQiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiOGIxNjNhY2EtNjc2OS00ZTg3LWEzNTctYmU1ODM5MGVmM2I3IiwiaWF0IjoxNzczNDAyOTMzLCJleHAiOjE4MDY0NDQwMDB9.iDTGX-sXoqPh3Xd13FhYppKFcRXdul506hXp3PUrQ-4"
-    wf_payload = request.get_json(silent=True) or {}
-    data = _json2.dumps(wf_payload).encode()
-    req = _ur2.Request("https://jmg958.app.n8n.cloud/api/v1/workflows",
-        data=data, method="POST",
-        headers={"X-N8N-API-KEY": N8N_KEY, "Content-Type": "application/json"})
-    try:
-        with _ur2.urlopen(req, timeout=15) as resp:
-            result = _json2.load(resp)
-            return jsonify({"ok": True, "id": result.get("id"), "name": result.get("name")})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
