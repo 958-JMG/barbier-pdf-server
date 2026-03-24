@@ -932,6 +932,7 @@ def _header(c, sub=""):
     c.setFillColor(_BLEU); c.rect(0, _H-11*_mm, _W, 11*_mm, fill=1, stroke=0)
     c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 8.5)
     c.drawString(14*_mm, _H-7.5*_mm, f"DOSSIER DE PRÉSENTATION  ›  {sub.upper()}")
+    _logo_small(c)
 
 def _sec(c, text, x, y):
     # Fond léger toute largeur
@@ -949,6 +950,19 @@ def _logo(c, x, y, w=34*_mm):
     c.setFillColor(_BLANC)
     c.roundRect(x-pad, y-pad, w+2*pad, h+2*pad, 3*_mm, fill=1, stroke=0)
     c.drawImage(logo, x, y, width=w, height=h, mask='auto')
+
+def _logo_small(c):
+    """Logo petit cartouche blanc haut droite — commun à toutes les pages."""
+    try:
+        w = 18*_mm; ratio = 662/488; h = w*ratio
+        pad = 2*_mm
+        x = _W - 14*_mm - w; y = _H - 11*_mm - h - pad
+        c.setFillColor(_BLANC)
+        c.roundRect(x-pad, y-pad, w+2*pad, h+2*pad, 2*_mm, fill=1, stroke=0)
+        logo = _ir(LOGO_B64)
+        c.drawImage(logo, x, y, width=w, height=h, mask='auto')
+    except Exception:
+        pass
 
 def _pill_picto(c, x, y, picto_b64, label, value, w=57*_mm, h=16*_mm):
     # Fond avec légère bordure
@@ -973,6 +987,87 @@ def _pill_picto(c, x, y, picto_b64, label, value, w=57*_mm, h=16*_mm):
     c.drawString(x+r*2+5*_mm, y+3.5*_mm, str(value))
 
 # ── Carte OSM ──────────────────────────────────────────────
+
+def _fetch_cadastre_image(ref_cadastrale, adresse="", ville=""):
+    """
+    Récupère une image du plan cadastral via IGN WMTS tiles + apicarto pour centrage.
+    ref_cadastrale : ex "56034 AM 0355" ou "56034AM0355"
+    Retourne une PIL.Image ou None.
+    """
+    import math as _m2, re as _re2
+    try:
+        # Parser la référence cadastrale
+        ref_clean = ref_cadastrale.replace(" ","").upper()
+        # Format : 56034AM0355
+        m = _re2.match(r"(\d{5})([A-Z]{2})(\d{3,4})", ref_clean)
+        if not m:
+            return None
+        code_insee, section, numero = m.group(1), m.group(2), m.group(3).zfill(4)
+
+        # 1. Obtenir les coordonnées du centre de la parcelle via apicarto
+        api_url = f"https://apicarto.ign.fr/api/cadastre/parcelle?code_insee={code_insee}&section={section}&numero={numero}"
+        req = _ur.Request(api_url, headers={"User-Agent": "BarbierImmo/1.0"})
+        with _ur.urlopen(req, timeout=10) as r:
+            data = _json.load(r)
+
+        features = data.get("features", [])
+        if not features:
+            return None
+
+        coords = features[0]["geometry"]["coordinates"][0][0]
+        lons = [c[0] for c in coords]; lats = [c[1] for c in coords]
+        lat = sum(lats)/len(lats); lon = sum(lons)/len(lons)
+
+        # 2. Récupérer les tiles IGN plan cadastral (WMTS PM)
+        zoom = 19
+        n = 2**zoom
+        cx = int((lon+180)/360*n)
+        cy = int((1 - _m2.log(_m2.tan(_m2.radians(lat))+1/_m2.cos(_m2.radians(lat)))/_m2.pi)/2*n)
+
+        tiles_grid = 3
+        rows = []
+        for row in range(tiles_grid):
+            ri = []
+            for col in range(tiles_grid):
+                tx = cx - tiles_grid//2 + col
+                ty = cy - tiles_grid//2 + row
+                tile_url = (
+                    f"https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile"
+                    f"&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal"
+                    f"&FORMAT=image/png&TILEMATRIXSET=PM"
+                    f"&TILEMATRIX={zoom}&TILEROW={ty}&TILECOL={tx}"
+                )
+                req2 = _ur.Request(tile_url, headers={"User-Agent": "BarbierImmo/1.0"})
+                with _ur.urlopen(req2, timeout=10) as r2:
+                    tile = _PILImage.open(_BytesIO(r2.read())).convert("RGB")
+                ri.append(tile)
+            rows.append(ri)
+
+        tw, th = 256, 256
+        result = _PILImage.new("RGB", (tw*tiles_grid, th*tiles_grid), (255,255,255))
+        for row in range(tiles_grid):
+            for col in range(tiles_grid):
+                result.paste(rows[row][col], (col*tw, row*th))
+
+        # Ajouter marqueur orange au centre
+        from PIL import ImageDraw as _ID
+        draw = _ID.Draw(result)
+        cx_img = tw*tiles_grid//2; cy_img = th*tiles_grid//2
+        r_marker = 10
+        draw.ellipse([cx_img-r_marker, cy_img-r_marker, cx_img+r_marker, cy_img+r_marker],
+                     fill=(240,121,91), outline=(255,255,255), width=3)
+
+        # Recadrer sur la zone utile (crop central 70%)
+        w, h = result.size
+        margin_x = int(w * 0.15); margin_y = int(h * 0.15)
+        result = result.crop((margin_x, margin_y, w-margin_x, h-margin_y))
+
+        return result
+
+    except Exception:
+        return None
+
+
 def _osm_map(adresse, ville, zoom=16, tiles=3):
     import urllib.parse as up2
     q = up2.quote_plus(f"{adresse}, {ville}, France")
@@ -1052,10 +1147,14 @@ def _page1(c, d):
     c.drawString(14*_mm, _H-62*_mm, f"{_safe(d.get('code_postal'))} {_safe(d.get('ville'))}")
     c.setFillColor(_ORANGE); c.rect(14*_mm, _H-65.5*_mm, 50*_mm, 2.5*_mm, fill=1, stroke=0)
     # Prix ou Loyer — détecter si c'est une location
-    prix     = d.get("prix") or d.get("prix_retenu") or d.get("prix_estime_max") or 0
-    loyer_m  = d.get("loyer_mensuel") or d.get("loyer_annuel") or 0
+    prix     = d.get("prix") or d.get("prix_retenu") or 0
+    loyer_m  = d.get("loyer_mensuel") or 0
+    loyer_a  = d.get("loyer_annuel") or 0
     surf     = d.get("surface")
-    is_location = bool(loyer_m and not prix)
+    # Location : loyer_mensuel présent (même si prix aussi renseigné)
+    is_location = bool(loyer_m)
+    if is_location and not prix:
+        prix = 0  # on n'affiche pas le prix de vente sur une location
     if is_location:
         val_affiche  = loyer_m
         label_prix   = "LOYER MENSUEL HT"
@@ -1236,15 +1335,41 @@ def _page3(c, d):
         c.setFillColor(_colors.HexColor("#E8F0F4")); c.roundRect(mx,my,mw,mh,3*_mm,fill=1,stroke=0)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica",8)
         c.drawCentredString(_W/2, my+mh/2, f"Carte: {str(e)[:60]}")
+    # Atouts quartier (réduit à 2 colonnes pour laisser place cadastre)
     pts = [("Commerces","Services de proximité"),("Transports","Gare SNCF / Rocade"),
            ("Dynamisme","Zone commerciale active"),("Parking","Stationnement aisé"),
            ("Établissements","Écoles & formations"),("Réseau","Secteur porteur")]
     pw2 = (_W-28*_mm-10*_mm)/3
+    pt_y = my-16*_mm
     for i,(lbl,val) in enumerate(pts):
-        col=i%3; row2=i//3; bx=14*_mm+col*(pw2+5*_mm); by=my-22*_mm-row2*13*_mm
+        col=i%3; row2=i//3; bx=14*_mm+col*(pw2+5*_mm); by=pt_y-row2*13*_mm
         c.setFillColor(_GRIS); c.roundRect(bx,by,pw2,11*_mm,2*_mm,fill=1,stroke=0)
         c.setFillColor(_BLEU); c.setFont("Helvetica-Bold",8); c.drawString(bx+3*_mm,by+6.5*_mm,lbl)
         c.setFillColor(_GTEXTE); c.setFont("Helvetica",7); c.drawString(bx+3*_mm,by+2*_mm,val)
+
+    # Plan cadastral IGN
+    ref_cad = d.get("ref_cadastrale","")
+    if ref_cad and len(ref_cad) >= 6:
+        try:
+            cad_img = _fetch_cadastre_image(ref_cad, d.get("adresse",""), d.get("ville",""))
+            if cad_img:
+                cad_y = pt_y - 28*_mm - 40*_mm
+                cad_w = _W - 28*_mm; cad_h = 38*_mm
+                _sec(c, "Plan cadastral", 14*_mm, cad_y + cad_h + 6*_mm)
+                buf_cad = _BytesIO(); cad_img.save(buf_cad, "PNG"); buf_cad.seek(0)
+                from reportlab.lib.utils import ImageReader as _IRC
+                c.saveState()
+                p_cad = c.beginPath(); p_cad.roundRect(14*_mm, cad_y, cad_w, cad_h, 2*_mm)
+                c.clipPath(p_cad, stroke=0, fill=0)
+                c.drawImage(_IRC(buf_cad), 14*_mm, cad_y, cad_w, cad_h, mask="auto")
+                c.restoreState()
+                c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.5)
+                c.roundRect(14*_mm, cad_y, cad_w, cad_h, 2*_mm, fill=0, stroke=1)
+                c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica", 5.5)
+                c.drawRightString(_W-14*_mm, cad_y+1.5*_mm, "© IGN Géoportail — Plan cadastral")
+        except Exception:
+            pass
+
     _footer(c, 3)
 
 def _page4(c, comparables, d):
@@ -1347,15 +1472,43 @@ def _page5(c, d):
     if pv and surf:
         c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
         c.drawCentredString(_W/2,by2-42*_mm,f"Valeur estimée au m² : {_pm2(pv,surf)}  ·  Surface : {_safe(surf)} m²")
-    ay=by2-54*_mm; _sec(c,"Analyse",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
+    ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
+    # Bloc atouts
     c.setFillColor(_colors.HexColor("#E8F4F8")); c.roundRect(14*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
     c.setFillColor(_BLEU); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm,ay-7*_mm,"▸ ATOUTS DU BIEN")
     for i,a in enumerate(["Emplacement commercial stratégique",f"Surface adaptée ({_safe(surf)} m²)","Potentiel de développement","Secteur à forte demande"]):
         c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5); c.drawString(18*_mm,ay-16*_mm-i*10*_mm,f"·  {a}")
-    c.setFillColor(_colors.HexColor("#FDF0E8")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
-    c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"▸ POINTS DE VIGILANCE")
-    for i,v in enumerate(["Vérifier l'état technique","Analyser charges et fiscalité","Confirmer la conformité"]):
-        c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-16*_mm-i*10*_mm,f"·  {v}")
+    # Bloc explication DVF vs estimation
+    c.setFillColor(_colors.HexColor("#FFF8F0")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
+    c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"▸ POURQUOI CET ÉCART AVEC LES DVF ?")
+    expl = [
+        "Les DVF (données officielles) recensent",
+        "toutes les ventes de locaux commerciaux",
+        "dans la commune, quelle que soit leur",
+        "localisation ou configuration.",
+        "",
+        "Notre estimation intègre les spécificités",
+        "de ce bien : visibilité, état, emplacement",
+        "précis et potentiel locatif réel.",
+    ]
+    for i,line in enumerate(expl):
+        c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
+        c.drawString(18*_mm+cw2+6*_mm, ay-16*_mm-i*7*_mm, line)
+    # Taxe foncière si disponible
+    taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
+    if taxe:
+        try:
+            taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(",","\u202f") + " €/an"
+        except Exception:
+            taxe_fmt = str(taxe)
+        c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#D1D8E8")); c.setLineWidth(0.5)
+        tf_y = ay - 58*_mm
+        c.roundRect(14*_mm, tf_y, _W-28*_mm, 12*_mm, 2*_mm, fill=1, stroke=1)
+        c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 7)
+        c.drawString(18*_mm, tf_y+7.5*_mm, "TAXE FONCIÈRE ANNUELLE")
+        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 10)
+        c.drawString(18*_mm, tf_y+2.5*_mm, taxe_fmt)
+
     _footer(c,5)
 
 def _page6(c):
@@ -1463,6 +1616,8 @@ def dossier():
             "ca_ht":           data.get("ca_ht"),
             "loyer_annuel":    data.get("loyer_annuel"),
             "loyer_mensuel":   data.get("loyer_mensuel"),
+            "taxe_fonciere":  data.get("taxe_fonciere") or data.get("taxe") or 0,
+            "ref_cadastrale": data.get("ref_cadastrale", ""),
             "texte_quartier":  texte_q,
             "photos":          data.get("photos", []),
         }
