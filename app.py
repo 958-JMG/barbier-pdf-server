@@ -1301,15 +1301,115 @@ def _page2(c, d):
             c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
     _footer(c, 2)
 
+def _get_poi_blocks_osm(lat_c, lon_c, radius=500):
+    """Interroge Overpass pour les POI à proximité. Retourne liste de (categorie, nom_poi, couleur_hex)."""
+    import urllib.request as _ur3, json as _j3, urllib.parse as _up3
+    # Catégories pro pertinentes avec couleur associée
+    categories = [
+        ("amenity", "parking",                    "Parking",       "#1B3A5C"),
+        ("public_transport", "stop_position",     "Transport",     "#0D5570"),
+        ("amenity", "restaurant|cafe|bar",        "Restauration",  "#E8472A"),
+        ("amenity", "bank|post_office",           "Banque / Poste","#1B5C3A"),
+        ("amenity", "school|university|college",  "Formation",     "#5C3A1B"),
+        ("shop",    "supermarket|convenience|mall","Commerce",     "#3A1B5C"),
+        ("amenity", "hospital|clinic|pharmacy",   "Sante",         "#5C1B3A"),
+        ("amenity", "fuel",                       "Station-service","#3A5C1B"),
+        ("amenity", "hotel|lodging",              "Hotellerie",    "#1B3A5C"),
+        ("leisure", "sports_centre|fitness_centre","Sport",        "#1B5C5C"),
+    ]
+    results = []
+    try:
+        for key, values, label, color in categories:
+            val_filter = "|".join(f'"{v}"' for v in values.split("|"))
+            query = f'[out:json][timeout:6];(node["{key}"~{val_filter}](around:{radius},{lat_c},{lon_c});way["{key}"~{val_filter}](around:{radius},{lat_c},{lon_c}););out 3;'
+            enc = _up3.quote(query)
+            req = _ur3.Request(
+                f"https://overpass-api.de/api/interpreter?data={enc}",
+                headers={"User-Agent": "BarbierImmo/1.0"}
+            )
+            with _ur3.urlopen(req, timeout=7) as res:
+                data = _j3.load(res)
+            elements = data.get("elements", [])
+            noms = []
+            for el in elements:
+                tags = el.get("tags", {})
+                nom = tags.get("name") or tags.get("brand") or ""
+                if nom and nom not in noms:
+                    noms.append(nom)
+                if len(noms) >= 2:
+                    break
+            if noms:
+                val_affichee = noms[0] if len(noms[0]) <= 24 else noms[0][:22] + "…"
+                results.append((label, val_affichee, color))
+            if len(results) >= 6:
+                break
+    except Exception:
+        pass
+    # Compléter avec valeurs par défaut si API indisponible
+    defaults = [
+        ("Parking",      "Stationnement disponible", "#1B3A5C"),
+        ("Transport",    "Gare SNCF / Bus",          "#0D5570"),
+        ("Restauration", "Cafés & restaurants",      "#E8472A"),
+        ("Commerce",     "Services de proximite",    "#3A1B5C"),
+        ("Formation",    "Etablissements proches",   "#5C3A1B"),
+        ("Dynamisme",    "Zone active",              "#1B5C3A"),
+    ]
+    for d_lbl, d_val, d_col in defaults:
+        if len(results) >= 6: break
+        if not any(r[0] == d_lbl for r in results):
+            results.append((d_lbl, d_val, d_col))
+    return results[:6]
+
+
+def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
+    """Dessine un bloc POI avec pastille colorée + texte."""
+    from reportlab.lib import colors as _rc
+    col = _rc.HexColor(color_hex)
+    # Fond gris clair
+    c.setFillColor(_GRIS)
+    c.roundRect(bx, by, bw, bh, 2*_mm, fill=1, stroke=0)
+    # Pastille colorée à gauche
+    dot_x = bx + 5.5*_mm; dot_y = by + bh/2
+    c.setFillColor(col)
+    c.circle(dot_x, dot_y, 3*_mm, fill=1, stroke=0)
+    # Petite icône blanche dans la pastille (trait simple)
+    c.setFillColor(_BLANC)
+    c.setFont("Helvetica-Bold", 7)
+    c.drawCentredString(dot_x, dot_y - 2.2*_mm, "•")
+    # Texte
+    txt_x = bx + 11*_mm
+    c.setFillColor(col)
+    c.setFont("Helvetica-Bold", 7.5)
+    c.drawString(txt_x, by + bh - 5*_mm, label.upper())
+    c.setFillColor(_GTEXTE)
+    c.setFont("Helvetica", 7)
+    # Tronquer si trop long
+    max_w = bw - 13*_mm
+    txt = valeur
+    while c.stringWidth(txt, "Helvetica", 7) > max_w and len(txt) > 4:
+        txt = txt[:-2] + "…"
+    c.drawString(txt_x, by + 2.5*_mm, txt)
+
+
 def _page3(c, d):
     _header(c, "Quartier & environnement")
     _sec(c, "Le quartier", 14*_mm, _H-32*_mm)
-    texte = d.get("texte_quartier") or f"Situé à {_safe(d.get('ville','Vannes'))}, ce bien bénéficie d'une localisation stratégique dans un secteur économiquement actif du Morbihan. L'accessibilité est optimale grâce à la proximité de la rocade et des axes principaux, garantissant un flux de clientèle régulier. Le secteur compte de nombreux commerces, services et équipements à proximité, offrant un environnement favorable à l'exploitation d'une activité commerciale ou professionnelle."
+    texte = d.get("texte_quartier") or (
+        f"Situe a {_safe(d.get('ville','Vannes'))}, ce bien beneficie d'une localisation strategique "
+        "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
+        "proximite de la rocade et des axes principaux. Le secteur compte de nombreux commerces, "
+        "services et equipements a proximite immediate, offrant un environnement favorable a "
+        "l'exploitation d'une activite commerciale ou professionnelle."
+    )
     p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=10, textColor=_GTEXTE, leading=16))
     _, ph = p.wrap(_W-28*_mm, 9999); p.drawOn(c, 14*_mm, _H-38*_mm-ph)
     qbot = _H-38*_mm-ph-12*_mm
+
     _sec(c, "Localisation", 14*_mm, qbot-2*_mm)
-    mh = 70*_mm; mx = 14*_mm; mw = _W-28*_mm; my = qbot-14*_mm-mh
+    mh = 72*_mm; mx = 14*_mm; mw = _W-28*_mm; my = qbot-14*_mm-mh
+
+    # ── Carte OSM ──────────────────────────────────────────────────────────
+    lat = lon = None
     try:
         osm, lat, lon = _osm_map(_safe(d.get("adresse"),""), _safe(d.get("ville"),"Vannes"))
         iw, ih = osm.size; tr = mw/mh
@@ -1320,103 +1420,57 @@ def _page3(c, d):
         buf2 = _BytesIO(); osm.save(buf2, format="PNG"); buf2.seek(0)
         from reportlab.lib.utils import ImageReader as _IR2
         c.drawImage(_IR2(buf2), mx, my, width=mw, height=mh)
+        # Marqueur orange centré
         px2 = mx+mw/2; py2 = my+mh/2
-        c.setFillColor(_ORANGE); c.circle(px2, py2, 4*_mm, fill=1, stroke=0)
-        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 9); c.drawCentredString(px2, py2-3*_mm, "+")
+        c.setFillColor(_ORANGE); c.circle(px2, py2, 4.5*_mm, fill=1, stroke=0)
+        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10)
+        c.drawCentredString(px2, py2-3.5*_mm, "+")
+        # Bulle adresse
         adr = f"{_safe(d.get('adresse'))}, {_safe(d.get('ville'))}"
-        bwb = len(adr)*4.2+12
+        bwb = min(c.stringWidth(adr,"Helvetica-Bold",7)+16, mw-20)
         c.setFillColor(_BLANC); c.setStrokeColor(_colors.HexColor("#AAAAAA")); c.setLineWidth(0.5)
-        c.roundRect(px2-bwb/2, py2+6*_mm, bwb, 9*_mm, 1.5*_mm, fill=1, stroke=1)
-        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 7); c.drawCentredString(px2, py2+10.5*_mm, adr)
-        c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(1)
+        c.roundRect(px2-bwb/2, py2+7*_mm, bwb, 9*_mm, 1.5*_mm, fill=1, stroke=1)
+        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 7)
+        c.drawCentredString(px2, py2+11*_mm, adr)
+        # Bordure carte
+        c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.8)
         c.roundRect(mx, my, mw, mh, 3*_mm, fill=0, stroke=1)
-        c.setFillColor(_colors.HexColor("#FFFFFF99")); c.rect(mx, my, mw, 5*_mm, fill=1, stroke=0)
-        c.setFillColor(_colors.HexColor("#555555")); c.setFont("Helvetica", 5.5)
+        # Copyright OSM
+        c.setFillColor(_colors.HexColor("#FFFFFF88")); c.rect(mx, my, mw, 5*_mm, fill=1, stroke=0)
+        c.setFillColor(_colors.HexColor("#666666")); c.setFont("Helvetica", 5.5)
         c.drawRightString(mx+mw-2*_mm, my+1.5*_mm, "© OpenStreetMap contributors")
     except Exception as e:
         c.setFillColor(_colors.HexColor("#E8F0F4")); c.roundRect(mx,my,mw,mh,3*_mm,fill=1,stroke=0)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica",8)
-        c.drawCentredString(_W/2, my+mh/2, f"Carte: {str(e)[:60]}")
-    # ── POI réels via Overpass API ──────────────────────────────────────────
-    def _get_poi_blocks(lat_c, lon_c, radius=400):
-        """Interroge Overpass pour récupérer les POI à proximité, retourne 6 blocs (picto, titre, valeur)."""
-        import urllib.request as _ur3, json as _j3, urllib.parse as _up3
-        # Catégories pertinentes pour immobilier commercial professionnel
-        categories = [
-            # (tag_key, tag_value, label_affiche, picto_char)
-            ("amenity", "restaurant|cafe|bar", "Restauration", "🍽"),
-            ("amenity", "bank|post_office", "Services", "🏦"),
-            ("amenity", "parking", "Parking", "🅿"),
-            ("public_transport", "stop_position|platform", "Transports", "🚌"),
-            ("amenity", "school|university|college", "Formations", "🎓"),
-            ("shop", "supermarket|convenience", "Commerce", "🛒"),
-            ("amenity", "hospital|clinic|pharmacy", "Santé", "🏥"),
-            ("leisure", "sports_centre|fitness_centre", "Sport & loisirs", "⚽"),
-        ]
-        results = []
+        c.drawCentredString(_W/2, my+mh/2, "Carte indisponible")
+
+    # ── POI réels via Overpass (utilise lat/lon de la carte) ───────────────
+    poi_blocks = []
+    if lat and lon:
         try:
-            for key, values, label, picto in categories:
-                val_filter = "|".join(f'"{v}"' for v in values.split("|"))
-                query = f"""[out:json][timeout:5];
-node["{key}"~{val_filter}](around:{radius},{lat_c},{lon_c});
-out 1;"""
-                enc = _up3.quote(query)
-                req = _ur3.Request(
-                    f"https://overpass-api.de/api/interpreter?data={enc}",
-                    headers={"User-Agent": "BarbierImmo/1.0 (contact@barbierimmobilier.com)"}
-                )
-                with _ur3.urlopen(req, timeout=6) as res:
-                    data = _j3.load(res)
-                elements = data.get("elements", [])
-                if elements:
-                    el = elements[0]
-                    tags = el.get("tags", {})
-                    nom = tags.get("name") or tags.get("brand") or label
-                    if len(nom) > 22: nom = nom[:20] + "…"
-                    results.append((label, nom))
-                if len(results) >= 6:
-                    break
+            poi_blocks = _get_poi_blocks_osm(lat, lon, radius=500)
         except Exception:
             pass
-        # Compléter avec des valeurs par défaut si < 6 résultats
-        defaults = [
-            ("Commerces", "Services de proximité"),
-            ("Transports", "Gare SNCF / Rocade"),
-            ("Parking", "Stationnement disponible"),
-            ("Restauration", "Cafés & restaurants"),
-            ("Formations", "Établissements proches"),
-            ("Réseau", "Zone d'activité active"),
-        ]
-        for d_lbl, d_val in defaults:
-            if len(results) >= 6: break
-            if not any(r[0] == d_lbl for r in results):
-                results.append((d_lbl, d_val))
-        return results[:6]
 
-    # Récupérer les coordonnées depuis la carte OSM déjà calculée
-    poi_blocks = []
-    try:
-        if lat and lon:
-            poi_blocks = _get_poi_blocks(lat, lon)
-    except Exception:
-        pass
     if not poi_blocks:
         poi_blocks = [
-            ("Commerces", "Services de proximité"),
-            ("Transports", "Gare SNCF / Rocade"),
-            ("Dynamisme", "Zone commerciale active"),
-            ("Parking", "Stationnement aisé"),
-            ("Établissements", "Écoles & formations"),
-            ("Réseau", "Secteur porteur"),
+            ("Parking",      "Stationnement disponible", "#1B3A5C"),
+            ("Transport",    "Gare SNCF / Bus",          "#0D5570"),
+            ("Restauration", "Cafes & restaurants",      "#E8472A"),
+            ("Commerce",     "Services de proximite",    "#3A1B5C"),
+            ("Formation",    "Etablissements proches",   "#5C3A1B"),
+            ("Dynamisme",    "Zone d'activite",          "#1B5C3A"),
         ]
 
-    pw2 = (_W-28*_mm-10*_mm)/3
-    pt_y = my-16*_mm
-    for i,(lbl,val) in enumerate(poi_blocks):
-        col=i%3; row2=i//3; bx=14*_mm+col*(pw2+5*_mm); by=pt_y-row2*13*_mm
-        c.setFillColor(_GRIS); c.roundRect(bx,by,pw2,11*_mm,2*_mm,fill=1,stroke=0)
-        c.setFillColor(_BLEU); c.setFont("Helvetica-Bold",8); c.drawString(bx+3*_mm,by+6.5*_mm,lbl)
-        c.setFillColor(_GTEXTE); c.setFont("Helvetica",7); c.drawString(bx+3*_mm,by+2*_mm,val)
+    # ── Grille 3×2 blocs POI ───────────────────────────────────────────────
+    pt_y = my - 8*_mm
+    ncols = 3; card_w = (_W-28*_mm - (ncols-1)*4*_mm)/ncols; card_h = 13*_mm
+    for i, item in enumerate(poi_blocks):
+        lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#1B3A5C")
+        col_idx = i % ncols; row_idx = i // ncols
+        bx = 14*_mm + col_idx*(card_w+4*_mm)
+        by = pt_y - row_idx*(card_h+3*_mm) - card_h
+        _draw_poi_card(c, bx, by, card_w, card_h, lbl, val, col_hex)
 
     # Plan cadastral IGN
     ref_cad = d.get("ref_cadastrale","")
