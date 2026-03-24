@@ -1885,7 +1885,6 @@ def _fiche_page1(c, d):
         try:
             if photo_raw.startswith("data:"):
                 import base64 as _b64
-from assets import LOGO_B64, PICTO_SURFACE_B64, PICTO_TYPE_B64, PICTO_LIEU_B64, PICTO_VILLE_B64mod
                 _, b64data = photo_raw.split(",", 1)
                 photo_img = _ir(b64data)
             else:
@@ -1981,7 +1980,6 @@ def _fiche_page2(c, d):
         try:
             if photo_ville_url.startswith("data:"):
                 import base64 as _b64
-from assets import LOGO_B64, PICTO_SURFACE_B64, PICTO_TYPE_B64, PICTO_LIEU_B64, PICTO_VILLE_B64mod
                 _, b64data = photo_ville_url.split(",", 1)
                 photo_ville = _ir(b64data)
             else:
