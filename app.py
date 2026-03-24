@@ -649,13 +649,43 @@ def footer(c, page_n, reference):
 
 
 def generate_pdf(data):
-    """Génère le PDF et retourne un buffer BytesIO."""
+    """Génère le PDF avis de valeur et retourne un buffer BytesIO."""
     # Charger le logo
     logo_buf = None
     if LOGO_B64:
         try:
             logo_buf = io.BytesIO(base64.b64decode(LOGO_B64))
         except:
+            pass
+
+    # Calculer fourchettes DVF si absentes (prix_min/max/retenu = 0)
+    prix_min_raw = data.get("Prix estime min") or 0
+    prix_max_raw = data.get("Prix estime max") or 0
+    prix_ret_raw = data.get("Prix retenu") or 0
+    if not (prix_min_raw and prix_max_raw and prix_ret_raw):
+        try:
+            surf_v = float(data.get("Surface") or 0)
+            ville_v = data.get("Ville","Vannes")
+            cp_v = str(data.get("Code postal","56000"))
+            type_v = data.get("Type de bien","")
+            prix_v = float(data.get("Prix de vente") or 0)
+            loyer_m = float(data.get("Loyer mensuel") or 0)
+            if surf_v > 0:
+                _, dvf_pm2, _ = _run_dvf(ville_v, cp_v, surf_v, type_v, limit=6)
+                if dvf_pm2 > 0:
+                    if loyer_m:
+                        loyer_m2 = (loyer_m * 12) / surf_v
+                        pm2_ref = (loyer_m2 + dvf_pm2) / 2
+                        data["Prix estime min"] = int(pm2_ref * 0.88 * surf_v)
+                        data["Prix estime max"] = int(pm2_ref * 1.12 * surf_v)
+                        data["Prix retenu"]     = int(pm2_ref * surf_v)
+                    elif prix_v:
+                        pm2_vente = prix_v / surf_v
+                        pm2_ref = (pm2_vente + dvf_pm2) / 2
+                        data["Prix estime min"] = int(pm2_ref * 0.90 * surf_v)
+                        data["Prix estime max"] = int(pm2_ref * 1.10 * surf_v)
+                        data["Prix retenu"]     = int(pm2_ref * surf_v)
+        except Exception:
             pass
 
     # Mapper les clés SeaTable (espaces) vers snake_case attendu par page1
@@ -715,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.0"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.2"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1054,7 +1084,16 @@ def _page1(c, d):
         c.drawString(14*_mm, _H-91*_mm, prix_str)
     if show_pm2:
         c.setFont("Helvetica", 10); c.setFillColor(_colors.HexColor("#FFFFFFBB"))
-        c.drawString(14*_mm, _H-98*_mm, f"soit {_pm2(val_affiche, surf)}")
+        if is_location and surf:
+            # Loyer annuel / surface
+            try:
+                loyer_an = float(str(val_affiche).replace(" ","")) * 12
+                pm2_an   = loyer_an / float(str(surf).replace(" ",""))
+                c.drawString(14*_mm, _H-98*_mm, f"soit {int(pm2_an):,} € HT/m²/an".replace(",", "\u202f"))
+            except Exception:
+                c.drawString(14*_mm, _H-98*_mm, f"soit {_pm2(val_affiche, surf)}")
+        else:
+            c.drawString(14*_mm, _H-98*_mm, f"soit {_pm2(val_affiche, surf)}")
     # Blocs caractéristiques blancs
     carac = [("SURFACE", f"{_safe(surf)} m²"), ("TYPE", _safe(d.get("type_bien","—")))]
     if d.get("surface_terrain"): carac.append(("TERRAIN", f"{_safe(d.get('surface_terrain'))} m²"))
@@ -1430,25 +1469,42 @@ def dossier():
 
         comparables = data.get("comparables", [])
 
-        # Auto-fetch DVF si pas de comparables transmis
+        # Auto-fetch DVF directement (sans HTTP interne)
         if not comparables:
             try:
-                adresse_dvf = data.get("adresse", "")
-                ville_dvf   = data.get("ville", "Vannes")
-                import urllib.parse as _ulp
-                dvf_payload = _json.dumps({
-                    "adresse": adresse_dvf, "ville": ville_dvf,
-                    "surface": data.get("surface", 0),
-                    "type_bien": data.get("type_bien", ""),
-                    "limit": 4
-                }).encode()
-                dvf_req = _ur.Request(
-                    "http://localhost:" + str(int(os.environ.get("PORT", 5000))) + "/dvf-comparables",
-                    data=dvf_payload, method="POST",
-                    headers={"Content-Type": "application/json"})
-                with _ur.urlopen(dvf_req, timeout=20) as dvf_res:
-                    dvf_data = _json.load(dvf_res)
-                    comparables = dvf_data.get("comparables", [])
+                dvf_comps, dvf_pm2, dvf_stats = _run_dvf(
+                    ville   = data.get("ville", "Vannes"),
+                    code_postal = data.get("code_postal", "56000"),
+                    surface = float(data.get("surface") or 0),
+                    type_bien   = data.get("type_bien", "Local commercial"),
+                    limit   = 4
+                )
+                comparables = dvf_comps
+
+                # Calculer les fourchettes de prix depuis DVF si absentes
+                surface_val = float(data.get("surface") or 0)
+                prix_v = d.get("prix") or 0
+                loyer_m = data.get("loyer_mensuel") or 0
+
+                if dvf_pm2 > 0 and surface_val > 0:
+                    # Marché locatif : on calcule sur le loyer/m²
+                    if loyer_m:
+                        loyer_m2_actuel = (loyer_m * 12) / surface_val
+                        # Fourchette ±15% autour du loyer actuel pondéré par le marché
+                        pm2_ref = dvf_pm2 if dvf_pm2 > 50 else loyer_m2_actuel
+                        d["prix_estime_min"] = int(pm2_ref * 0.88 * surface_val)
+                        d["prix_estime_max"] = int(pm2_ref * 1.12 * surface_val)
+                        d["prix_retenu"]     = int(pm2_ref * surface_val)
+                        if not d.get("prix"):
+                            d["prix"] = d["prix_retenu"]
+                    elif prix_v:
+                        # Bien à vendre : fourchette ±10% autour du DVF
+                        pm2_vente = prix_v / surface_val
+                        pm2_ref = (pm2_vente + dvf_pm2) / 2
+                        d["prix_estime_min"] = int(pm2_ref * 0.90 * surface_val)
+                        d["prix_estime_max"] = int(pm2_ref * 1.10 * surface_val)
+                        d["prix_retenu"]     = int(pm2_ref * surface_val)
+                        d["prix"] = prix_v  # garder le prix affiché réel
             except Exception:
                 pass
 
@@ -1564,6 +1620,98 @@ def annonce():
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
+
+
+
+def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6):
+    """
+    Fetch DVF data.gouv.fr pour une commune donnée.
+    Retourne (comparables_list, prix_median_m2, stats_dict).
+    Callable directement depuis /dossier sans HTTP.
+    """
+    import csv as _csv2, io as _io2, time as _time2
+
+    cp = str(code_postal or "56000")
+
+    # 1. Code commune INSEE via geo.api.gouv.fr
+    code_commune = None
+    try:
+        geo_url = f"https://geo.api.gouv.fr/communes?nom={_up.quote(ville)}&fields=code,nom,codesPostaux&boost=population&limit=5"
+        with _ur.urlopen(_ur.Request(geo_url, headers={"User-Agent": "Barbier-Immobilier/1.0"}), timeout=8) as r:
+            geo_data = _json.load(r)
+        if geo_data:
+            match = next((c for c in geo_data if cp in c.get("codesPostaux", [])), None) or                     next((c for c in geo_data if c["nom"].lower() == ville.lower()), None) or                     geo_data[0]
+            code_commune = match["code"]
+    except Exception:
+        pass
+    if not code_commune:
+        code_commune = cp
+    dept = code_commune[:2]
+
+    # 2. DVF CSV années 2024 → 2022
+    results = []
+    for annee in ["2024", "2023", "2022"]:
+        if len(results) >= limit * 2:
+            break
+        try:
+            csv_url = f"https://files.data.gouv.fr/geo-dvf/latest/csv/{annee}/communes/{dept}/{code_commune}.csv"
+            with _ur.urlopen(_ur.Request(csv_url, headers={"User-Agent": "Barbier-Immobilier/1.0"}), timeout=15) as r:
+                raw = r.read().decode("utf-8", errors="ignore")
+            reader = _csv2.DictReader(_io2.StringIO(raw))
+            commercial_kw = ["commercial", "industriel", "bureau", "activité"]
+            for row in reader:
+                nature = (row.get("nature_mutation") or "").lower()
+                type_l = (row.get("type_local") or "").lower()
+                surf_str = row.get("surface_reelle_bati") or ""
+                prix_str = row.get("valeur_fonciere") or ""
+                if not surf_str or not prix_str:
+                    continue
+                try:
+                    s = float(surf_str.replace(",", "."))
+                    p = float(prix_str.replace(",", ".").replace(" ", ""))
+                except Exception:
+                    continue
+                if s <= 0 or p < 5000:
+                    continue
+                if "vente" not in nature:
+                    continue
+                if not any(kw in type_l for kw in commercial_kw):
+                    continue
+                # Filtrer par surface similaire (±70%)
+                if surface and surface > 0:
+                    if abs(s - surface) / max(surface, 1) > 0.70:
+                        continue
+                adresse_row = " ".join(filter(None, [
+                    row.get("numero_voie",""), row.get("type_voie",""), row.get("nom_voie","")
+                ])).strip().upper()
+                results.append({
+                    "Adresse": adresse_row or "—",
+                    "Ville":   ville,
+                    "Prix":    int(p),
+                    "Surface": int(s),
+                    "Statut":  "Vendu",
+                    "Source":  f"DVF {annee}",
+                    "Date":    row.get("date_mutation","")[:7] or annee,
+                })
+                if len(results) >= limit * 2:
+                    break
+        except Exception:
+            continue
+
+    # 3. Stats
+    top = sorted(results, key=lambda x: x["Date"], reverse=True)[:limit]
+    pm2_list = [r["Prix"] / r["Surface"] for r in top if r["Surface"] > 0]
+    pm2_median = sorted(pm2_list)[len(pm2_list)//2] if pm2_list else 0
+    prix_list  = [r["Prix"] for r in top]
+    prix_moyen = sum(prix_list) // len(prix_list) if prix_list else 0
+
+    stats = {
+        "pm2_median": int(pm2_median),
+        "prix_moyen": prix_moyen,
+        "nb": len(top),
+        "code_commune": code_commune,
+    }
+    return top, pm2_median, stats
 
 
 @app.route("/dvf-comparables", methods=["GET", "POST"])
