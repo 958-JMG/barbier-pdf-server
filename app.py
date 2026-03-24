@@ -715,7 +715,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.15"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.16"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1666,31 +1666,19 @@ def _fmt_eur(v, suffix=""):
     except: return str(v)
 
 def _fiche_header(c, d):
-    """En-tête identique avis de valeur : logo gauche + titre droit + linha teal."""
-    from reportlab.lib.units import mm as _mm2
-    ML = 14*_mm; MR = 14*_mm; PAGE_W = _W; PAGE_H = _H
+    """En-tête : barre teal + logo + ref. Retourne y de départ."""
+    ML = 14*_mm; MR = 14*_mm
+    c.setFillColor(_BLEU)
+    c.rect(0, _H - 12*_mm, _W, 12*_mm, fill=1, stroke=0)
+    _logo(c, ML, _H - 11*_mm, w=22*_mm)
+    ref   = _safe_str(d.get("Reference","") or d.get("reference",""))
+    ville = _safe_str(d.get("Ville","Vannes") or "Vannes")
+    c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10)
+    c.drawRightString(_W - MR, _H - 5*_mm, "FICHE COMMERCIALE")
+    c.setFont("Helvetica", 7); c.setFillColor(_colors.HexColor("#FFFFFFCC"))
+    c.drawRightString(_W - MR, _H - 9.5*_mm, "Ref. " + ref + "  \u00b7  " + ville + "  \u00b7  Barbier Immobilier")
+    return _H - 14*_mm
 
-    # Logo petit coin haut gauche — positionné pour ne pas déborder en haut
-    _logo(c, ML, PAGE_H - 46*_mm, w=28*_mm)
-
-    # Titre droit
-    c.saveState()
-    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 20)
-    c.drawRightString(PAGE_W - MR, PAGE_H - 14*_mm, "FICHE COMMERCIALE")
-    ref    = _safe_str(d.get("Reference","") or d.get("reference",""))
-    ville  = _safe_str(d.get("Ville","Vannes") or "Vannes")
-    nego   = _safe_str(d.get("nego_nom_complet","") or "Barbier Immobilier")
-    c.setFillColor(_colors.HexColor("#6B7280")); c.setFont("Helvetica", 8)
-    c.drawRightString(PAGE_W - MR, PAGE_H - 24*_mm,
-        f"Ref. {ref}  ·  {ville}  ·  {nego}")
-    c.restoreState()
-
-    # Ligne teal sous l'en-tête
-    c.saveState()
-    c.setStrokeColor(_BLEU); c.setLineWidth(1.5)
-    c.line(ML, PAGE_H - 28*_mm, PAGE_W - MR, PAGE_H - 28*_mm)
-    c.restoreState()
-    return PAGE_H - 28*_mm - 8*_mm   # y de départ du corps
 
 def _fiche_cell(c, cx, cy, cw, ch, label, value, r=3):
     """Cellule arrondie gris clair style avis de valeur."""
@@ -1795,13 +1783,12 @@ def _cadastre_or_osm_map(ref_cadastrale, adresse, ville, zoom=18, tiles=3):
 
 
 def _fiche_page1(c, d):
-    """Page 1 : identification + photo + carte OSM."""
+    """Page 1 : style trame PowerPoint. Photo + carte cadastre cote a cote."""
     import io as _io
     ML = 14*_mm; MR = 14*_mm; CW = _W - ML - MR; GAP = 4*_mm
 
     y = _fiche_header(c, d)
 
-    # ── Bandeau titre coloré ─────────────────────────────────
     BAND_H = 14*_mm
     c.setFillColor(_BLEU_F)
     c.rect(0, y - BAND_H, _W, BAND_H, fill=1, stroke=0)
@@ -1817,7 +1804,7 @@ def _fiche_page1(c, d):
 
     surf_str = _fmt_m2(surf) if surf else ""
     if loyer:
-        try:   val_str = f"{int(float(loyer)):,} EUR HT/mois".replace(",", " ")
+        try:   val_str = str(int(float(loyer))) + " EUR HT/mois"
         except: val_str = str(loyer)
     elif prix:
         val_str = _pfmt(prix)
@@ -1825,38 +1812,35 @@ def _fiche_page1(c, d):
         val_str = ""
 
     parts = []
-    if ref:      parts.append(f"Ref. {_safe_str(ref)}")
+    if ref:      parts.append("Ref. " + _safe_str(ref))
     if type_b:   parts.append(_safe_str(type_b))
     if surf_str: parts.append(surf_str)
     if val_str:  parts.append(val_str)
     if stat_m:   parts.append(_safe_str(stat_m.upper()))
-    line = "  ·  ".join(parts)
+    line = "  \u00b7  ".join(parts)
     c.setFillColor(_BLANC)
     for fsz in [10, 9, 8, 7]:
         c.setFont("Helvetica-Bold", fsz)
         if c.stringWidth(line, "Helvetica-Bold", fsz) < _W - 28*_mm: break
     c.drawString(ML, y - BAND_H + 4.5*_mm, line)
-
     y -= BAND_H + 6*_mm
 
-    # ── SECTION 01 — LE BIEN ────────────────────────────────
-    y = _fiche_sec(c, ML, y, "01 — Le Bien")
+    y = _fiche_sec(c, ML, y, "01 \u2014 Le Bien")
 
-    # Grille 3 colonnes, 2 lignes de cellules
-    col_w3 = (CW - 2*GAP) / 3; cell_h = 26; cell_gap = 3
+    cell_h = 26; cell_gap = 3; col_w3 = (CW - 2*GAP) / 3
     pmr  = d.get("PMR","")       or ""
     dpe  = d.get("DPE classe","") or d.get("dpe_classe","") or ""
     ges  = d.get("GES classe","") or d.get("ges_classe","") or ""
     tb   = d.get("Type de bail","") or d.get("type_bail","") or ""
-    act  = d.get("Activité","")  or d.get("activite","") or ""
+    act  = d.get("Activit\u00e9","")  or d.get("activite","") or ""
 
     cells = [
         ("Type de bien",  _safe_str(type_b)),
-        ("Surface",       surf_str or "—"),
-        ("Activité",      _safe_str(act) if act else "—"),
-        ("Type de bail",  _safe_str(tb)  if tb  else "—"),
-        ("PMR / Accès",   _safe_str(pmr) if pmr else "—"),
-        ("Mandat",        _safe_str(stat_m) if stat_m else "—"),
+        ("Surface",       surf_str or "\u2014"),
+        ("Activit\u00e9",      _safe_str(act) if act else "\u2014"),
+        ("Type de bail",  _safe_str(tb)  if tb  else "\u2014"),
+        ("PMR / Acc\u00e8s",   _safe_str(pmr) if pmr else "\u2014"),
+        ("Mandat",        _safe_str(stat_m) if stat_m else "\u2014"),
     ]
     for i, (lbl, val) in enumerate(cells):
         col = i % 3; row = i // 3
@@ -1865,11 +1849,10 @@ def _fiche_page1(c, d):
         _fiche_cell(c, cx, cy, col_w3, cell_h, lbl, val)
     y -= 2*(cell_h + cell_gap) + 10
 
-    # DPE / GES en ligne si présents
     if dpe or ges:
         dpe_cells = []
-        if dpe: dpe_cells.append(("Classe DPE", f"Classe {_safe_str(dpe)}"))
-        if ges: dpe_cells.append(("Classe GES", f"Classe {_safe_str(ges)}"))
+        if dpe: dpe_cells.append(("Classe DPE", "Classe " + _safe_str(dpe)))
+        if ges: dpe_cells.append(("Classe GES", "Classe " + _safe_str(ges)))
         ncols = len(dpe_cells)
         dpe_cw = (CW - (ncols-1)*cell_gap) / ncols
         for i,(lbl,val) in enumerate(dpe_cells):
@@ -1877,10 +1860,8 @@ def _fiche_page1(c, d):
             _fiche_cell(c, cx, y, dpe_cw, cell_h, lbl, val)
         y -= cell_h + 10
 
-    # ── SECTION 02 — PHOTO DU BIEN ──────────────────────────
     photo_raw = d.get("Photo bien (URL)","") or d.get("photo_url","") or d.get("Photo bien","") or ""
     photo_img = None
-
     if photo_raw:
         try:
             if photo_raw.startswith("data:"):
@@ -1892,16 +1873,57 @@ def _fiche_page1(c, d):
         except Exception:
             photo_img = None
 
-    if photo_img:
-        y = _fiche_sec(c, ML, y, "02 — Photo du bien")
+    CARTE_H = 72*_mm
+    map_pil = None
+    try:
+        map_pil, map_lat, map_lon = _cadastre_or_osm_map(
+            d.get("ref_cadastrale","") or "",
+            adresse, ville, zoom=18, tiles=3
+        )
+    except Exception:
+        pass
+
+    if photo_img and map_pil:
+        y = _fiche_sec(c, ML, y, "02 \u2014 Photo du bien")
+        HALF_GAP = 4*_mm
+        PHOTO_W = CW * 0.58 - HALF_GAP/2
+        CARTE_W = CW * 0.42 - HALF_GAP/2
+        try:
+            iw, ih = photo_img.getSize()
+            dh = min(CARTE_H, PHOTO_W * ih / iw)
+            dw = dh * iw / ih
+            dx = ML; dy = y - CARTE_H
+            c.saveState()
+            path = c.beginPath(); path.roundRect(ML, dy, PHOTO_W, CARTE_H, 3*_mm)
+            c.clipPath(path, stroke=0, fill=0)
+            c.drawImage(photo_img, dx + (PHOTO_W - dw)/2, dy + (CARTE_H - dh)/2, dw, dh, mask="auto")
+            c.restoreState()
+        except Exception:
+            try: c.restoreState()
+            except: pass
+        try:
+            buf_map = _BytesIO(); map_pil.save(buf_map, "PNG"); buf_map.seek(0)
+            from reportlab.lib.utils import ImageReader as _IR2
+            map_rl = _IR2(buf_map)
+            cx2 = ML + PHOTO_W + HALF_GAP
+            c.saveState()
+            path2 = c.beginPath(); path2.roundRect(cx2, y - CARTE_H, CARTE_W, CARTE_H, 3*_mm)
+            c.clipPath(path2, stroke=0, fill=0)
+            c.drawImage(map_rl, cx2, y - CARTE_H, CARTE_W, CARTE_H, mask="auto")
+            c.restoreState()
+            c.setFillColor(_ORANGE)
+            c.circle(cx2 + CARTE_W/2, y - CARTE_H/2, 3*_mm, fill=1, stroke=0)
+        except Exception:
+            try: c.restoreState()
+            except: pass
+        y -= CARTE_H + 4*_mm
+    elif photo_img:
+        y = _fiche_sec(c, ML, y, "02 \u2014 Photo du bien")
         PHOTO_MAX_H = 70*_mm
         try:
             iw, ih = photo_img.getSize()
-            # Pleine largeur, ratio préservé — jamais d'étirement
-            dw = CW
-            dh = min(dw * ih / iw, PHOTO_MAX_H)
-            dw = dh * iw / ih  # recalculer la largeur si la hauteur est limitée
-            dx = ML + (CW - dw) / 2
+            dw = CW; dh = min(dw * ih / iw, PHOTO_MAX_H)
+            dw = dh * iw / ih
             dy = y - dh
             c.saveState()
             path = c.beginPath(); path.roundRect(ML, dy, CW, dh, 3*_mm)
@@ -1912,55 +1934,39 @@ def _fiche_page1(c, d):
         except Exception:
             try: c.restoreState()
             except: pass
-
-    # ── SECTION 03 — LOCALISATION ───────────────────────────
-    sec_num = "03" if photo_img else "02"
-    y = _fiche_sec(c, ML, y, f"{sec_num} — Localisation")
-
-    CARTE_H = 70*_mm
-    map_ok = False
-    try:
-        map_pil, map_lat, map_lon = _cadastre_or_osm_map(
-            d.get("ref_cadastrale","") or "",
-            adresse, ville, zoom=18, tiles=3
-        )
+        y = _fiche_sec(c, ML, y, "03 \u2014 Localisation")
         if map_pil:
-            buf_map = _BytesIO()
-            map_pil.save(buf_map, "PNG"); buf_map.seek(0)
-            from reportlab.lib.utils import ImageReader as _IR2
-            map_rl = _IR2(buf_map)
-            c.saveState()
-            path3 = c.beginPath(); path3.roundRect(ML, y - CARTE_H, CW, CARTE_H, 3*_mm)
-            c.clipPath(path3, stroke=0, fill=0)
-            c.drawImage(map_rl, ML, y - CARTE_H, CW, CARTE_H, mask="auto")
-            c.restoreState()
-            map_ok = True
-            # Légende coordonnées
-            c.setFillColor(_colors.HexColor("#F0795B"))
-            c.circle(ML + CW/2, y - CARTE_H/2, 4*_mm, fill=1, stroke=0)
-    except Exception:
-        try: c.restoreState()
-        except: pass
-
-    if not map_ok:
-        c.setFillColor(_colors.HexColor("#E8EEF4"))
-        c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.5)
+            try:
+                buf_map = _BytesIO(); map_pil.save(buf_map, "PNG"); buf_map.seek(0)
+                from reportlab.lib.utils import ImageReader as _IR3
+                map_rl = _IR3(buf_map)
+                c.saveState()
+                path3 = c.beginPath(); path3.roundRect(ML, y - CARTE_H, CW, CARTE_H, 3*_mm)
+                c.clipPath(path3, stroke=0, fill=0)
+                c.drawImage(map_rl, ML, y - CARTE_H, CW, CARTE_H, mask="auto")
+                c.restoreState()
+                c.setFillColor(_ORANGE)
+                c.circle(ML + CW/2, y - CARTE_H/2, 3*_mm, fill=1, stroke=0)
+            except Exception:
+                try: c.restoreState()
+                except: pass
+        y -= CARTE_H
+    else:
+        y = _fiche_sec(c, ML, y, "02 \u2014 Localisation")
+        c.setFillColor(_colors.HexColor("#E8EEF4")); c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.5)
         c.roundRect(ML, y - CARTE_H, CW, CARTE_H, 3*_mm, fill=1, stroke=1)
         c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica", 9)
         c.drawCentredString(ML + CW/2, y - CARTE_H/2, "Localisation")
+        y -= CARTE_H
 
-    y -= CARTE_H
-
-    # Légende adresse
     c.setFillColor(_colors.HexColor("#6B7280")); c.setFont("Helvetica", 6.5)
-    adr_leg = _safe_str(f"{adresse}, {ville}".strip(", "))
+    adr_leg = _safe_str((adresse + ", " + ville).strip(", "))
     c.drawString(ML, y - 4*_mm, adr_leg)
-
     _footer_fiche(c, 1, 3)
 
 
 def _fiche_page2(c, d):
-    """Page 2 : La Ville & Le Quartier + texte annonce."""
+    """Page 2 : style PowerPoint. Bandeau ville teal, texte secteur, opportunite, financiers."""
     ML = 14*_mm; MR = 14*_mm; CW = _W - ML - MR
     adresse = d.get("Adresse","")    or d.get("adresse","")   or ""
     ville   = d.get("Ville","Vannes") or d.get("ville","Vannes") or "Vannes"
@@ -1970,10 +1976,8 @@ def _fiche_page2(c, d):
     y = _fiche_header(c, d)
     y -= 4*_mm
 
-    # ── SECTION 04 — LA VILLE & LE QUARTIER ─────────────────
-    y = _fiche_sec(c, ML, y, "04 — La Ville & Le Quartier")
+    y = _fiche_sec(c, ML, y, "04 \u2014 La Ville & Le Quartier")
 
-    # Photo de ville — URL optionnelle dans le payload
     photo_ville_url = d.get("photo_ville_url","") or d.get("Photo ville","") or ""
     photo_ville = None
     if photo_ville_url:
@@ -1987,34 +1991,38 @@ def _fiche_page2(c, d):
         except Exception:
             photo_ville = None
 
-    VILLE_PHOTO_H = 50*_mm
+    VILLE_PHOTO_H = 48*_mm
     if photo_ville:
         try:
             iw, ih = photo_ville.getSize()
-            scale = min(CW/iw, VILLE_PHOTO_H/ih)
-            dw, dh = iw*scale, ih*scale
-            dx = ML + (CW-dw)/2; dy = y - dh
+            dh = min(VILLE_PHOTO_H, CW * ih / iw)
+            dw = dh * iw / ih
+            dx = ML + (CW - dw)/2; dy = y - VILLE_PHOTO_H
             c.saveState()
-            path = c.beginPath(); path.roundRect(ML, dy, dw, dh, 3*_mm)
+            path = c.beginPath(); path.roundRect(ML, dy, CW, VILLE_PHOTO_H, 3*_mm)
             c.clipPath(path, stroke=0, fill=0)
-            c.drawImage(photo_ville, dx, dy, dw, dh, mask="auto")
+            c.drawImage(photo_ville, dx, dy + (VILLE_PHOTO_H - dh)/2, dw, dh, mask="auto")
             c.restoreState()
+            c.setFillColor(_colors.HexColor("#1B3A5CCC"))
+            c.rect(ML, dy, CW, 12*_mm, fill=1, stroke=0)
+            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 13)
+            c.drawString(ML + 6*_mm, dy + 3.5*_mm, _safe_str(ville.upper()))
             y = dy - 8*_mm
         except Exception:
             try: c.restoreState()
             except: pass
-    else:
-        # Placeholder sobre : bandeau teal avec nom de la ville
-        PH_H = 18*_mm
-        c.setFillColor(_BLEU)
-        c.roundRect(ML, y - PH_H, CW, PH_H, 3*_mm, fill=1, stroke=0)
-        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 11)
-        c.drawCentredString(ML + CW/2, y - PH_H/2 - 3, _safe_str(ville.upper()))
-        c.setFillColor(_colors.HexColor("#FFFFFFAA")); c.setFont("Helvetica", 7)
-        c.drawCentredString(ML + CW/2, y - PH_H + 4*_mm, "Photo à venir")
-        y -= PH_H + 8*_mm
+            photo_ville = None
 
-    # Texte quartier / ville
+    if not photo_ville:
+        BAND_H = 20*_mm
+        c.setFillColor(_BLEU)
+        c.rect(ML, y - BAND_H, CW, BAND_H, fill=1, stroke=0)
+        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 14)
+        c.drawString(ML + 6*_mm, y - BAND_H/2 - 2, _safe_str(ville.upper()))
+        c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#FFFFFFBB"))
+        c.drawString(ML + 6*_mm, y - BAND_H + 3*_mm, "Secteur g\u00e9ographique \u00b7 Morbihan")
+        y -= BAND_H + 8*_mm
+
     desc_v = d.get("Description ville","") or d.get("description_ville","") or ""
     if not desc_v:
         try:
@@ -2033,8 +2041,7 @@ def _fiche_page2(c, d):
         para_v.drawOn(c, ML, y - ph)
         y -= ph + 10*_mm
 
-    # ── SECTION 05 — L'OPPORTUNITÉ ──────────────────────────
-    y = _fiche_sec(c, ML, y, "05 — L'Opportunite")
+    y = _fiche_sec(c, ML, y, "05 \u2014 L'Opportunite")
 
     desc_c = d.get("Description commerciale","") or d.get("description_commerciale","") or ""
     vp     = d.get("Version portail","")          or d.get("version_portail","")          or ""
@@ -2051,54 +2058,41 @@ def _fiche_page2(c, d):
         para_a.drawOn(c, ML, y - pha)
         y -= pha + 8*_mm
 
-    # ── SECTION 06 — INFORMATIONS FINANCIÈRES ───────────────
-    # Seulement les chiffres utiles pour le locataire/acquéreur
     loyer_m  = d.get("Loyer mensuel")        or d.get("loyer_mensuel")        or 0
     loyer_a  = d.get("Loyer annuel")         or d.get("loyer_annuel")         or 0
-    loyer_m2 = d.get("Loyer annuel m2")      or d.get("loyer_annuel_m2")      or 0
     hono     = d.get("Honoraires locataire") or d.get("honoraires_locataire") or 0
-    depot    = d.get("Dépôt de garantie")    or d.get("depot_garantie")       or 0
-    taxe_f   = d.get("Taxe foncière")        or d.get("taxe_fonciere")        or 0
+    depot    = d.get("D\u00e9p\u00f4t de garantie")    or d.get("depot_garantie")       or 0
+    index    = d.get("Indexation")           or d.get("indexation")           or ""
     prix_v   = d.get("Prix de vente")        or d.get("prix_vente")           or 0
-    surf_val = d.get("Surface") or surf or 0
+    locataire= d.get("Locataire")            or d.get("locataire")            or ""
+    bail_type= d.get("Type de bail")         or d.get("type_bail")            or ""
 
-    # Recalcul loyer_m2 si aberrant
-    lm2_display = None
-    if loyer_m2:
-        try:
-            lm2_val = float(loyer_m2)
-            la = loyer_a or 0
-            if not la and loyer_m:
-                try: la = float(loyer_m) * 12
-                except: pass
-            if (lm2_val < 50 or lm2_val > 1000) and surf_val and la:
-                try: lm2_val = float(la) / float(surf_val)
-                except: pass
-            lm2_display = f"{lm2_val:.0f} EUR HT/m2"
-        except: pass
-
-    # Calcul loyer annuel si absent
-    la_display = None
-    if loyer_a:
-        la_display = _fmt_eur(loyer_a, "EUR HT")
-    elif loyer_m:
-        try: la_display = _fmt_eur(float(loyer_m)*12, "EUR HT")
-        except: pass
+    def _fmt_eur(v):
+        try: return str(int(float(v))) + " EUR HT"
+        except: return str(v)
+    def _fmt_eur_mois(v):
+        try: return str(int(float(v))) + " EUR HT/mois"
+        except: return str(v)
 
     fin_cells = []
-    if loyer_m:  fin_cells.append(("Loyer mensuel",       _fmt_eur(loyer_m,  "EUR HT/mois")))
-    if la_display: fin_cells.append(("Loyer annuel",       la_display))
-    if lm2_display: fin_cells.append(("Loyer / m² / an",  lm2_display))
-    if prix_v:   fin_cells.append(("Prix de vente",        _pfmt(prix_v)))
-    if hono:     fin_cells.append(("Honoraires locataire", _pfmt(hono)))
-    if depot:    fin_cells.append(("Dépôt de garantie",    _pfmt(depot)))
-    if taxe_f:
-        try: fin_cells.append(("Taxe foncière",            _fmt_eur(taxe_f, "EUR/an")))
-        except: pass
-
-    y = _fiche_sec(c, ML, y, "06 — Informations Financieres")
+    if loyer_m:  fin_cells.append(("Loyer mensuel",  _fmt_eur_mois(loyer_m)))
+    la = 0
+    if loyer_a:
+        try: la = int(float(loyer_a))
+        except: la = 0
+    if not la and loyer_m:
+        try: la = int(float(loyer_m)) * 12
+        except: la = 0
+    if la: fin_cells.append(("Loyer annuel", _fmt_eur(la)))
+    if prix_v:   fin_cells.append(("Prix de vente",  _pfmt(prix_v)))
+    if depot:    fin_cells.append(("D\u00e9p\u00f4t de garantie", _safe_str(str(depot))))
+    if index:    fin_cells.append(("Indexation",      _safe_str(index)))
+    if locataire:fin_cells.append(("Locataire actuel",_safe_str(locataire)))
+    if bail_type:fin_cells.append(("Type de bail",    _safe_str(bail_type)))
+    if hono:     fin_cells.append(("Honoraires",      _safe_str(str(hono))))
 
     if fin_cells:
+        y = _fiche_sec(c, ML, y, "06 \u2014 Informations Financieres")
         GAP = 3; cell_h = 26
         ncols = min(3, len(fin_cells))
         col_wf = (CW - (ncols-1)*GAP) / ncols
@@ -2106,7 +2100,7 @@ def _fiche_page2(c, d):
             col = i % ncols; row = i // ncols
             cx = ML + col*(col_wf + GAP)
             cy = y - row*(cell_h + GAP)
-            _fiche_cell(c, cx, cy, col_wf, cell_h, lbl, val if val else "—")
+            _fiche_cell(c, cx, cy, col_wf, cell_h, lbl, val if val else "\u2014")
         nrows = (len(fin_cells) + ncols - 1) // ncols
         y -= nrows*(cell_h + GAP) + 6*_mm
 
