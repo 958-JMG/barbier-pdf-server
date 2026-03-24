@@ -1715,8 +1715,15 @@ def dossier():
 
         pdf_bytes = generate_dossier_pdf(d, comparables)
         ref = d.get("reference", "bien")
-        return Response(pdf_bytes, mimetype="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="Dossier_{ref}.pdf"'})
+        import urllib.parse as _up
+        extra_headers = {
+            "Content-Disposition": f'attachment; filename="Dossier_{ref}.pdf"',
+        }
+        if d.get("texte_quartier"):
+            extra_headers["X-Texte-Quartier"] = _up.quote(d["texte_quartier"][:1000], safe="")
+        if d.get("description"):
+            extra_headers["X-Description-Commerciale"] = _up.quote(d["description"][:1000], safe="")
+        return Response(pdf_bytes, mimetype="application/pdf", headers=extra_headers)
 
     except Exception as e:
         import traceback
