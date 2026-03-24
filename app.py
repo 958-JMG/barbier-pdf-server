@@ -2168,6 +2168,39 @@ def fiche_commerciale():
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
+@app.route("/dossier-pptx", methods=["POST"])
+def dossier_pptx():
+    """Génère le dossier de présentation PPTX Barbier (12 slides)."""
+    try:
+        from gen_pptx import generate_dossier_pptx
+        import assets_pptx as _AP
+        d = request.get_json(silent=True) or {}
+        if not d:
+            return jsonify({"error": "Payload JSON requis"}), 400
+        # Charger les assets statiques
+        assets = {k: getattr(_AP, k) for k in dir(_AP) if k.endswith('_B64')}
+        # Carte OSM pour slide 5
+        map_buf = None
+        try:
+            adresse = d.get("Adresse","") or ""
+            ville   = d.get("Ville","Vannes") or "Vannes"
+            map_pil, _, _ = _cadastre_or_osm_map("", adresse, ville, zoom=16, tiles=3)
+            if map_pil:
+                import io as _io
+                buf = _io.BytesIO(); map_pil.save(buf, "PNG"); buf.seek(0)
+                map_buf = buf
+        except Exception:
+            pass
+        pptx_bytes = generate_dossier_pptx(d, assets, map_buf=map_buf)
+        ref = d.get("Reference","") or d.get("reference","bien")
+        return Response(pptx_bytes,
+            mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={"Content-Disposition": f"attachment; filename=Dossier_{ref}.pptx"})
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+
 
 
 
