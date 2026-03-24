@@ -1158,7 +1158,7 @@ def _page1(c, d):
     if is_location:
         val_affiche  = loyer_m
         label_prix   = "LOYER MENSUEL HT"
-        suffix_val   = "€ HT/mois"
+        suffix_val   = "HT/mois"
         show_pm2     = False
     else:
         val_affiche  = prix
@@ -1278,9 +1278,11 @@ def _page2(c, d):
     _sec(c, "Photos du bien", 14*_mm, pb)
     pw3 = (_W-28*_mm-6*_mm)/3; ph3 = 36*_mm
     photos = d.get("photos") or []
+    # photos[0] = photo principale déjà affichée page 1 → on commence à l'index 1
+    photos_p2 = photos[1:] if len(photos) > 1 else []
     for i in range(3):
         px = 14*_mm+i*(pw3+3*_mm); py = pb-12*_mm-ph3
-        img = _fetch_photo_image(photos[i]) if i < len(photos) else None
+        img = _fetch_photo_image(photos_p2[i]) if i < len(photos_p2) else None
         if img:
             try:
                 c.saveState()
@@ -1577,26 +1579,86 @@ def _page4(c, comparables, d):
     _footer(c,4)
 
 def _page5(c, d):
-    _header(c,"Notre estimation de valeur"); _sec(c,"Positionnement prix",14*_mm,_H-32*_mm)
-    pm=d.get("prix_estime_min") or d.get("prix"); px=d.get("prix_estime_max") or d.get("prix")
-    pv=d.get("prix_retenu") or d.get("prix"); surf=d.get("surface")
-    by2=_H-82*_mm; sw=(_W-28*_mm)/3
-    for i,((t,p,n),col) in enumerate(zip(
-        [("Fourchette basse",_pfmt(pm),"Conditions défavorables"),
-         ("Valeur estimée",_pfmt(pv),"Recommandée"),
-         ("Fourchette haute",_pfmt(px),"Marché porteur")],
-        [_colors.HexColor("#7BAFC4"),_BLEU_F,_BLEU])):
-        sx2=14*_mm+i*sw; sh2=34*_mm if i==1 else 27*_mm; sy2=by2-sh2+(6*_mm if i==1 else 0)
-        c.setFillColor(col); c.roundRect(sx2,sy2,sw-2*_mm,sh2,2*_mm if i==1 else 1.5*_mm,fill=1,stroke=0)
-        c.setFillColor(_BLANC); c.setFont("Helvetica",7); c.drawCentredString(sx2+sw/2,sy2+sh2-8*_mm,t.upper())
-        c.setFont("Helvetica-Bold",14 if i==1 else 11); c.drawCentredString(sx2+sw/2,sy2+sh2-20*_mm,p)
-        c.setFont("Helvetica",6.5); c.drawCentredString(sx2+sw/2,sy2+5*_mm,n)
-    tri_x=14*_mm+sw+sw/2; tri_y=by2-27*_mm-4*_mm
-    tp=c.beginPath(); tp.moveTo(tri_x,tri_y); tp.lineTo(tri_x-4*_mm,tri_y-5*_mm); tp.lineTo(tri_x+4*_mm,tri_y-5*_mm); tp.close()
-    c.setFillColor(_ORANGE); c.drawPath(tp,fill=1,stroke=0)
-    if pv and surf:
-        c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
-        c.drawCentredString(_W/2,by2-42*_mm,f"Valeur estimée au m² : {_pm2(pv,surf)}  ·  Surface : {_safe(surf)} m²")
+    is_loc = bool(d.get("loyer_mensuel"))
+    loyer_m = float(str(d.get("loyer_mensuel") or 0).replace(" ",""))
+    surf = d.get("surface")
+
+    if is_loc:
+        # ── LOCATION : afficher fourchette loyer annuel au m² ──────────────
+        _header(c,"Notre positionnement locatif"); _sec(c,"Loyer de marché",14*_mm,_H-32*_mm)
+        surf_f = float(str(surf or 0).replace(" ","")) if surf else 0
+        loyer_an_actuel = loyer_m * 12
+        loyer_m2_actuel = loyer_an_actuel / surf_f if surf_f else 0
+        pm = int(loyer_an_actuel * 0.90) if loyer_an_actuel else 0
+        pv = int(loyer_an_actuel)
+        px = int(loyer_an_actuel * 1.10)
+
+        def _pfmt_loyer(v):
+            if not v: return "—"
+            try: return f"{int(v):,}".replace(",", " ") + " €/an"
+            except: return str(v)
+
+        by2=_H-82*_mm; sw=(_W-28*_mm)/3
+        for i,((t,p,n),col) in enumerate(zip(
+            [("Loyer bas de marché",_pfmt_loyer(pm),"Conditions de marché difficiles"),
+             ("Loyer retenu",_pfmt_loyer(pv),"Valeur recommandée"),
+             ("Loyer haut de marché",_pfmt_loyer(px),"Marché porteur")],
+            [_colors.HexColor("#7BAFC4"),_BLEU_F,_BLEU])):
+            sx2=14*_mm+i*sw; sh2=34*_mm if i==1 else 27*_mm; sy2=by2-sh2+(6*_mm if i==1 else 0)
+            c.setFillColor(col); c.roundRect(sx2,sy2,sw-2*_mm,sh2,2*_mm if i==1 else 1.5*_mm,fill=1,stroke=0)
+            c.setFillColor(_BLANC); c.setFont("Helvetica",7); c.drawCentredString(sx2+sw/2,sy2+sh2-8*_mm,t.upper())
+            c.setFont("Helvetica-Bold",12 if i==1 else 10); c.drawCentredString(sx2+sw/2,sy2+sh2-20*_mm,p)
+            c.setFont("Helvetica",6.5); c.drawCentredString(sx2+sw/2,sy2+5*_mm,n)
+        tri_x=14*_mm+sw+sw/2; tri_y=by2-27*_mm-4*_mm
+        tp=c.beginPath(); tp.moveTo(tri_x,tri_y); tp.lineTo(tri_x-4*_mm,tri_y-5*_mm); tp.lineTo(tri_x+4*_mm,tri_y-5*_mm); tp.close()
+        c.setFillColor(_ORANGE); c.drawPath(tp,fill=1,stroke=0)
+        if loyer_m2_actuel and surf_f:
+            c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
+            c.drawCentredString(_W/2,by2-42*_mm,
+                f"Loyer mensuel : {int(loyer_m):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
+        ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
+        c.setFillColor(_colors.HexColor("#E8F4F8")); c.roundRect(14*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
+        c.setFillColor(_BLEU); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm,ay-7*_mm,"ATOUTS DU BIEN")
+        for i,a in enumerate(["Emplacement commercial stratégique",f"Surface : {_safe(surf)} m²","Visibilité et accessibilité","Secteur à forte demande locative"]):
+            c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5); c.drawString(18*_mm,ay-16*_mm-i*10*_mm,f"·  {a}")
+        c.setFillColor(_colors.HexColor("#FFF8F0")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
+        c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"POSITIONNEMENT LOYER")
+        loyer_expl = [
+            "Le loyer affiché est positionné",
+            f"a {int(loyer_m2_actuel):.0f} EUR/m2/an, cohérent" if loyer_m2_actuel else "en cohérence avec le marché",
+            "avec le marché local des locaux",
+            "commerciaux du secteur.",
+            "",
+            "Les DVF renseignent les ventes,",
+            "pas les loyers. Notre estimation",
+            "s'appuie sur les baux en cours.",
+        ]
+        for i,line in enumerate(loyer_expl):
+            c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
+            c.drawString(18*_mm+cw2+6*_mm, ay-16*_mm-i*7*_mm, line)
+
+    else:
+        # ── VENTE : afficher fourchette valeur vénale ────────────────────────
+        _header(c,"Notre estimation de valeur"); _sec(c,"Positionnement prix",14*_mm,_H-32*_mm)
+        pm=d.get("prix_estime_min") or d.get("prix"); px=d.get("prix_estime_max") or d.get("prix")
+        pv=d.get("prix_retenu") or d.get("prix")
+        by2=_H-82*_mm; sw=(_W-28*_mm)/3
+        for i,((t,p,n),col) in enumerate(zip(
+            [("Fourchette basse",_pfmt(pm),"Conditions défavorables"),
+             ("Valeur estimée",_pfmt(pv),"Recommandée"),
+             ("Fourchette haute",_pfmt(px),"Marché porteur")],
+            [_colors.HexColor("#7BAFC4"),_BLEU_F,_BLEU])):
+            sx2=14*_mm+i*sw; sh2=34*_mm if i==1 else 27*_mm; sy2=by2-sh2+(6*_mm if i==1 else 0)
+            c.setFillColor(col); c.roundRect(sx2,sy2,sw-2*_mm,sh2,2*_mm if i==1 else 1.5*_mm,fill=1,stroke=0)
+            c.setFillColor(_BLANC); c.setFont("Helvetica",7); c.drawCentredString(sx2+sw/2,sy2+sh2-8*_mm,t.upper())
+            c.setFont("Helvetica-Bold",14 if i==1 else 11); c.drawCentredString(sx2+sw/2,sy2+sh2-20*_mm,p)
+            c.setFont("Helvetica",6.5); c.drawCentredString(sx2+sw/2,sy2+5*_mm,n)
+        tri_x=14*_mm+sw+sw/2; tri_y=by2-27*_mm-4*_mm
+        tp=c.beginPath(); tp.moveTo(tri_x,tri_y); tp.lineTo(tri_x-4*_mm,tri_y-5*_mm); tp.lineTo(tri_x+4*_mm,tri_y-5*_mm); tp.close()
+        c.setFillColor(_ORANGE); c.drawPath(tp,fill=1,stroke=0)
+        if pv and surf:
+            c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
+            c.drawCentredString(_W/2,by2-42*_mm,f"Valeur estimée au m² : {_pm2(pv,surf)}  ·  Surface : {_safe(surf)} m²")
     ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
     # Bloc atouts
     c.setFillColor(_colors.HexColor("#E8F4F8")); c.roundRect(14*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
