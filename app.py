@@ -1723,6 +1723,62 @@ def dossier():
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 
+@app.route("/estimer", methods=["POST"])
+def estimer():
+    """
+    Calcule les fourchettes de prix via DVF et retourne un JSON avec les estimations.
+    Payload : type_bien, adresse, ville, code_postal, surface, loyer_mensuel, prix
+    Retourne : {"ok": True, "prix_estime_min": X, "prix_retenu": Y, "prix_estime_max": Z, "dvf_pm2": W, "nb_comparables": N}
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        ville      = data.get("ville", "Vannes")
+        cp         = str(data.get("code_postal", "56000"))
+        surface    = float(data.get("surface") or 0)
+        type_bien  = data.get("type_bien", "Local commercial")
+        prix_v     = float(data.get("prix") or data.get("prix_de_vente") or 0)
+        loyer_m    = float(data.get("loyer_mensuel") or 0)
+
+        if surface <= 0:
+            return jsonify({"ok": False, "error": "Surface manquante ou nulle"}), 400
+
+        comps, dvf_pm2, dvf_stats = _run_dvf(ville, cp, surface, type_bien, limit=6)
+
+        if dvf_pm2 <= 0:
+            return jsonify({"ok": False, "error": "Pas de données DVF disponibles pour ce secteur", "nb_comparables": len(comps)}), 200
+
+        if loyer_m:
+            loyer_m2 = (loyer_m * 12) / surface
+            pm2_ref  = (loyer_m2 + dvf_pm2) / 2
+            pm_min   = int(pm2_ref * 0.88 * surface)
+            pm_ret   = int(pm2_ref * surface)
+            pm_max   = int(pm2_ref * 1.12 * surface)
+        elif prix_v:
+            pm2_vente = prix_v / surface
+            pm2_ref   = (pm2_vente + dvf_pm2) / 2
+            pm_min    = int(pm2_ref * 0.90 * surface)
+            pm_ret    = int(pm2_ref * surface)
+            pm_max    = int(pm2_ref * 1.10 * surface)
+        else:
+            pm_min = int(dvf_pm2 * 0.90 * surface)
+            pm_ret = int(dvf_pm2 * surface)
+            pm_max = int(dvf_pm2 * 1.10 * surface)
+
+        return jsonify({
+            "ok":              True,
+            "prix_estime_min": pm_min,
+            "prix_retenu":     pm_ret,
+            "prix_estime_max": pm_max,
+            "dvf_pm2":         round(dvf_pm2, 0),
+            "nb_comparables":  len(comps),
+            "methode":         "locatif DVF" if loyer_m else "vente DVF",
+        })
+
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
 @app.route("/generer-avis", methods=["POST"])
 def generer_avis():
     """
