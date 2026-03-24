@@ -1674,19 +1674,35 @@ def dossier():
                         data.get("type_bien",""), str(data.get("surface","")),
                         data.get("activite",""), data.get("adresse",""), data.get("ville","")
                     ]))
+                    is_loc = bool(data.get("loyer_mensuel"))
+                    op = "à louer" if is_loc else "à vendre"
+                    val_info = ""
+                    if is_loc and data.get("loyer_mensuel"):
+                        try: val_info = f"Loyer : {int(float(str(data['loyer_mensuel'])))} € HT/mois"
+                        except: pass
+                    elif data.get("prix"):
+                        try: val_info = f"Prix : {int(float(str(data['prix'])))} €"
+                        except: pass
                     prompt_desc = (
-                        f"Tu es expert en immobilier commercial Barbier Immobilier, Vannes.\n"
-                        f"Rédige un texte de présentation vendeur et précis pour ce bien (120-180 mots).\n"
-                        f"Bien : {data.get('type_bien','')} — {data.get('surface','')} m² — "
-                        f"{data.get('adresse','')}, {data.get('ville','')}\n"
-                        f"Informations disponibles : {notes_src[:500]}\n\n"
-                        f"Accroche forte, description précise avec chiffres, atouts emplacement, call-to-action.\n"
-                        f"Ton : professionnel, vendeur, concret. 120-180 mots maximum."
+                        f"Tu es négociateur senior chez Barbier Immobilier (Vannes, Morbihan).\n"
+                        f"Rédige une présentation commerciale pour ce bien {op}.\n\n"
+                        f"TYPE : {data.get('type_bien','')} — {data.get('surface','')} m²\n"
+                        f"ADRESSE : {data.get('adresse','')}, {data.get('ville','')}\n"
+                        f"{val_info}\n"
+                        f"INFORMATIONS DISPONIBLES : {notes_src[:800]}\n\n"
+                        f"EXIGENCES :\n"
+                        f"- 130-180 mots en texte continu\n"
+                        f"- Accroche commerciale forte (1 phrase)\n"
+                        f"- Description fonctionnelle : agencement, état, équipements (2-3 phrases)\n"
+                        f"- Atouts stratégiques : emplacement, accessibilité, potentiel (2 phrases)\n"
+                        f"- Chiffres précis (surface, prix/loyer au m²)\n"
+                        f"- Ton professionnel, vendeur, sans formule vague\n"
+                        f"- Pas de hashtags ni d'emojis"
                     )
                     gpt_payload = _json.dumps({
                         "model": "gpt-4o",
                         "messages": [{"role": "user", "content": prompt_desc}],
-                        "max_tokens": 350, "temperature": 0.65
+                        "max_tokens": 400, "temperature": 0.65
                     }).encode()
                     gpt_req = _ur.Request("https://api.openai.com/v1/chat/completions",
                         data=gpt_payload, method="POST",
@@ -1701,6 +1717,117 @@ def dossier():
         ref = d.get("reference", "bien")
         return Response(pdf_bytes, mimetype="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="Dossier_{ref}.pdf"'})
+
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route("/generer-avis", methods=["POST"])
+def generer_avis():
+    """
+    Génère un texte d'avis de valeur riche et structuré via GPT-4o.
+    Payload : type_bien, adresse, ville, surface, loyer_mensuel, prix, activite,
+              prix_estime_min, prix_estime_max, prix_retenu, dvf_resume, notes
+    Retourne : {"avis": "texte structuré..."}
+    """
+    import os as _os_av, json as _json_av, urllib.request as _ur_av
+    try:
+        data = request.get_json(silent=True) or {}
+        api_key = _os_av.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            return jsonify({"error": "OPENAI_API_KEY manquant"}), 500
+
+        type_b   = data.get("type_bien", "Local commercial")
+        adresse  = data.get("adresse", "")
+        ville    = data.get("ville", "Vannes")
+        surface  = data.get("surface", "")
+        loyer    = data.get("loyer_mensuel") or data.get("loyer", 0)
+        prix     = data.get("prix") or data.get("prix_de_vente", 0)
+        activite = data.get("activite", "")
+        pm_min   = data.get("prix_estime_min") or 0
+        pm_max   = data.get("prix_estime_max") or 0
+        pm_ret   = data.get("prix_retenu") or 0
+        dvf      = data.get("dvf_resume", "")
+        notes    = data.get("notes", "")
+
+        is_loc = bool(loyer)
+        def fmt(v):
+            try: return f"{int(float(str(v).replace(' ',''))) :,}".replace(",", "\u202f") + " €"
+            except: return str(v)
+
+        valeur_bien = f"Loyer : {fmt(loyer)}/mois" if is_loc else f"Prix de vente : {fmt(prix)}"
+        loyer_m2 = ""
+        if is_loc and loyer and surface:
+            try:
+                lm2 = (float(str(loyer).replace(' ','')) * 12) / float(str(surface).replace(' ',''))
+                loyer_m2 = f"Loyer annuel au m² : {lm2:.0f} €/m²/an"
+            except: pass
+
+        estim_bloc = ""
+        if pm_ret:
+            estim_bloc = (
+                f"ESTIMATION DVF :\n"
+                f"  Fourchette basse : {fmt(pm_min)}\n"
+                f"  Valeur retenue   : {fmt(pm_ret)}\n"
+                f"  Fourchette haute : {fmt(pm_max)}\n"
+            )
+
+        prompt = f"""Tu es expert en évaluation immobilière commerciale chez Barbier Immobilier (Vannes, Morbihan).
+Rédige un avis de valeur professionnel et structuré pour ce bien.
+
+DONNÉES DU BIEN :
+Type : {type_b}
+Adresse : {adresse}, {ville} (Morbihan, 56)
+Surface : {surface} m²
+{f"Activité : {activite}" if activite else ""}
+{valeur_bien}
+{loyer_m2}
+{estim_bloc}
+{f"Données de marché DVF : {dvf[:600]}" if dvf else ""}
+{f"Notes : {notes[:400]}" if notes else ""}
+
+STRUCTURE ATTENDUE (utilise exactement ces marqueurs) :
+
+---SYNTHÈSE---
+En 4-5 phrases : présentation du bien, contexte du marché local Morbihan, adéquation offre/demande.
+Mentionner obligatoirement le loyer ou prix au m² et le comparer aux moyennes du secteur.
+
+---MÉTHODOLOGIE---
+En 3-4 phrases : expliquer la méthode d'évaluation utilisée (comparables DVF, méthode par capitalisation si locatif, méthode par comparaison si vente).
+Citer les sources de données utilisées (DVF data.gouv.fr, base transactions Barbier, connaissance terrain).
+
+---ÉVALUATION DÉTAILLÉE---
+En 5-6 phrases : analyse détaillée de la valeur.
+Facteurs positifs (emplacement, visibilité, état, surface, accessibilité).
+Facteurs de vigilance éventuels (concurrence, travaux, marché sectoriel).
+Comparaison avec les transactions DVF récentes si disponibles.
+Conclusion sur le positionnement prix recommandé.
+
+---RECOMMANDATIONS---
+En 3-4 phrases : conseils opérationnels pour la mise en marché.
+Stratégie de prix recommandée, délai de commercialisation estimé, axes de valorisation possibles.
+
+RÈGLES :
+- Ton professionnel et expert, pas commercial
+- Chiffres précis obligatoires (€/m², rentabilité brute si locatif, ratio prix/marché)
+- Pas de formules vagues
+- Langue française impeccable
+- Longueur totale : 300-400 mots"""
+
+        payload_gpt = _json_av.dumps({
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 800,
+            "temperature": 0.5
+        }).encode()
+        req = _ur_av.Request("https://api.openai.com/v1/chat/completions",
+            data=payload_gpt, method="POST",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        with _ur_av.urlopen(req, timeout=60) as res:
+            avis_txt = _json_av.load(res)["choices"][0]["message"]["content"].strip()
+
+        return jsonify({"avis": avis_txt})
 
     except Exception as e:
         import traceback
@@ -1739,21 +1866,38 @@ def annonce():
         loyer_str = f"{int(float(str(loyer).replace(' ',''))):,} € HT/mois".replace(",","\u202f") if loyer else ""
         val_str = prix_str or loyer_str
 
+        is_location = bool(loyer)
+        operation = "À LOUER" if is_location else "À VENDRE"
+        val_affichee = loyer_str if is_location else prix_str
+
         prompt = (
-            f"Tu es un expert en immobilier commercial Barbier Immobilier, Vannes (Morbihan).\n"
-            f"Rédige une annonce portail professionnelle, vendeuse et précise pour ce bien.\n\n"
-            f"BIEN : {type_b} — {surface} m² — {adresse}, {ville}\n"
-            f"PRIX / LOYER : {val_str or 'À définir'}\n"
+            f"Tu es négociateur expert chez Barbier Immobilier, spécialiste de l'immobilier commercial "
+            f"dans le Golfe du Morbihan (Vannes, Bretagne Sud). "
+            f"Rédige une annonce portail professionnelle, percutante et précise.\n\n"
+            f"OPÉRATION : {operation}\n"
+            f"TYPE : {type_b}\n"
+            f"SURFACE : {surface} m²\n"
+            f"LOCALISATION : {adresse}, {ville} (Morbihan, 56)\n"
+            f"VALEUR : {val_affichee or 'Prix sur demande'}\n"
         )
-        if activite: prompt += f"ACTIVITÉ : {activite}\n"
+        if activite: prompt += f"ACTIVITÉ ACTUELLE / DESTINATION : {activite}\n"
         if bail:     prompt += f"TYPE DE BAIL : {bail}\n"
-        if mandat:   prompt += f"MANDAT : {mandat}\n"
-        if desc:     prompt += f"\nINFORMATIONS BRUTES DU BIEN :\n{desc}\n"
+        if mandat:   prompt += f"TYPE DE MANDAT : {mandat}\n"
+        if desc:     prompt += f"\nINFORMATIONS DISPONIBLES SUR LE BIEN :\n{desc[:1500]}\n"
         prompt += (
-            "\nRédige une annonce de 120-180 mots maximum. "
-            "Structure : accroche forte (1 phrase), description du bien (2-3 phrases avec chiffres clés), "
-            "atouts emplacement (1-2 phrases), call-to-action (1 phrase).\n"
-            "Ton : professionnel, vendeur, concret. Pas de formule vague. Chiffres précis."
+            "\nRÈGLES DE RÉDACTION :\n"
+            "1. Accroche forte en 1 phrase (type de bien + localisation + argument clé)\n"
+            "2. Description précise du bien : surface, agencement, état, équipements notables (2-3 phrases)\n"
+            "3. Atouts emplacement : visibilité, flux, accessibilité, environnement commercial (1-2 phrases)\n"
+            "4. Éléments financiers clés si pertinent : loyer/m²/an, rentabilité, charges\n"
+            "5. Call-to-action direct avec contact Barbier Immobilier\n\n"
+            "CONTRAINTES :\n"
+            "- 150-200 mots, ton professionnel et vendeur\n"
+            "- Aucune formule vague (éviter : 'idéalement situé', 'bel emplacement')\n"
+            "- Chiffres précis obligatoires (surface m², loyer €/m², etc.)\n"
+            "- Pas de hashtags, pas de emojis\n"
+            "- Langue française impeccable\n"
+            "- Mettre en valeur le rapport qualité/prix et l'opportunité commerciale"
         )
 
         import json as _json2, urllib.request as _ur2
