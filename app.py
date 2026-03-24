@@ -834,29 +834,28 @@ def _st_token():
 import json as _json, urllib.request as _ur, urllib.parse as _up, math as _math
 
 def _fetch_photo_image(photo_url, access_token=None):
-    """Télécharge une photo SeaTable et retourne un ImageReader ReportLab.
-    Gère les URLs cloud.seatable.io en obtenant d'abord un lien de téléchargement signé."""
+    """Charge une photo et retourne un ImageReader ReportLab.
+    Supporte : data URLs base64, URLs HTTP(S), URLs Airtable."""
+    if not photo_url:
+        return None
     try:
         from reportlab.lib.utils import ImageReader as _IR
         from io import BytesIO as _BIO
-        import re as _re
-        url = photo_url
-        # Si c'est une URL SeaTable asset, obtenir le download link
-        if "cloud.seatable.io" in url and "/asset/" in url:
-            # Extraire le path relatif depuis l'URL
-            m = _re.search(r'/images/(.+)$', url)
-            if m:
-                path = "/images/" + _up.unquote(m.group(1))
-                tok = access_token or SEATABLE_TOKEN
-                params = _up.urlencode({"path": path})
-                r = requests.get(
-                    f"https://cloud.seatable.io/api/v2.1/dtable/app-download-link/?{params}",
-                    headers={"Authorization": f"Token {tok}"}, timeout=10)
-                if r.status_code == 200:
-                    url = r.json().get("download_link", url)
-        resp = requests.get(url, timeout=15)
-        if resp.status_code == 200 and "image" in resp.headers.get("Content-Type",""):
-            return _IR(_BIO(resp.content))
+
+        # data URL base64 (ex: data:image/jpeg;base64,...)
+        if photo_url.startswith("data:"):
+            _, b64data = photo_url.split(",", 1)
+            import base64 as _b64_local
+            raw = _b64_local.b64decode(b64data)
+            return _IR(_BIO(raw))
+
+        # URL HTTP standard (Airtable attachments, etc.)
+        resp = requests.get(photo_url, timeout=15,
+                            headers={"User-Agent": "BarbierImmo/1.0"})
+        if resp.status_code == 200:
+            ct = resp.headers.get("Content-Type", "")
+            if "image" in ct or resp.content[:4] in (b"\xff\xd8\xff\xe0", b"\x89PNG", b"\xff\xd8\xff\xe1"):
+                return _IR(_BIO(resp.content))
     except Exception:
         pass
     return None
@@ -894,7 +893,7 @@ def _pm2(p, s):
     except: return "—"
 
 def _footer(c, n):
-    c.setFillColor(_BLEU_F); c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
+    c.setFillColor(_BLEU); c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
     c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
     c.drawString(14*_mm, 3.5*_mm, "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com")
     c.drawRightString(_W-14*_mm, 3.5*_mm, f"{n} / 6")
@@ -1022,20 +1021,44 @@ def _page1(c, d):
     c.drawString(14*_mm, _H-53*_mm, _safe(d.get("adresse")))
     c.drawString(14*_mm, _H-62*_mm, f"{_safe(d.get('code_postal'))} {_safe(d.get('ville'))}")
     c.setFillColor(_ORANGE); c.rect(14*_mm, _H-65.5*_mm, 50*_mm, 2.5*_mm, fill=1, stroke=0)
-    # Prix
-    prix = d.get("prix") or d.get("prix_retenu") or d.get("prix_estime_max")
-    surf = d.get("surface")
+    # Prix ou Loyer — détecter si c'est une location
+    prix     = d.get("prix") or d.get("prix_retenu") or d.get("prix_estime_max") or 0
+    loyer_m  = d.get("loyer_mensuel") or d.get("loyer_annuel") or 0
+    surf     = d.get("surface")
+    is_location = bool(loyer_m and not prix)
+    if is_location:
+        val_affiche  = loyer_m
+        label_prix   = "LOYER MENSUEL HT"
+        suffix_val   = "€ HT/mois"
+        show_pm2     = False
+    else:
+        val_affiche  = prix
+        label_prix   = "PRIX DE PRÉSENTATION"
+        suffix_val   = ""
+        show_pm2     = bool(prix and surf)
+
     c.setFillColor(_BLANC); c.setFont("Helvetica", 9)
-    c.drawString(14*_mm, _H-74*_mm, "PRIX DE PRÉSENTATION")
+    c.drawString(14*_mm, _H-74*_mm, label_prix)
     c.setFont("Helvetica-Bold", 34)
-    c.drawString(14*_mm, _H-91*_mm, _pfmt(prix))
-    if prix and surf:
+    prix_str = _pfmt(val_affiche) if val_affiche else "—"
+    if suffix_val:
+        # Afficher valeur + suffix sur même ligne
+        c.setFont("Helvetica-Bold", 28)
+        c.drawString(14*_mm, _H-91*_mm, prix_str)
+        c.setFont("Helvetica", 13); c.setFillColor(_colors.HexColor("#FFFFFFCC"))
+        vw = c.stringWidth(prix_str, "Helvetica-Bold", 28)
+        c.drawString(14*_mm + vw + 3*_mm, _H-91*_mm, suffix_val)
+        c.setFillColor(_BLANC)
+    else:
+        c.setFont("Helvetica-Bold", 34)
+        c.drawString(14*_mm, _H-91*_mm, prix_str)
+    if show_pm2:
         c.setFont("Helvetica", 10); c.setFillColor(_colors.HexColor("#FFFFFFBB"))
-        c.drawString(14*_mm, _H-98*_mm, f"soit {_pm2(prix,surf)}")
+        c.drawString(14*_mm, _H-98*_mm, f"soit {_pm2(val_affiche, surf)}")
     # Blocs caractéristiques blancs
-    carac = [("SURFACE", f"{_safe(surf)} m²"), ("TYPE", _safe(d.get("type_bien","—"))[:14])]
+    carac = [("SURFACE", f"{_safe(surf)} m²"), ("TYPE", _safe(d.get("type_bien","—")))]
     if d.get("surface_terrain"): carac.append(("TERRAIN", f"{_safe(d.get('surface_terrain'))} m²"))
-    if d.get("activite"):        carac.append(("ACTIVITÉ", _safe(d.get("activite"))[:14]))
+    if d.get("activite"):        carac.append(("ACTIVITÉ", _safe(d.get("activite"))))
     carac = carac[:4]
     bw = (_W-28*_mm)/len(carac)-2*_mm; bh = 22*_mm; by = _H*0.49+1*_mm
     for i, (lbl, val) in enumerate(carac):
@@ -1047,9 +1070,9 @@ def _page1(c, d):
         c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 7)
         c.drawCentredString(bx+bw/2, by+bh-7*_mm, lbl)
         c.setFillColor(_BLEU_F)
-        for fsz in [13,11,9,8]:
+        for fsz in [12,10,8,7,6]:
             c.setFont("Helvetica-Bold", fsz)
-            if c.stringWidth(val, "Helvetica-Bold", fsz) < bw-6*_mm: break
+            if c.stringWidth(val, "Helvetica-Bold", fsz) < bw-4*_mm: break
         c.drawCentredString(bx+bw/2, by+5*_mm, val)
     # Zone blanche + photo principale
     c.setFillColor(_BLANC); c.rect(0, 0, _W, _H*0.48, fill=1, stroke=0)
@@ -1082,7 +1105,7 @@ def _page1(c, d):
         c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 10)
         c.drawCentredString(_W/2, py0+ph/2+3*_mm, "[ Photo principale du bien ]")
         c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#AAAAAA"))
-        c.drawCentredString(_W/2, py0+ph/2-6*_mm, "Intégrée automatiquement depuis SeaTable")
+        c.drawCentredString(_W/2, py0+ph/2-6*_mm, "Ajoutez une photo depuis le cockpit")
     c.setFillColor(_GTEXTE); c.setFont("Helvetica", 7.5)
     c.drawString(14*_mm, 13*_mm, f"Dossier préparé par  {_safe(d.get('negociateur'),'Barbier Immobilier')}  ·  Réf. {_safe(d.get('reference'))}")
     _footer(c, 1)
@@ -1400,11 +1423,69 @@ def dossier():
             "activite":        data.get("activite"),
             "ca_ht":           data.get("ca_ht"),
             "loyer_annuel":    data.get("loyer_annuel"),
+            "loyer_mensuel":   data.get("loyer_mensuel"),
             "texte_quartier":  texte_q,
             "photos":          data.get("photos", []),
         }
 
         comparables = data.get("comparables", [])
+
+        # Auto-fetch DVF si pas de comparables transmis
+        if not comparables:
+            try:
+                adresse_dvf = data.get("adresse", "")
+                ville_dvf   = data.get("ville", "Vannes")
+                import urllib.parse as _ulp
+                dvf_payload = _json.dumps({
+                    "adresse": adresse_dvf, "ville": ville_dvf,
+                    "surface": data.get("surface", 0),
+                    "type_bien": data.get("type_bien", ""),
+                    "limit": 4
+                }).encode()
+                dvf_req = _ur.Request(
+                    "http://localhost:" + str(int(os.environ.get("PORT", 5000))) + "/dvf-comparables",
+                    data=dvf_payload, method="POST",
+                    headers={"Content-Type": "application/json"})
+                with _ur.urlopen(dvf_req, timeout=20) as dvf_res:
+                    dvf_data = _json.load(dvf_res)
+                    comparables = dvf_data.get("comparables", [])
+            except Exception:
+                pass
+
+        # Enrichir description si absente ou trop courte (< 80 chars)
+        if not d.get("description") or len(str(d.get("description",""))) < 80:
+            try:
+                import os as _os2
+                api_key = _os2.environ.get("OPENAI_API_KEY","")
+                if api_key:
+                    notes_src = " ".join(filter(None, [
+                        data.get("notes",""), data.get("description",""),
+                        data.get("type_bien",""), str(data.get("surface","")),
+                        data.get("activite",""), data.get("adresse",""), data.get("ville","")
+                    ]))
+                    prompt_desc = (
+                        f"Tu es expert en immobilier commercial Barbier Immobilier, Vannes.\n"
+                        f"Rédige un texte de présentation vendeur et précis pour ce bien (120-180 mots).\n"
+                        f"Bien : {data.get('type_bien','')} — {data.get('surface','')} m² — "
+                        f"{data.get('adresse','')}, {data.get('ville','')}\n"
+                        f"Informations disponibles : {notes_src[:500]}\n\n"
+                        f"Accroche forte, description précise avec chiffres, atouts emplacement, call-to-action.\n"
+                        f"Ton : professionnel, vendeur, concret. 120-180 mots maximum."
+                    )
+                    gpt_payload = _json.dumps({
+                        "model": "gpt-4o",
+                        "messages": [{"role": "user", "content": prompt_desc}],
+                        "max_tokens": 350, "temperature": 0.65
+                    }).encode()
+                    gpt_req = _ur.Request("https://api.openai.com/v1/chat/completions",
+                        data=gpt_payload, method="POST",
+                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+                    with _ur.urlopen(gpt_req, timeout=30) as gpt_res:
+                        desc_enrichie = _json.load(gpt_res)["choices"][0]["message"]["content"].strip()
+                    d["description"] = desc_enrichie
+            except Exception:
+                pass
+
         pdf_bytes = generate_dossier_pdf(d, comparables)
         ref = d.get("reference", "bien")
         return Response(pdf_bytes, mimetype="application/pdf",
