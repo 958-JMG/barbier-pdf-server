@@ -1138,7 +1138,7 @@ def _gpt_quartier(adresse, ville, type_bien, surface):
 # ══════════════════════════════════════════════════════════════
 def _page1(c, d):
     c.setFillColor(_BLEU); c.rect(0, _H*0.48, _W, _H*0.52, fill=1, stroke=0)
-    _logo(c, _W-52*_mm, _H-52*_mm, w=34*_mm)
+    # Logo dessiné en overlay APRÈS la photo (voir fin de fonction)
     # Titre
     c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 30)
     c.drawString(14*_mm, _H-42*_mm, _safe(d.get("type_bien"), "Bien immobilier"))
@@ -1244,6 +1244,8 @@ def _page1(c, d):
         c.drawCentredString(_W/2, py0+ph/2+3*_mm, "[ Photo principale du bien ]")
         c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#AAAAAA"))
         c.drawCentredString(_W/2, py0+ph/2-6*_mm, "Ajoutez une photo depuis le cockpit")
+    # Logo en overlay au-dessus de tout (bandeau bleu + photo)
+    _logo(c, _W-52*_mm, _H-18*_mm, w=34*_mm)
     c.setFillColor(_GTEXTE); c.setFont("Helvetica", 7.5)
     c.drawString(14*_mm, 13*_mm, f"Dossier préparé par  {_safe(d.get('negociateur'),'Barbier Immobilier')}  ·  Réf. {_safe(d.get('reference'))}")
     _footer(c, 1)
@@ -1335,13 +1337,82 @@ def _page3(c, d):
         c.setFillColor(_colors.HexColor("#E8F0F4")); c.roundRect(mx,my,mw,mh,3*_mm,fill=1,stroke=0)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica",8)
         c.drawCentredString(_W/2, my+mh/2, f"Carte: {str(e)[:60]}")
-    # Atouts quartier (réduit à 2 colonnes pour laisser place cadastre)
-    pts = [("Commerces","Services de proximité"),("Transports","Gare SNCF / Rocade"),
-           ("Dynamisme","Zone commerciale active"),("Parking","Stationnement aisé"),
-           ("Établissements","Écoles & formations"),("Réseau","Secteur porteur")]
+    # ── POI réels via Overpass API ──────────────────────────────────────────
+    def _get_poi_blocks(lat_c, lon_c, radius=400):
+        """Interroge Overpass pour récupérer les POI à proximité, retourne 6 blocs (picto, titre, valeur)."""
+        import urllib.request as _ur3, json as _j3, urllib.parse as _up3
+        # Catégories pertinentes pour immobilier commercial professionnel
+        categories = [
+            # (tag_key, tag_value, label_affiche, picto_char)
+            ("amenity", "restaurant|cafe|bar", "Restauration", "🍽"),
+            ("amenity", "bank|post_office", "Services", "🏦"),
+            ("amenity", "parking", "Parking", "🅿"),
+            ("public_transport", "stop_position|platform", "Transports", "🚌"),
+            ("amenity", "school|university|college", "Formations", "🎓"),
+            ("shop", "supermarket|convenience", "Commerce", "🛒"),
+            ("amenity", "hospital|clinic|pharmacy", "Santé", "🏥"),
+            ("leisure", "sports_centre|fitness_centre", "Sport & loisirs", "⚽"),
+        ]
+        results = []
+        try:
+            for key, values, label, picto in categories:
+                val_filter = "|".join(f'"{v}"' for v in values.split("|"))
+                query = f"""[out:json][timeout:5];
+node["{key}"~{val_filter}](around:{radius},{lat_c},{lon_c});
+out 1;"""
+                enc = _up3.quote(query)
+                req = _ur3.Request(
+                    f"https://overpass-api.de/api/interpreter?data={enc}",
+                    headers={"User-Agent": "BarbierImmo/1.0 (contact@barbierimmobilier.com)"}
+                )
+                with _ur3.urlopen(req, timeout=6) as res:
+                    data = _j3.load(res)
+                elements = data.get("elements", [])
+                if elements:
+                    el = elements[0]
+                    tags = el.get("tags", {})
+                    nom = tags.get("name") or tags.get("brand") or label
+                    if len(nom) > 22: nom = nom[:20] + "…"
+                    results.append((label, nom))
+                if len(results) >= 6:
+                    break
+        except Exception:
+            pass
+        # Compléter avec des valeurs par défaut si < 6 résultats
+        defaults = [
+            ("Commerces", "Services de proximité"),
+            ("Transports", "Gare SNCF / Rocade"),
+            ("Parking", "Stationnement disponible"),
+            ("Restauration", "Cafés & restaurants"),
+            ("Formations", "Établissements proches"),
+            ("Réseau", "Zone d'activité active"),
+        ]
+        for d_lbl, d_val in defaults:
+            if len(results) >= 6: break
+            if not any(r[0] == d_lbl for r in results):
+                results.append((d_lbl, d_val))
+        return results[:6]
+
+    # Récupérer les coordonnées depuis la carte OSM déjà calculée
+    poi_blocks = []
+    try:
+        if lat and lon:
+            poi_blocks = _get_poi_blocks(lat, lon)
+    except Exception:
+        pass
+    if not poi_blocks:
+        poi_blocks = [
+            ("Commerces", "Services de proximité"),
+            ("Transports", "Gare SNCF / Rocade"),
+            ("Dynamisme", "Zone commerciale active"),
+            ("Parking", "Stationnement aisé"),
+            ("Établissements", "Écoles & formations"),
+            ("Réseau", "Secteur porteur"),
+        ]
+
     pw2 = (_W-28*_mm-10*_mm)/3
     pt_y = my-16*_mm
-    for i,(lbl,val) in enumerate(pts):
+    for i,(lbl,val) in enumerate(poi_blocks):
         col=i%3; row2=i//3; bx=14*_mm+col*(pw2+5*_mm); by=pt_y-row2*13*_mm
         c.setFillColor(_GRIS); c.roundRect(bx,by,pw2,11*_mm,2*_mm,fill=1,stroke=0)
         c.setFillColor(_BLEU); c.setFont("Helvetica-Bold",8); c.drawString(bx+3*_mm,by+6.5*_mm,lbl)
