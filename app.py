@@ -715,7 +715,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "3.16"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.0"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1345,75 +1345,144 @@ def generate_dossier_pdf(d, comparables=[]):
     cv.save(); buf.seek(0)
     return buf.read()
 
-@app.route("/dossier-vente", methods=["GET", "POST"])
-def dossier_vente():
+@app.route("/dossier", methods=["POST"])
+def dossier():
+    """
+    Génère le dossier commercial 6 pages style BAR-00322.
+    Payload JSON direct depuis le cockpit (données Airtable déjà hydratées).
+    Clés attendues :
+      reference, type_bien, adresse, code_postal, ville, surface, surface_terrain,
+      prix, prix_estime_min, prix_estime_max, prix_retenu,
+      negociateur, description, annee_construct, activite, ca_ht, loyer_annuel,
+      texte_quartier (optionnel — GPT génère si absent),
+      photos (liste d'URLs ou data URLs base64),
+      comparables (liste de dicts {Adresse, Ville, Prix, Surface, Statut, Source, Date})
+    """
     try:
-        data      = request.get_json(silent=True) or {}
-        row_id    = request.args.get("row_id")    or data.get("row_id")
-        reference = request.args.get("reference") or data.get("reference")
-        if not row_id and not reference:
-            return jsonify({"error": "row_id ou reference requis"}), 400
+        data = request.get_json(silent=True) or {}
+        if not data:
+            return jsonify({"error": "Payload JSON requis"}), 400
 
-        at, uuid = _st_token()
-
-        params = _up.urlencode({"table_name":"01_Biens","convert_keys":"true","limit":300})
-        req2 = _ur.Request(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/rows/?{params}",
-            headers={"Authorization": f"Token {at}"})
-        with _ur.urlopen(req2) as resp: rows = _json.load(resp)["rows"]
-
-        row = next((r2 for r2 in rows if
-            (row_id and r2.get("_id")==row_id) or
-            (reference and r2.get("Reference")==reference)), None)
-        if not row: return jsonify({"error":"Bien non trouvé"}), 404
-
-        ref = row.get("Reference","")
-        try:
-            # /sql ne supporte pas convert_keys → utiliser rows endpoint avec convert_keys=true
-            p3 = _up.urlencode({"table_name":"06_Comparables","convert_keys":"true","limit":300})
-            req3 = _ur.Request(f"https://cloud.seatable.io/api-gateway/api/v2/dtables/{uuid}/rows/?{p3}",
-                headers={"Authorization":f"Token {at}"})
-            with _ur.urlopen(req3) as res3:
-                all_comp = _json.load(res3).get("rows",[])
-            # Filtrer par référence, trier par Date DESC, prendre les 4 plus récents
-            matched = [c for c in all_comp if c.get("Reference bien") == ref]
-            matched.sort(key=lambda x: str(x.get("Date","") or ""), reverse=True)
-            comparables = matched[:4]
-        except: comparables = []
-
-        texte_q = row.get("Texte quartier") or ""
+        # Texte quartier — utiliser GPT si absent
+        texte_q = data.get("texte_quartier") or ""
         if not texte_q:
-            try: texte_q = _gpt_quartier(row.get("Adresse",""), row.get("Ville","Vannes"), row.get("Type de bien",""), row.get("Surface",""))
-            except: texte_q = f"Situé à {row.get('Ville','Vannes')}, ce bien bénéficie d'une localisation stratégique dans un secteur économiquement actif du Morbihan. L'accessibilité est optimale grâce à la proximité de la rocade et des axes principaux, garantissant un flux de clientèle régulier. Le secteur compte de nombreux commerces, services et équipements à proximité immédiate, offrant un environnement favorable à l'exploitation d'une activité commerciale ou professionnelle."
+            try:
+                texte_q = _gpt_quartier(
+                    data.get("adresse", ""),
+                    data.get("ville", "Vannes"),
+                    data.get("type_bien", ""),
+                    data.get("surface", "")
+                )
+            except Exception:
+                texte_q = (
+                    f"Situé à {data.get('ville','Vannes')}, ce bien bénéficie d'une localisation "
+                    "stratégique dans un secteur économiquement actif du Morbihan. "
+                    "L'accessibilité est optimale grâce à la proximité de la rocade et des axes principaux. "
+                    "Le secteur compte de nombreux commerces, services et équipements à proximité immédiate, "
+                    "offrant un environnement favorable à l'exploitation d'une activité commerciale ou professionnelle."
+                )
 
         d = {
-            "reference":       ref,
-            "type_bien":       row.get("Type de bien",""),
-            "adresse":         row.get("Adresse",""),
-            "code_postal":     row.get("Code postal","56000"),
-            "ville":           row.get("Ville","Vannes"),
-            "surface":         row.get("Surface"),
-            "surface_terrain": row.get("Surface terrain"),
-            "prix":            row.get("Prix"),
-            "prix_estime_min": row.get("Prix estime min"),
-            "prix_estime_max": row.get("Prix estime max"),
-            "prix_retenu":     row.get("Prix retenu"),
-            "negociateur":     row.get("Negociateur","Barbier Immobilier"),
-            "description":     _clean_desc(row.get("Version portail") or row.get("Description courte","")),
-            "annee_construct": row.get("Annee construction"),
-            "activite":        row.get("Activite"),
-            "ca_ht":           row.get("CA HT annuel"),
-            "loyer_annuel":    row.get("Loyer annuel"),
+            "reference":       data.get("reference", ""),
+            "type_bien":       data.get("type_bien", ""),
+            "adresse":         data.get("adresse", ""),
+            "code_postal":     data.get("code_postal", "56000"),
+            "ville":           data.get("ville", "Vannes"),
+            "surface":         data.get("surface"),
+            "surface_terrain": data.get("surface_terrain"),
+            "prix":            data.get("prix"),
+            "prix_estime_min": data.get("prix_estime_min"),
+            "prix_estime_max": data.get("prix_estime_max"),
+            "prix_retenu":     data.get("prix_retenu"),
+            "negociateur":     data.get("negociateur", "Barbier Immobilier"),
+            "description":     _clean_desc(data.get("description", "")),
+            "annee_construct": data.get("annee_construct"),
+            "activite":        data.get("activite"),
+            "ca_ht":           data.get("ca_ht"),
+            "loyer_annuel":    data.get("loyer_annuel"),
             "texte_quartier":  texte_q,
-            "photos":          row.get("Photo") or [],
+            "photos":          data.get("photos", []),
         }
 
+        comparables = data.get("comparables", [])
         pdf_bytes = generate_dossier_pdf(d, comparables)
+        ref = d.get("reference", "bien")
         return Response(pdf_bytes, mimetype="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=dossier-vente-{ref}.pdf"})
+            headers={"Content-Disposition": f'attachment; filename="Dossier_{ref}.pdf"'})
 
     except Exception as e:
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route("/annonce", methods=["POST"])
+def annonce():
+    """
+    Génère un texte d'annonce portail optimisé pour un bien commercial.
+    Payload JSON : type_bien, adresse, ville, surface, prix, loyer_mensuel,
+                   description_brute, activite, type_bail, statut_mandat, notes
+    Retourne : {"annonce": "texte..."}
+    """
+    try:
+        import os as _os
+        data = request.get_json(silent=True) or {}
+        api_key = _os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            return jsonify({"error": "OPENAI_API_KEY manquant"}), 500
+
+        # Construire le contexte depuis le payload
+        type_b  = data.get("type_bien", "")
+        adresse = data.get("adresse", "")
+        ville   = data.get("ville", "Vannes")
+        surface = data.get("surface", "")
+        prix    = data.get("prix", "") or data.get("prix_retenu", "")
+        loyer   = data.get("loyer_mensuel", "")
+        desc    = data.get("description_brute", "") or data.get("notes", "")
+        activite= data.get("activite", "")
+        bail    = data.get("type_bail", "")
+        mandat  = data.get("statut_mandat", "")
+        nego    = data.get("negociateur", "Barbier Immobilier")
+
+        prix_str = f"{int(float(str(prix).replace(' ',''))):,} €".replace(",","\u202f") if prix else ""
+        loyer_str = f"{int(float(str(loyer).replace(' ',''))):,} € HT/mois".replace(",","\u202f") if loyer else ""
+        val_str = prix_str or loyer_str
+
+        prompt = (
+            f"Tu es un expert en immobilier commercial Barbier Immobilier, Vannes (Morbihan).\n"
+            f"Rédige une annonce portail professionnelle, vendeuse et précise pour ce bien.\n\n"
+            f"BIEN : {type_b} — {surface} m² — {adresse}, {ville}\n"
+            f"PRIX / LOYER : {val_str or 'À définir'}\n"
+        )
+        if activite: prompt += f"ACTIVITÉ : {activite}\n"
+        if bail:     prompt += f"TYPE DE BAIL : {bail}\n"
+        if mandat:   prompt += f"MANDAT : {mandat}\n"
+        if desc:     prompt += f"\nINFORMATIONS BRUTES DU BIEN :\n{desc}\n"
+        prompt += (
+            "\nRédige une annonce de 120-180 mots maximum. "
+            "Structure : accroche forte (1 phrase), description du bien (2-3 phrases avec chiffres clés), "
+            "atouts emplacement (1-2 phrases), call-to-action (1 phrase).\n"
+            "Ton : professionnel, vendeur, concret. Pas de formule vague. Chiffres précis."
+        )
+
+        import json as _json2, urllib.request as _ur2
+        payload = _json2.dumps({
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 400,
+            "temperature": 0.7
+        }).encode()
+        req = _ur2.Request("https://api.openai.com/v1/chat/completions",
+            data=payload, method="POST",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        with _ur2.urlopen(req, timeout=30) as res:
+            annonce_txt = _json2.load(res)["choices"][0]["message"]["content"].strip()
+
+        return jsonify({"annonce": annonce_txt, "negociateur": nego})
+
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
 
 
 @app.route("/dvf-comparables", methods=["GET", "POST"])
