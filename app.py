@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.19"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.20"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -952,13 +952,14 @@ def _logo(c, x, y, w=34*_mm):
     c.drawImage(logo, x, y, width=w, height=h, mask='auto')
 
 def _logo_small(c):
-    """Logo petit cartouche blanc haut droite — commun à toutes les pages."""
+    """Logo centré verticalement dans la barre bleue du header (pages 2-6)."""
     try:
-        w = 18*_mm; ratio = 662/488; h = w*ratio
-        pad = 2*_mm
-        x = _W - 14*_mm - w; y = _H - 11*_mm - h - pad
-        c.setFillColor(_BLANC)
-        c.roundRect(x-pad, y-pad, w+2*pad, h+2*pad, 2*_mm, fill=1, stroke=0)
+        # Logo blanc sur fond bleu, dans la barre header de 11mm
+        w = 16*_mm; ratio = 662/488; h = w*ratio
+        # Centré verticalement dans la barre (hauteur 11mm)
+        bar_top = _H - 11*_mm
+        x = _W - 14*_mm - w
+        y = bar_top + (11*_mm - h) / 2  # centré dans la barre
         logo = _ir(LOGO_B64)
         c.drawImage(logo, x, y, width=w, height=h, mask='auto')
     except Exception:
@@ -1305,15 +1306,16 @@ def _page1(c, d):
         c.drawCentredString(_W/2, py0+ph/2+3*_mm, "[ Photo principale du bien ]")
         c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#AAAAAA"))
         c.drawCentredString(_W/2, py0+ph/2-6*_mm, "Ajoutez une photo depuis le cockpit")
-    # Logo dans le bandeau bleu — fond blanc arrondi, coin supérieur droit
-    logo_w = 36*_mm; logo_h = 18*_mm
-    logo_x = _W - logo_w - 10*_mm
-    logo_y = _H - logo_h - 6*_mm   # 6mm du haut, dans le bandeau bleu (50%)
-    # Fond blanc arrondi derrière le logo
-    pad = 3*_mm
-    c.setFillColor(_BLANC); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0)
-    c.roundRect(logo_x - pad, logo_y - pad, logo_w + pad*2, logo_h + pad*2, 4*_mm, fill=1, stroke=0)
-    _logo(c, logo_x, logo_y, w=logo_w)
+    # Logo compact coin supérieur droit du bandeau bleu — pas de fond blanc
+    logo_w = 28*_mm; ratio = 662/488; logo_h = logo_w * ratio
+    logo_x = _W - logo_w - 8*_mm
+    logo_y = _H - logo_h - 5*_mm   # 5mm du haut de page
+    # Petit fond blanc arrondi juste derrière le logo
+    pad = 2.5*_mm
+    c.setFillColor(_BLANC)
+    c.roundRect(logo_x - pad, logo_y - pad, logo_w + pad*2, logo_h + pad*2, 3*_mm, fill=1, stroke=0)
+    logo_img = _ir(LOGO_B64)
+    c.drawImage(logo_img, logo_x, logo_y, width=logo_w, height=logo_h, mask='auto')
     c.setFillColor(_GTEXTE); c.setFont("Helvetica", 7.5)
     c.drawString(14*_mm, 13*_mm, f"Dossier préparé par  {_safe(d.get('negociateur'),'Barbier Immobilier')}  ·  Réf. {_safe(d.get('reference'))}")
     _footer(c, 1)
@@ -1512,7 +1514,7 @@ def _draw_poi_icon(c, cat, cx, cy, r, col):
 
 
 def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
-    """Dessine un bloc POI avec pastille colorée + icône vectorielle + texte."""
+    """Dessine un bloc POI — meme style que les pills caracteristiques page 2."""
     import unicodedata as _ud
     from reportlab.lib import colors as _rc
     def _safe_str(s):
@@ -1522,27 +1524,52 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
             return _ud.normalize('NFKD', str(s)).encode('ascii', 'ignore').decode('ascii')
 
     col = _rc.HexColor(color_hex)
-    # Fond gris clair
-    c.setFillColor(_GRIS)
-    c.roundRect(bx, by, bw, bh, 2*_mm, fill=1, stroke=0)
-    # Pastille colorée à gauche
-    dot_x = bx + 5.5*_mm; dot_y = by + bh/2
+    # Fond blanc avec ombre légère (même style pills page 2)
+    c.setFillColor(_BLANC)
+    c.setStrokeColor(_colors.HexColor("#E0E8F0"))
+    c.setLineWidth(0.5)
+    c.roundRect(bx, by, bw, bh, 2.5*_mm, fill=1, stroke=1)
+    # Barre colorée en haut (comme les pills page 2 avec barre orange)
     c.setFillColor(col)
-    c.circle(dot_x, dot_y, 3.5*_mm, fill=1, stroke=0)
-    # Icône vectorielle dans la pastille
-    _draw_poi_icon(c, label, dot_x, dot_y, 3.5*_mm, col)
-    # Texte
-    txt_x = bx + 12*_mm
+    c.rect(bx+2*_mm, by+bh-2*_mm, bw-4*_mm, 2*_mm, fill=1, stroke=0)
+    # Picto générique depuis PICTO_LIEU_B64 ou PICTO_TYPE_B64 selon catégorie
+    cat_up = _safe_str(label).upper()
+    try:
+        if "PARKING" in cat_up:
+            picto = PICTO_SURFACE_B64
+        elif "TRANSPORT" in cat_up or "BUS" in cat_up:
+            picto = PICTO_TYPE_B64
+        elif "RESTAURATION" in cat_up or "CAFÉ" in cat_up:
+            picto = PICTO_SURFACE_B64
+        elif "COMMERCE" in cat_up or "SUPER" in cat_up:
+            picto = PICTO_TYPE_B64
+        elif "FORMATION" in cat_up or "ÉCOLE" in cat_up:
+            picto = PICTO_LIEU_B64
+        elif "SANTÉ" in cat_up or "SANTE" in cat_up or "PHARMAC" in cat_up:
+            picto = PICTO_VILLE_B64
+        else:
+            picto = PICTO_LIEU_B64
+        from reportlab.lib.utils import ImageReader as _IRP
+        import io as _iop, base64 as _b64p
+        _img_p = _IRP(_iop.BytesIO(_b64p.b64decode(picto)))
+        c.drawImage(_img_p, bx+2*_mm, by+bh-13*_mm, width=9*_mm, height=9*_mm, mask='auto')
+    except Exception:
+        # Fallback pastille
+        c.setFillColor(col)
+        c.circle(bx+6*_mm, by+bh-8*_mm, 3.5*_mm, fill=1, stroke=0)
+    # Label
     c.setFillColor(col)
-    c.setFont("Helvetica-Bold", 7.5)
-    c.drawString(txt_x, by + bh - 5*_mm, _safe_str(label).upper())
+    c.setFont("Helvetica-Bold", 7)
+    lbl_x = bx+13*_mm
+    c.drawString(lbl_x, by+bh-7*_mm, _safe_str(label).upper())
+    # Valeur
     c.setFillColor(_GTEXTE)
-    c.setFont("Helvetica", 7)
-    max_w = bw - 14*_mm
+    c.setFont("Helvetica", 6.5)
+    max_w = bw - 15*_mm
     txt = _safe_str(valeur)
-    while c.stringWidth(txt, "Helvetica", 7) > max_w and len(txt) > 4:
+    while c.stringWidth(txt, "Helvetica", 6.5) > max_w and len(txt) > 4:
         txt = txt[:-2] + "..."
-    c.drawString(txt_x, by + 2.5*_mm, txt)
+    c.drawString(lbl_x, by+2.5*_mm, txt)
 
 
 def _page3(c, d):
