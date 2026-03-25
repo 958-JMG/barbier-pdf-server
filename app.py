@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.21"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.22"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -952,14 +952,18 @@ def _logo(c, x, y, w=34*_mm):
     c.drawImage(logo, x, y, width=w, height=h, mask='auto')
 
 def _logo_small(c):
-    """Logo centré verticalement dans la barre bleue du header (pages 2-6)."""
+    """Logo dans le coin supérieur droit du header pages 2-6."""
     try:
-        # Logo blanc sur fond bleu, dans la barre header de 11mm
-        w = 16*_mm; ratio = 662/488; h = w*ratio
-        # Centré verticalement dans la barre (hauteur 11mm)
-        bar_top = _H - 11*_mm
-        x = _W - 14*_mm - w
-        y = bar_top + (11*_mm - h) / 2  # centré dans la barre
+        # Ratio 662/488 : logo est plus haut que large
+        # Avec h=9mm (hauteur barre), w = 9 * (488/662) = 6.6mm — trop étroit
+        # On fixe une hauteur qui rentre dans la barre + padding
+        bar_h = 11*_mm
+        h = bar_h * 0.85  # 85% de la barre
+        ratio = 488/662   # w/h
+        w = h * ratio
+        bar_top = _H - bar_h
+        x = _W - w - 4*_mm
+        y = bar_top + (bar_h - h) / 2
         logo = _ir(LOGO_B64)
         c.drawImage(logo, x, y, width=w, height=h, mask='auto')
     except Exception:
@@ -1963,6 +1967,10 @@ def _page5(c, d):
         _header(c,"Notre estimation de valeur"); _sec(c,"Positionnement prix",14*_mm,_H-32*_mm)
         pm=d.get("prix_estime_min") or d.get("prix"); px=d.get("prix_estime_max") or d.get("prix")
         pv=d.get("prix_retenu") or d.get("prix")
+        # Si valeur centrale absente mais fourchette disponible → milieu
+        if not pv and pm and px:
+            try: pv = (int(pm) + int(px)) // 2
+            except: pass
         by2=_H-82*_mm; sw=(_W-28*_mm)/3
         for i,((t,p,n),col) in enumerate(zip(
             [("Fourchette basse",_pfmt(pm),"Conditions défavorables"),
@@ -2803,7 +2811,7 @@ def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6)
                             if sv <= 0 or pv2 < 5000: continue
                             if surface and surface > 0 and abs(sv-surface)/max(surface,1) > 0.60: continue
                             pm2_v = pv2/sv if sv > 0 else 0
-                            if pm2_v < 200 or pm2_v > 30000: continue
+                            if pm2_v < 200 or pm2_v > 8000: continue
                             adr_v = " ".join(filter(None,[row_v.get("numero_voie",""),row_v.get("type_voie",""),row_v.get("nom_voie","")])).strip().upper()
                             results.append({"Adresse": adr_v or "—","Ville": "Vannes","Prix": int(pv2),"Surface": int(sv),"Statut": "Vendu","Source": f"DVF {annee} Vannes","Date": row_v.get("date_mutation","")[:7] or annee})
                             if len(results) >= limit: break
@@ -2830,7 +2838,7 @@ def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6)
                     except: continue
                     if s2 <= 0 or p2 < 5000: continue
                     pm2_2 = p2 / s2 if s2 > 0 else 0
-                    if pm2_2 < 200 or pm2_2 > 30000: continue
+                    if pm2_2 < 200 or pm2_2 > 8000: continue
                     adr2 = " ".join(filter(None,[row2.get("numero_voie",""),row2.get("type_voie",""),row2.get("nom_voie","")])).strip().upper()
                     results.append({"Adresse": adr2 or "—","Ville": ville,"Prix": int(p2),"Surface": int(s2),"Statut": "Vendu","Source": f"DVF {annee}","Date": row2.get("date_mutation","")[:7] or annee})
                     if len(results) >= limit: break
