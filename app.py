@@ -1962,9 +1962,10 @@ def _page5(c, d):
         tp=c.beginPath(); tp.moveTo(tri_x,tri_y); tp.lineTo(tri_x-4*_mm,tri_y-5*_mm); tp.lineTo(tri_x+4*_mm,tri_y-5*_mm); tp.close()
         c.setFillColor(_ORANGE); c.drawPath(tp,fill=1,stroke=0)
         if loyer_m2_actuel and surf_f:
+            _lbl_loyer = "Loyer mensuel estimé" if not loyer_m else "Loyer mensuel"
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
             c.drawCentredString(_W/2,by2-42*_mm,
-                f"Loyer mensuel : {int(loyer_m):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
+                f"{_lbl_loyer} : {int(loyer_m_use):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
         ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
         c.setFillColor(_colors.HexColor("#E8F4F8")); c.roundRect(14*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
         c.setFillColor(_BLEU); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm,ay-7*_mm,"ATOUTS DU BIEN")
