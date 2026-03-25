@@ -2208,19 +2208,27 @@ def urbanisme():
         ville      = data.get("ville", "Vannes")
         type_bien  = data.get("type_bien", "Local commercial")
 
-        # ── 1. Parser la référence cadastrale ───────────────────────────────
+        # ── 1. Parser la référence cadastrale (optionnelle) ────────────────
         m_ref = _re_urb.match(r"(\d{5})([A-Z]{2})(\d{3,4})", ref_cad)
-        if not m_ref:
-            return jsonify({"ok": False, "error": f"Référence cadastrale invalide : {ref_cad}"}), 400
-        code_insee, section, numero = m_ref.group(1), m_ref.group(2), m_ref.group(3).zfill(4)
-
-        # ── 2. Coordonnées GPS de la parcelle ────────────────────────────────
-        lon, lat = None, None
-        coords_result = _get_parcelle_coords(code_insee, section, numero)
-        if coords_result:
-            lon, lat = coords_result
+        if m_ref:
+            code_insee = m_ref.group(1)
+            section    = m_ref.group(2)
+            numero     = m_ref.group(3).zfill(4)
         else:
-            # Fallback géocodage adresse
+            # Pas de référence valide — on utilisera uniquement l'adresse
+            code_insee = section = numero = ""
+
+        # ── 2. Coordonnées GPS : parcelle si ref valide, sinon adresse ───────
+        lon, lat = None, None
+        if code_insee and section and numero:
+            coords_result = _get_parcelle_coords(code_insee, section, numero)
+            if coords_result:
+                lon, lat = coords_result
+
+        if lon is None:
+            # Fallback : géocodage par adresse
+            if not adresse:
+                return jsonify({"ok": False, "error": "Adresse manquante — impossible de géolocaliser"}), 400
             try:
                 q = _up_urb.quote_plus(f"{adresse}, {ville}, France")
                 geo_url = f"https://data.geopf.fr/geocodage/search?q={q}&limit=1"
@@ -2235,7 +2243,7 @@ def urbanisme():
                 pass
 
         if lon is None:
-            return jsonify({"ok": False, "error": "Impossible de géolocaliser la parcelle"}), 400
+            return jsonify({"ok": False, "error": f"Impossible de géolocaliser : {adresse}, {ville}"}), 400
 
         # ── 3. Image cadastrale WMS ──────────────────────────────────────────
         cadastre_b64 = ""
