@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.15"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.18"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1556,7 +1556,11 @@ def _page3(c, d):
         "l'exploitation d'une activite commerciale ou professionnelle."
     )
     p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=10, textColor=_GTEXTE, leading=16))
-    _, ph = p.wrap(_W-28*_mm, 9999); p.drawOn(c, 14*_mm, _H-38*_mm-ph)
+    # Limiter la hauteur max du texte : 45mm max pour laisser de la place à la carte
+    max_text_h = 45*_mm
+    _, ph = p.wrap(_W-28*_mm, max_text_h)
+    ph = min(ph, max_text_h)
+    p.drawOn(c, 14*_mm, _H-38*_mm-ph)
     qbot = _H-38*_mm-ph-12*_mm
 
     _sec(c, "Localisation", 14*_mm, qbot-2*_mm)
@@ -1606,7 +1610,56 @@ def _page3(c, d):
         except Exception:
             pass
 
-    # Pas de fallback : si aucun POI trouvé, ne rien afficher
+    # Si Overpass insuffisant, enrichir avec GPT (POI certains uniquement)
+    if len(poi_blocks) < 3:
+        try:
+            import os as _os_poi, json as _j_poi, urllib.request as _ur_poi
+            api_key = _os_poi.environ.get("OPENAI_API_KEY", "")
+            if api_key:
+                adresse_poi = d.get("adresse","")
+                ville_poi = d.get("ville","")
+                type_bien_poi = d.get("type_bien","local commercial")
+                prompt_poi = (
+                    "Tu es expert en immobilier commercial dans le Morbihan."
+                    f" Pour : {type_bien_poi} au {adresse_poi}, {ville_poi},"
+                    " liste les points d'interet REELS certains dans un rayon de 500m."
+                    " Reponds UNIQUEMENT en JSON (sans backticks ni markdown) :"
+                    ' [{"categorie":"Parking","nom":"Nom exact ou description"}]'
+                    " Categories : Parking, Transport, Restauration, Commerce, Formation, Banque, Sante, Dynamisme."
+                    " N'inclus QUE ce dont tu es certain. Si incertain = ne pas inclure."
+                    " Maximum 6 elements."
+                )
+                gpt_payload = _j_poi.dumps({
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": prompt_poi}],
+                    "max_tokens": 400, "temperature": 0.1
+                }).encode()
+                req_poi = _ur_poi.Request(
+                    "https://api.openai.com/v1/chat/completions",
+                    data=gpt_payload, method="POST",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                )
+                with _ur_poi.urlopen(req_poi, timeout=20) as rp:
+                    resp_poi = _j_poi.load(rp)
+                raw_poi = resp_poi["choices"][0]["message"]["content"].strip()
+                raw_poi = raw_poi.strip("`").strip()
+                if raw_poi.startswith("json"):
+                    raw_poi = raw_poi[4:].strip()
+                pois_gpt = _j_poi.loads(raw_poi)
+                cat_colors = {
+                    "Parking":"#1B3A5C","Transport":"#0D5570","Restauration":"#E8472A",
+                    "Commerce":"#3A1B5C","Formation":"#5C3A1B","Banque":"#1B5C3A",
+                    "Sante":"#5C1B3A","Dynamisme":"#1B5C5C"
+                }
+                existing_cats = {r[0] for r in poi_blocks}
+                for poi_item in pois_gpt:
+                    cat = poi_item.get("categorie","")
+                    nom = poi_item.get("nom","")
+                    if cat and nom and cat not in existing_cats and len(poi_blocks) < 6:
+                        poi_blocks.append((cat, nom[:28], cat_colors.get(cat,"#1B3A5C")))
+                        existing_cats.add(cat)
+        except Exception:
+            pass  # GPT indisponible ou JSON invalide : on garde ce qu'Overpass a trouvé
 
     # ── Zone 1 : POI quartier (Overpass — ce qui existe autour) ────────────
     _sec(c, "Environnement du quartier", 14*_mm, my - 4*_mm)
@@ -2696,7 +2749,34 @@ def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6)
         except Exception:
             continue
 
-    # 3. Stats
+    # 3. Si aucun résultat avec filtre strict → relancer sans filtre surface
+    if not results:
+        for annee in ["2024", "2023", "2022"]:
+            if len(results) >= limit:
+                break
+            try:
+                csv_url2 = f"https://files.data.gouv.fr/geo-dvf/latest/csv/{annee}/communes/{dept}/{code_commune}.csv"
+                with _ur.urlopen(_ur.Request(csv_url2, headers={"User-Agent": "Barbier-Immobilier/1.0"}), timeout=15) as r2:
+                    raw2 = r2.read().decode("utf-8", errors="ignore")
+                reader2 = _csv2.DictReader(_io2.StringIO(raw2))
+                for row2 in reader2:
+                    nature2 = (row2.get("nature_mutation") or "").lower()
+                    type_l2 = (row2.get("type_local") or "").lower()
+                    if "vente" not in nature2: continue
+                    if dvf_types_ok and not any(kw in type_l2 for kw in dvf_types_ok): continue
+                    try:
+                        s2 = float((row2.get("surface_reelle_bati") or "0").replace(",","."))
+                        p2 = float((row2.get("valeur_fonciere") or "0").replace(",",".").replace(" ",""))
+                    except: continue
+                    if s2 <= 0 or p2 < 5000: continue
+                    pm2_2 = p2 / s2 if s2 > 0 else 0
+                    if pm2_2 < 200 or pm2_2 > 30000: continue
+                    adr2 = " ".join(filter(None,[row2.get("numero_voie",""),row2.get("type_voie",""),row2.get("nom_voie","")])).strip().upper()
+                    results.append({"Adresse": adr2 or "—","Ville": ville,"Prix": int(p2),"Surface": int(s2),"Statut": "Vendu","Source": f"DVF {annee}","Date": row2.get("date_mutation","")[:7] or annee})
+                    if len(results) >= limit: break
+            except: continue
+
+    # 4. Stats
     top = sorted(results, key=lambda x: x["Date"], reverse=True)[:limit]
     pm2_list = [r["Prix"] / r["Surface"] for r in top if r["Surface"] > 0]
     pm2_median = sorted(pm2_list)[len(pm2_list)//2] if pm2_list else 0
