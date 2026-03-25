@@ -954,13 +954,15 @@ def _logo(c, x, y, w=34*_mm):
 def _logo_small(c):
     """Logo dans le coin supérieur droit du header pages 2-6."""
     try:
-        # Ratio 662/488 : logo est plus haut que large
-        # Avec h=9mm (hauteur barre), w = 9 * (488/662) = 6.6mm — trop étroit
-        # On fixe une hauteur qui rentre dans la barre + padding
+        # Logo réel : 488px large × 662px haut → ratio h/w = 662/488
+        # On fixe w et on calcule h pour respecter le ratio
         bar_h = 11*_mm
-        h = bar_h * 0.85  # 85% de la barre
-        ratio = 488/662   # w/h
-        w = h * ratio
+        w = 18*_mm          # largeur fixe — lisible sans déborder
+        h = w * (662/488)   # hauteur calculée depuis le ratio réel
+        # Si h dépasse la barre, on réduit
+        if h > bar_h * 0.90:
+            h = bar_h * 0.90
+            w = h * (488/662)
         bar_top = _H - bar_h
         x = _W - w - 4*_mm
         y = bar_top + (bar_h - h) / 2
@@ -1518,62 +1520,37 @@ def _draw_poi_icon(c, cat, cx, cy, r, col):
 
 
 def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
-    """Dessine un bloc POI — meme style que les pills caracteristiques page 2."""
+    """Dessine un bloc POI — style identique aux pills page 2 (cercle bleu + icone blanche)."""
     import unicodedata as _ud
-    from reportlab.lib import colors as _rc
     def _safe_str(s):
         try:
             str(s).encode('latin-1'); return str(s)
         except:
             return _ud.normalize('NFKD', str(s)).encode('ascii', 'ignore').decode('ascii')
 
-    col = _rc.HexColor(color_hex)
-    # Fond blanc avec ombre légère (même style pills page 2)
-    c.setFillColor(_BLANC)
-    c.setStrokeColor(_colors.HexColor("#E0E8F0"))
-    c.setLineWidth(0.5)
-    c.roundRect(bx, by, bw, bh, 2.5*_mm, fill=1, stroke=1)
-    # Barre colorée en haut (comme les pills page 2 avec barre orange)
-    c.setFillColor(col)
-    c.rect(bx+2*_mm, by+bh-2*_mm, bw-4*_mm, 2*_mm, fill=1, stroke=0)
-    # Picto générique depuis PICTO_LIEU_B64 ou PICTO_TYPE_B64 selon catégorie
-    cat_up = _safe_str(label).upper()
-    try:
-        if "PARKING" in cat_up:
-            picto = PICTO_SURFACE_B64
-        elif "TRANSPORT" in cat_up or "BUS" in cat_up:
-            picto = PICTO_TYPE_B64
-        elif "RESTAURATION" in cat_up or "CAFÉ" in cat_up:
-            picto = PICTO_SURFACE_B64
-        elif "COMMERCE" in cat_up or "SUPER" in cat_up:
-            picto = PICTO_TYPE_B64
-        elif "FORMATION" in cat_up or "ÉCOLE" in cat_up:
-            picto = PICTO_LIEU_B64
-        elif "SANTÉ" in cat_up or "SANTE" in cat_up or "PHARMAC" in cat_up:
-            picto = PICTO_VILLE_B64
-        else:
-            picto = PICTO_LIEU_B64
-        from reportlab.lib.utils import ImageReader as _IRP
-        import io as _iop, base64 as _b64p
-        _img_p = _IRP(_iop.BytesIO(_b64p.b64decode(picto)))
-        c.drawImage(_img_p, bx+2*_mm, by+bh-13*_mm, width=9*_mm, height=9*_mm, mask='auto')
-    except Exception:
-        # Fallback pastille
-        c.setFillColor(col)
-        c.circle(bx+6*_mm, by+bh-8*_mm, 3.5*_mm, fill=1, stroke=0)
-    # Label
-    c.setFillColor(col)
-    c.setFont("Helvetica-Bold", 7)
-    lbl_x = bx+13*_mm
-    c.drawString(lbl_x, by+bh-7*_mm, _safe_str(label).upper())
-    # Valeur
-    c.setFillColor(_GTEXTE)
-    c.setFont("Helvetica", 6.5)
-    max_w = bw - 15*_mm
+    # Fond gris clair + bordure (identique _pill_picto page 2)
+    c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#D1D8E8")); c.setLineWidth(0.5)
+    c.roundRect(bx, by, bw, bh, 2*_mm, fill=1, stroke=1)
+    # Cercle bleu a gauche (identique _pill_picto)
+    r = 5.5*_mm; cx = bx + r + 2*_mm; cy = by + bh/2
+    c.setFillColor(_BLEU); c.circle(cx, cy, r, fill=1, stroke=0)
+    # Icone blanche dans le cercle
+    _draw_poi_icon(c, label, cx, cy, r, _BLEU)
+    # Label en haut a droite du cercle
+    lbl_x = bx + r*2 + 5*_mm
+    c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 6.5)
+    c.drawString(lbl_x, by + bh - 4.5*_mm, _safe_str(label).upper())
+    # Valeur en bas
+    c.setFillColor(_BLEU_F)
     txt = _safe_str(valeur)
-    while c.stringWidth(txt, "Helvetica", 6.5) > max_w and len(txt) > 4:
-        txt = txt[:-2] + "..."
-    c.drawString(lbl_x, by+2.5*_mm, txt)
+    max_w = bw - r*2 - 8*_mm
+    for fsz in [8.5, 7.5, 6.5]:
+        c.setFont("Helvetica-Bold", fsz)
+        if c.stringWidth(txt, "Helvetica-Bold", fsz) <= max_w:
+            break
+        if len(txt) > 26:
+            txt = txt[:26] + "..."
+    c.drawString(lbl_x, by + 3*_mm, txt)
 
 
 def _page3(c, d):
@@ -1693,8 +1670,8 @@ def _page3(c, d):
             pass  # GPT indisponible ou JSON invalide : on garde ce qu'Overpass a trouvé
 
     # ── Zone 1 : POI quartier (Overpass — ce qui existe autour) ────────────
-    _sec(c, "Environnement du quartier", 14*_mm, my - 10*_mm)
-    pt_y = my - 18*_mm
+    _sec(c, "Environnement du quartier", 14*_mm, my - 14*_mm)
+    pt_y = my - 24*_mm
     ncols = 3; card_w = (_W-28*_mm - (ncols-1)*4*_mm)/ncols; card_h = 13*_mm
     for i, item in enumerate(poi_blocks[:6]):
         lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#1B3A5C")
@@ -1831,8 +1808,18 @@ def _page4(c, comparables, d):
     ct=_H-42*_mm-ih-6*_mm; ch=50*_mm
     if not comparables:
         c.setFillColor(_GRIS); c.roundRect(14*_mm,ct-ch,_W-28*_mm,ch,3*_mm,fill=1,stroke=0)
-        c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica-Oblique",9)
-        c.drawCentredString(_W/2,ct-ch/2,"Aucun comparable disponible — relancer la recherche dans 01_Biens")
+        dvf_src = d.get("dvf_source", "")
+        if dvf_src:
+            # Fallback web search utilisé
+            c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 9)
+            c.drawCentredString(_W/2, ct-ch/2+6*_mm, "Estimation basee sur analyse de marche en ligne")
+            c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica-Oblique", 8)
+            c.drawCentredString(_W/2, ct-ch/2-2*_mm, dvf_src)
+            c.setFont("Helvetica", 7.5)
+            c.drawCentredString(_W/2, ct-ch/2-9*_mm, "Les transactions DVF ne sont pas disponibles pour ce type de bien sur cette commune.")
+        else:
+            c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica-Oblique", 9)
+            c.drawCentredString(_W/2, ct-ch/2, "Aucun comparable disponible — relancer la recherche dans 01_Biens")
     else:
         # Layout: 2 columns x up to 2 rows (max 4 cards)
         cards = comparables[:4]
@@ -2149,12 +2136,72 @@ def dossier():
                 )
                 comparables = dvf_comps
 
+                # ── Fallback web search si DVF insuffisant (< 3 comparables) ──
+                dvf_ok = len(comparables) >= 3 and dvf_pm2 > 0
+                if not dvf_ok:
+                    try:
+                        import os as _os_ws
+                        api_key_ws = _os_ws.environ.get("OPENAI_API_KEY", "")
+                        if api_key_ws:
+                            surface_ws  = data.get("surface", "")
+                            type_ws     = data.get("type_bien", "local commercial")
+                            ville_ws    = data.get("ville", "Vannes")
+                            loyer_ws    = data.get("loyer_mensuel", 0)
+                            is_loc_ws   = bool(loyer_ws) or "location" in str(data.get("statut_mandat","")).lower()
+                            op_ws       = "en location" if is_loc_ws else "a la vente"
+                            prompt_ws = (
+                                f"Recherche sur les portails immobiliers (SeLoger, BienIci, Logic-immo, PAP) "
+                                f"des annonces de {type_ws} {op_ws} a {ville_ws} (Morbihan, 56), "
+                                f"surface entre {int(float(str(surface_ws) or 0)*0.80)} et {int(float(str(surface_ws) or 0)*1.20)} m2. "
+                                f"Donne-moi une fourchette realiste de prix au m2 ({'loyer annuel HT/m2' if is_loc_ws else 'prix de vente/m2'}) "
+                                f"basee sur les annonces actuelles. "
+                                f"Reponds UNIQUEMENT en JSON sans backticks : "
+                                f'{{ "pm2_min": <int>, "pm2_max": <int>, "pm2_retenu": <int>, "nb_annonces": <int>, "source": "web_search" }}'
+                            )
+                            import urllib.request as _ur_ws, json as _js_ws
+                            ws_payload = _js_ws.dumps({
+                                "model": "gpt-4o-search-preview",
+                                "messages": [{"role": "user", "content": prompt_ws}],
+                                "max_tokens": 300
+                            }).encode()
+                            ws_req = _ur_ws.Request(
+                                "https://api.openai.com/v1/chat/completions",
+                                data=ws_payload, method="POST",
+                                headers={"Authorization": f"Bearer {api_key_ws}", "Content-Type": "application/json"}
+                            )
+                            with _ur_ws.urlopen(ws_req, timeout=45) as ws_res:
+                                ws_resp = _js_ws.load(ws_res)
+                            ws_txt = ws_resp["choices"][0]["message"]["content"].strip().strip("`").strip()
+                            if ws_txt.startswith("json"): ws_txt = ws_txt[4:].strip()
+                            ws_data = _js_ws.loads(ws_txt)
+                            pm2_ws = int(ws_data.get("pm2_retenu", 0))
+                            pm2_ws_min = int(ws_data.get("pm2_min", 0))
+                            pm2_ws_max = int(ws_data.get("pm2_max", 0))
+                            nb_ws = int(ws_data.get("nb_annonces", 0))
+                            if pm2_ws > 0:
+                                surf_f = float(str(surface_ws) or 0)
+                                if is_loc_ws:
+                                    # Loyer annuel : reconvertir en mensuel
+                                    d["prix_estime_min"] = int(pm2_ws_min * surf_f / 12) if pm2_ws_min else int(pm2_ws * 0.88 * surf_f / 12)
+                                    d["prix_estime_max"] = int(pm2_ws_max * surf_f / 12) if pm2_ws_max else int(pm2_ws * 1.12 * surf_f / 12)
+                                    d["prix_retenu"]     = int(pm2_ws * surf_f / 12)
+                                    if not d.get("prix"): d["prix"] = d["prix_retenu"]
+                                else:
+                                    d["prix_estime_min"] = int(pm2_ws_min * surf_f) if pm2_ws_min else int(pm2_ws * 0.90 * surf_f)
+                                    d["prix_estime_max"] = int(pm2_ws_max * surf_f) if pm2_ws_max else int(pm2_ws * 1.10 * surf_f)
+                                    d["prix_retenu"]     = int(pm2_ws * surf_f)
+                                # Marqueur source pour affichage PDF
+                                d["dvf_source"] = f"Estimation marche — {nb_ws} annonces web" if nb_ws else "Estimation marche — sources web"
+                                dvf_pm2 = pm2_ws
+                    except Exception:
+                        pass  # DVF + web search indisponibles : on continue sans fourchette
+
                 # Calculer les fourchettes de prix depuis DVF si absentes
                 surface_val = float(data.get("surface") or 0)
                 prix_v = d.get("prix") or 0
                 loyer_m = data.get("loyer_mensuel") or 0
 
-                if dvf_pm2 > 0 and surface_val > 0:
+                if dvf_pm2 > 0 and surface_val > 0 and dvf_ok:
                     # Marché locatif : on calcule sur le loyer/m²
                     if loyer_m:
                         loyer_m2_actuel = (loyer_m * 12) / surface_val
