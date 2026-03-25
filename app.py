@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.26"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.27"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1457,37 +1457,25 @@ def _draw_poi_icon(c, cat, cx, cy, r, col):
         c.setFont("Helvetica-Bold", r * 1.3)
         c.drawCentredString(cx, cy - r * 0.45, "·")
 def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
-    """Dessine un bloc POI — style identique aux pills page 2 (cercle bleu + icone blanche)."""
+    """Bloc POI — style identique aux pills caracteristiques page 2 via _pill_picto."""
+    # Utilise _pill_picto avec le picto correspondant a la categorie
     import unicodedata as _ud
     def _safe_str(s):
         try:
             str(s).encode('latin-1'); return str(s)
         except:
             return _ud.normalize('NFKD', str(s)).encode('ascii', 'ignore').decode('ascii')
-
-    # Fond gris clair + bordure (identique _pill_picto page 2)
-    c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#D1D8E8")); c.setLineWidth(0.5)
-    c.roundRect(bx, by, bw, bh, 2*_mm, fill=1, stroke=1)
-    # Cercle bleu a gauche (identique _pill_picto)
-    r = 5.5*_mm; cx = bx + r + 2*_mm; cy = by + bh/2
-    c.setFillColor(_BLEU); c.circle(cx, cy, r, fill=1, stroke=0)
-    # Icone blanche dans le cercle
-    _draw_poi_icon(c, label, cx, cy, r, _BLEU)
-    # Label en haut a droite du cercle
-    lbl_x = bx + r*2 + 5*_mm
-    c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 6.5)
-    c.drawString(lbl_x, by + bh - 4.5*_mm, _safe_str(label).upper())
-    # Valeur en bas
-    c.setFillColor(_BLEU_F)
-    txt = _safe_str(valeur)
-    max_w = bw - r*2 - 8*_mm
-    for fsz in [8.5, 7.5, 6.5]:
-        c.setFont("Helvetica-Bold", fsz)
-        if c.stringWidth(txt, "Helvetica-Bold", fsz) <= max_w:
-            break
-        if len(txt) > 32:
-            txt = txt[:32] + "..."
-    c.drawString(lbl_x, by + 3*_mm, txt)
+    cat = _safe_str(label).upper()
+    PICTO_MAP = {
+        "PARKING":      PICTO_SURFACE_B64,
+        "TRANSPORT":    PICTO_TYPE_B64,
+        "RESTAURATION": PICTO_LIEU_B64,
+        "COMMERCE":     PICTO_TYPE_B64,
+        "BANQUE":       PICTO_SURFACE_B64,
+        "SANTE":        PICTO_VILLE_B64,
+    }
+    picto = next((v for k, v in PICTO_MAP.items() if k in cat), PICTO_LIEU_B64)
+    _pill_picto(c, bx, by, picto, _safe_str(label), _safe_str(valeur), w=bw, h=bh)
 
 
 def _page3(c, d):
@@ -2167,61 +2155,61 @@ def dossier():
                 pass
 
         # ── WEB SEARCH : toujours pour location / fallback vente si DVF < 3 ──
-        # ── LOCATION : lookup Airtable 02_Loyers_Marche (fiable, instantané) ──
+        # ── LOCATION : web search gpt-4o-search-preview (fonctionne depuis Railway) ──
         if _is_location_gen:
             try:
-                import urllib.request as _ur_at2, json as _js_at2, os as _os_at2
-                _at_pat   = _os_at2.environ.get("AIRTABLE_PAT", "")
-                _at_base  = "appscgBdxTzSPtOaZ"
-                _at_table = "tblYEfE6WhP6mnlAf"
-                _ville_at = str(data.get("ville") or "Vannes")
-                _type_at  = str(data.get("type_bien") or "Local commercial")
-                # Chercher correspondance exacte type+ville, puis fallback type seul
-                _at_url = (
-                    f"https://api.airtable.com/v0/{_at_base}/{_at_table}"
-                    f"?filterByFormula=AND({{Type de bien}}='{_type_at}',{{Ville}}='{_ville_at}')"
-                    f"&maxRecords=1"
-                )
-                _at_req = _ur_at2.Request(
-                    _at_url,
-                    headers={"Authorization": f"Bearer {_at_pat}"}
-                )
-                with _ur_at2.urlopen(_at_req, timeout=8) as _at_res:
-                    _at_data = _js_at2.load(_at_res)
-                _at_records = _at_data.get("records", [])
-                # Fallback : chercher uniquement par type si pas de correspondance ville
-                if not _at_records:
-                    _at_url2 = (
-                        f"https://api.airtable.com/v0/{_at_base}/{_at_table}"
-                        f"?filterByFormula={{Type de bien}}='{_type_at}'"
-                        f"&maxRecords=1"
+                import os as _os_ws2, urllib.request as _ur_ws2, json as _js_ws2
+                _api2    = _os_ws2.environ.get("OPENAI_API_KEY", "")
+                _surf2   = float(str(data.get("surface") or 0))
+                _type2   = str(data.get("type_bien") or "bureau")
+                _ville2  = str(data.get("ville") or "Vannes")
+                _smin2   = int(_surf2 * 0.75)
+                _smax2   = int(_surf2 * 1.25)
+                if _api2 and _surf2 > 0:
+                    _prompt2 = (
+                        f"Recherche sur SeLoger, BienIci, Logic-immo des annonces actuelles de {_type2} "
+                        f"en location a {_ville2} (Morbihan, 56), surface entre {_smin2} et {_smax2} m2. "
+                        f"Donne le loyer annuel HT au m2 constate. "
+                        f"Reponds UNIQUEMENT en JSON valide sans backticks ni markdown : "
+                        "Format attendu: {pm2_min: X, pm2_max: X, pm2_retenu: X, nb_annonces: X}"
                     )
-                    _at_req2 = _ur_at2.Request(
-                        _at_url2,
-                        headers={"Authorization": f"Bearer {_at_pat}"}
+                    _pl2 = _js_ws2.dumps({
+                        "model": "gpt-4o-search-preview",
+                        "messages": [{"role": "user", "content": _prompt2}],
+                        "max_tokens": 200
+                    }).encode()
+                    _req2 = _ur_ws2.Request(
+                        "https://api.openai.com/v1/chat/completions",
+                        data=_pl2, method="POST",
+                        headers={"Authorization": f"Bearer {_api2}", "Content-Type": "application/json"}
                     )
-                    with _ur_at2.urlopen(_at_req2, timeout=8) as _at_res2:
-                        _at_data2 = _js_at2.load(_at_res2)
-                    _at_records = _at_data2.get("records", [])
-                if _at_records:
-                    _at_f     = _at_records[0].get("fields", {})
-                    _pm2_min  = int(_at_f.get("Loyer min HT m2 an") or 0)
-                    _pm2_max  = int(_at_f.get("Loyer max HT m2 an") or 0)
-                    _pm2_med  = int(_at_f.get("Loyer median HT m2 an") or 0)
-                    _nb_refs  = int(_at_f.get("Nb references") or 0)
-                    _maj      = _at_f.get("Date mise a jour", "")
-                    _surf_f   = float(str(data.get("surface") or 0))
-                    if _pm2_med > 0 and _surf_f > 0:
-                        # Fourchette mensuelle depuis loyer annuel HT/m2
-                        d["prix_estime_min"] = int(_pm2_min * _surf_f / 12)
-                        d["prix_estime_max"] = int(_pm2_max * _surf_f / 12)
-                        d["prix_retenu"]     = int(_pm2_med * _surf_f / 12)
-                        if not d.get("prix"): d["prix"] = d["prix_retenu"]
-                        d["dvf_source"]      = f"Referentiel Barbier — {_nb_refs} refs ({_maj})"
-                        d["loyer_marche_pm2_an"] = _pm2_med
-                        dvf_pm2 = _pm2_med
+                    with _ur_ws2.urlopen(_req2, timeout=30) as _res2:
+                        _resp2 = _js_ws2.load(_res2)
+                    _txt2 = _resp2["choices"][0]["message"]["content"].strip()
+                    # Extraire le JSON même s il est dans des backticks
+                    import re as _re2
+                    _m2 = _re2.search(r"\{[^}]+\}", _txt2)
+                    if _m2:
+                        _d2 = _js_ws2.loads(_m2.group())
+                        _pm2_min2   = int(float(_d2.get("pm2_min", 0)))
+                        _pm2_max2   = int(float(_d2.get("pm2_max", 0)))
+                        _pm2_ret2   = int(float(_d2.get("pm2_retenu", 0)))
+                        _nb2        = int(_d2.get("nb_annonces", 0))
+                        if _pm2_ret2 > 0:
+                            # pm2 = loyer annuel HT/m2 → mensuel total
+                            d["prix_estime_min"]     = int(_pm2_min2 * _surf2 / 12) if _pm2_min2 else int(_pm2_ret2 * 0.85 * _surf2 / 12)
+                            d["prix_estime_max"]     = int(_pm2_max2 * _surf2 / 12) if _pm2_max2 else int(_pm2_ret2 * 1.15 * _surf2 / 12)
+                            d["prix_retenu"]         = int(_pm2_ret2 * _surf2 / 12)
+                            d["loyer_marche_pm2_an"] = _pm2_ret2
+                            d["loyer_pm2_min"]        = _pm2_min2 if _pm2_min2 else int(_pm2_ret2 * 0.85)
+                            d["loyer_pm2_max"]        = _pm2_max2 if _pm2_max2 else int(_pm2_ret2 * 1.15)
+                            d["loyer_pm2_median"]     = _pm2_ret2
+                            d["loyer_ville_match"]    = _ville2
+                            d["dvf_source"]           = f"Sources web — {_nb2} annonces ({_ville2})" if _nb2 else f"Estimation marche {_ville2}"
+                            if not d.get("prix"): d["prix"] = d["prix_retenu"]
+                            dvf_pm2 = _pm2_ret2
             except Exception:
-                pass  # Airtable indisponible — on continue sans fourchette
+                pass  # Web search indisponible — on continue sans fourchette
 
         # ── VENTE : fourchette depuis DVF si suffisant ─────────────────────────
         if dvf_pm2 > 0 and not _is_location_gen and len(comparables) >= 3:
