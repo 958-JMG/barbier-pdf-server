@@ -2270,23 +2270,15 @@ def urbanisme():
                 api_key = _os_urb.environ.get("OPENAI_API_KEY", "")
                 if api_key:
                     prompt_plu = (
-                        f"Tu es expert en droit de l'urbanisme et en immobilier commercial.
-"
-                        f"Résume en 2-3 phrases claires et professionnelles la zone PLU suivante "
-                        f"pour un dossier de présentation destiné à un investisseur ou locataire professionnel.
-
-"
-                        f"Bien : {type_bien} — {adresse}, {ville}
-"
-                        f"Zone PLU : {zone_plu} (type {type_zone})
-"
-                        f"Libellé officiel : {libelle_plu}
-
-"
-                        f"Indique : ce que la zone autorise, ce qu'elle interdit ou limite, "
-                        f"et pourquoi c'est favorable (ou non) pour ce type de bien.
-"
-                        f"Ton : factuel, professionnel, accessible à un non-juriste. 2-3 phrases maximum."
+                        "Tu es expert en droit de l'urbanisme et en immobilier commercial.\n"
+                        "Resume en 2-3 phrases claires et professionnelles la zone PLU suivante "
+                        "pour un dossier destine a un investisseur ou locataire professionnel.\n\n"
+                        f"Bien : {type_bien} - {adresse}, {ville}\n"
+                        f"Zone PLU : {zone_plu} (type {type_zone})\n"
+                        f"Libelle officiel : {libelle_plu}\n\n"
+                        "Indique ce que la zone autorise, ce qu elle interdit ou limite, "
+                        "et pourquoi c est favorable ou non pour ce type de bien.\n"
+                        "Ton : factuel, professionnel, accessible a un non-juriste. 2-3 phrases maximum."
                     )
                     gpt_payload = _j_urb.dumps({
                         "model": "gpt-4o",
