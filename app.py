@@ -988,9 +988,44 @@ def _pill_picto(c, x, y, picto_b64, label, value, w=57*_mm, h=16*_mm):
 
 # ── Carte OSM ──────────────────────────────────────────────
 
+def _get_parcelle_coords(code_insee, section, numero):
+    """
+    Récupère les coordonnées GPS du centroïde d'une parcelle depuis cadastre.data.gouv.fr
+    Retourne (lon, lat) ou None.
+    """
+    import gzip as _gz
+    try:
+        url = f"https://cadastre.data.gouv.fr/bundler/cadastre-etalab/communes/{code_insee}/geojson/parcelles"
+        req = _ur.Request(url, headers={"User-Agent": "BarbierImmo/1.0", "Accept-Encoding": "gzip"})
+        with _ur.urlopen(req, timeout=20) as r:
+            raw = r.read()
+        try:
+            data = _json.loads(_gz.decompress(raw))
+        except Exception:
+            data = _json.loads(raw)
+        parcelle_id = f"{code_insee}000{section}{numero.zfill(4)}"
+        feature = next((f for f in data.get("features", [])
+                        if f["properties"].get("id") == parcelle_id), None)
+        if not feature:
+            # Fallback : chercher par section + numero
+            feature = next((f for f in data.get("features", [])
+                            if f["properties"].get("section") == section
+                            and str(f["properties"].get("numero", "")) == str(int(numero))), None)
+        if feature:
+            coords = feature["geometry"]["coordinates"][0]
+            if isinstance(coords[0][0], list):
+                coords = coords[0]
+            lon = sum(c[0] for c in coords) / len(coords)
+            lat = sum(c[1] for c in coords) / len(coords)
+            return lon, lat
+    except Exception:
+        pass
+    return None
+
+
 def _fetch_cadastre_image(ref_cadastrale, adresse="", ville=""):
     """
-    Récupère une image du plan cadastral via IGN WMTS tiles + apicarto pour centrage.
+    Récupère une image du plan cadastral via IGN WMTS tiles.
     ref_cadastrale : ex "56034 AM 0355" ou "56034AM0355"
     Retourne une PIL.Image ou None.
     """
@@ -998,25 +1033,28 @@ def _fetch_cadastre_image(ref_cadastrale, adresse="", ville=""):
     try:
         # Parser la référence cadastrale
         ref_clean = ref_cadastrale.replace(" ","").upper()
-        # Format : 56034AM0355
         m = _re2.match(r"(\d{5})([A-Z]{2})(\d{3,4})", ref_clean)
         if not m:
             return None
         code_insee, section, numero = m.group(1), m.group(2), m.group(3).zfill(4)
 
-        # 1. Obtenir les coordonnées du centre de la parcelle via apicarto
-        api_url = f"https://apicarto.ign.fr/api/cadastre/parcelle?code_insee={code_insee}&section={section}&numero={numero}"
-        req = _ur.Request(api_url, headers={"User-Agent": "BarbierImmo/1.0"})
-        with _ur.urlopen(req, timeout=10) as r:
-            data = _json.load(r)
-
-        features = data.get("features", [])
-        if not features:
-            return None
-
-        coords = features[0]["geometry"]["coordinates"][0][0]
-        lons = [c[0] for c in coords]; lats = [c[1] for c in coords]
-        lat = sum(lats)/len(lats); lon = sum(lons)/len(lons)
+        # 1. Coordonnées de la parcelle via cadastre.data.gouv.fr (fiable)
+        coords_result = _get_parcelle_coords(code_insee, section, numero)
+        if coords_result:
+            lon, lat = coords_result
+        else:
+            # Fallback : géocodage de l'adresse
+            import urllib.parse as _up_cad
+            q = _up_cad.quote_plus(f"{adresse}, {ville}, France")
+            geo_url = f"https://data.geopf.fr/geocodage/search?q={q}&limit=1"
+            req_geo = _ur.Request(geo_url, headers={"User-Agent": "BarbierImmo/1.0"})
+            with _ur.urlopen(req_geo, timeout=8) as r_geo:
+                geo_data = _json.load(r_geo)
+            features_geo = geo_data.get("features", [])
+            if not features_geo:
+                return None
+            c = features_geo[0]["geometry"]["coordinates"]
+            lon, lat = c[0], c[1]
 
         # 2. Récupérer les tiles IGN plan cadastral (WMTS PM)
         zoom = 19
@@ -1613,26 +1651,79 @@ def _page3(c, d):
             by = carac_y2 - row_idx*(card_h+3*_mm) - card_h
             _draw_poi_card(c, bx, by, card_w, card_h, lbl, val, col_hex)
 
-    # Plan cadastral IGN
-    ref_cad = d.get("ref_cadastrale","")
+    # ── Plan cadastral + Zone PLU ────────────────────────────────────────────
+    ref_cad  = d.get("ref_cadastrale","")
+    zone_plu = d.get("zone_plu","") or d.get("Zone PLU","") or ""
+    res_plu  = d.get("resume_plu","") or d.get("Résumé PLU","") or ""
+    url_regl = d.get("url_reglement","") or d.get("URL Règlement PLU","") or ""
+
+    # Calculer la position de départ (sous les 2 rangées de POI + section carac)
+    nb_carac_rows = (len(carac_bien) + 2) // 3 if carac_bien else 0
+    cad_start_y = pt_y - 2*(card_h+3*_mm) - (nb_carac_rows*(card_h+3*_mm) if carac_bien else 0) - 16*_mm
+
     if ref_cad and len(ref_cad) >= 6:
+        _sec(c, "Urbanisme & Cadastre", 14*_mm, cad_start_y + 6*_mm)
+        cad_top = cad_start_y - 4*_mm
+
+        # ── Bloc Zone PLU (si disponible) ─────────────────────────────────────
+        plu_drawn_h = 0
+        if zone_plu or res_plu:
+            plu_h = 0
+            plu_content = []
+            if zone_plu:
+                plu_content.append(("zone", zone_plu))
+            if res_plu:
+                plu_content.append(("resume", res_plu))
+
+            # Calculer hauteur du bloc résumé PLU
+            if res_plu:
+                plu_para = _Para(res_plu, _PS("plu", fontName="Helvetica", fontSize=8, textColor=_GTEXTE, leading=12))
+                _, para_h = plu_para.wrap(_W-36*_mm, 9999)
+                plu_h = max(22*_mm, para_h + 18*_mm)
+            else:
+                plu_h = 16*_mm
+
+            plu_y = cad_top - plu_h
+            # Fond bleu clair
+            c.setFillColor(_colors.HexColor("#E8F4F8"))
+            c.roundRect(14*_mm, plu_y, _W-28*_mm, plu_h, 2*_mm, fill=1, stroke=0)
+            # Pastille zone
+            c.setFillColor(_BLEU_F)
+            c.roundRect(14*_mm, plu_y + plu_h - 10*_mm, 30*_mm, 9*_mm, 1*_mm, fill=1, stroke=0)
+            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 7)
+            c.drawCentredString(29*_mm, plu_y + plu_h - 6.5*_mm, f"Zone {zone_plu}")
+            # Label
+            c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 7.5)
+            c.drawString(48*_mm, plu_y + plu_h - 6.5*_mm, "ZONE PLU")
+            # Résumé
+            if res_plu:
+                plu_para.drawOn(c, 18*_mm, plu_y + 6*_mm)
+            # Lien règlement
+            if url_regl:
+                c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica-Oblique", 6)
+                c.drawString(18*_mm, plu_y + 2*_mm, f"Règlement : {url_regl[:70]}")
+
+            cad_top = plu_y - 6*_mm
+            plu_drawn_h = plu_h + 6*_mm
+
+        # ── Image cadastrale ───────────────────────────────────────────────────
         try:
             cad_img = _fetch_cadastre_image(ref_cad, d.get("adresse",""), d.get("ville",""))
             if cad_img:
-                cad_y = pt_y - 28*_mm - 40*_mm
-                cad_w = _W - 28*_mm; cad_h = 38*_mm
-                _sec(c, "Plan cadastral", 14*_mm, cad_y + cad_h + 6*_mm)
+                cad_h2 = 45*_mm
+                cad_y2 = cad_top - cad_h2
                 buf_cad = _BytesIO(); cad_img.save(buf_cad, "PNG"); buf_cad.seek(0)
-                from reportlab.lib.utils import ImageReader as _IRC
+                from reportlab.lib.utils import ImageReader as _IRC2
                 c.saveState()
-                p_cad = c.beginPath(); p_cad.roundRect(14*_mm, cad_y, cad_w, cad_h, 2*_mm)
+                p_cad = c.beginPath(); p_cad.roundRect(14*_mm, cad_y2, _W-28*_mm, cad_h2, 2*_mm)
                 c.clipPath(p_cad, stroke=0, fill=0)
-                c.drawImage(_IRC(buf_cad), 14*_mm, cad_y, cad_w, cad_h, mask="auto")
+                c.drawImage(_IRC2(buf_cad), 14*_mm, cad_y2, _W-28*_mm, cad_h2,
+                            preserveAspectRatio=False, mask="auto")
                 c.restoreState()
                 c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.5)
-                c.roundRect(14*_mm, cad_y, cad_w, cad_h, 2*_mm, fill=0, stroke=1)
+                c.roundRect(14*_mm, cad_y2, _W-28*_mm, cad_h2, 2*_mm, fill=0, stroke=1)
                 c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica", 5.5)
-                c.drawRightString(_W-14*_mm, cad_y+1.5*_mm, "© IGN Géoportail — Plan cadastral")
+                c.drawRightString(_W-14*_mm, cad_y2+1.5*_mm, "© IGN / data.geopf.fr — Plan cadastral")
         except Exception:
             pass
 
@@ -2054,6 +2145,199 @@ def dossier():
     except Exception as e:
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route("/urbanisme", methods=["POST"])
+def urbanisme():
+    """
+    Enrichit les données urbanisme pour un bien :
+    - Coordonnées GPS de la parcelle (cadastre.data.gouv.fr)
+    - Image cadastrale WMS IGN (data.geopf.fr)
+    - Zone PLU + libellé + lien règlement (apicarto.ign.fr/gpu)
+    - Résumé PLU lisible (GPT-4o)
+    - Servitudes et risques si disponibles
+
+    Payload : ref_cadastrale, adresse, ville, code_postal, type_bien
+    Retourne : {
+        "ok": True,
+        "lon": ..., "lat": ...,
+        "zone_plu": "Ubd3p", "type_zone": "U",
+        "libelle_plu": "Zone urbaine...",
+        "url_reglement": "https://...",
+        "resume_plu": "Texte GPT 2-3 phrases",
+        "servitudes": [],
+        "cadastre_image_b64": "data:image/png;base64,..."
+    }
+    """
+    import re as _re_urb, gzip as _gz_urb, os as _os_urb, json as _j_urb
+    import urllib.request as _ur_urb, urllib.parse as _up_urb
+    import math as _m_urb
+
+    try:
+        data = request.get_json(silent=True) or {}
+        ref_cad    = (data.get("ref_cadastrale") or "").replace(" ", "").upper()
+        adresse    = data.get("adresse", "")
+        ville      = data.get("ville", "Vannes")
+        type_bien  = data.get("type_bien", "Local commercial")
+
+        # ── 1. Parser la référence cadastrale ───────────────────────────────
+        m_ref = _re_urb.match(r"(\d{5})([A-Z]{2})(\d{3,4})", ref_cad)
+        if not m_ref:
+            return jsonify({"ok": False, "error": f"Référence cadastrale invalide : {ref_cad}"}), 400
+        code_insee, section, numero = m_ref.group(1), m_ref.group(2), m_ref.group(3).zfill(4)
+
+        # ── 2. Coordonnées GPS de la parcelle ────────────────────────────────
+        lon, lat = None, None
+        coords_result = _get_parcelle_coords(code_insee, section, numero)
+        if coords_result:
+            lon, lat = coords_result
+        else:
+            # Fallback géocodage adresse
+            try:
+                q = _up_urb.quote_plus(f"{adresse}, {ville}, France")
+                geo_url = f"https://data.geopf.fr/geocodage/search?q={q}&limit=1"
+                req_g = _ur_urb.Request(geo_url, headers={"User-Agent": "BarbierImmo/1.0"})
+                with _ur_urb.urlopen(req_g, timeout=8) as rg:
+                    gdata = _j_urb.load(rg)
+                fc = gdata.get("features", [])
+                if fc:
+                    c = fc[0]["geometry"]["coordinates"]
+                    lon, lat = c[0], c[1]
+            except Exception:
+                pass
+
+        if lon is None:
+            return jsonify({"ok": False, "error": "Impossible de géolocaliser la parcelle"}), 400
+
+        # ── 3. Image cadastrale WMS ──────────────────────────────────────────
+        cadastre_b64 = ""
+        try:
+            delta = 0.0006
+            bbox = f"{lon-delta},{lat-delta},{lon+delta},{lat+delta}"
+            wms_url = (
+                "https://data.geopf.fr/wms-r/wms?"
+                "SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap"
+                "&LAYERS=CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
+                "&FORMAT=image/png&TRANSPARENT=false"
+                "&CRS=CRS:84&STYLES="
+                f"&WIDTH=500&HEIGHT=400&BBOX={bbox}"
+            )
+            req_wms = _ur_urb.Request(wms_url, headers={"User-Agent": "BarbierImmo/1.0"})
+            with _ur_urb.urlopen(req_wms, timeout=15) as rwms:
+                img_bytes = rwms.read()
+
+            # Ajouter marqueur orange sur la parcelle
+            from PIL import Image as _PILUrb, ImageDraw as _IDUrb
+            import io as _io_urb
+            img = _PILUrb.open(_io_urb.BytesIO(img_bytes)).convert("RGB")
+            draw = _IDUrb.Draw(img)
+            cx_img, cy_img = img.width // 2, img.height // 2
+            r_m = 10
+            draw.ellipse([cx_img-r_m, cy_img-r_m, cx_img+r_m, cy_img+r_m],
+                         fill=(232, 71, 42), outline=(255,255,255), width=3)
+            # Encodage base64
+            buf = _io_urb.BytesIO()
+            img.save(buf, format="PNG")
+            import base64 as _b64u
+            cadastre_b64 = "data:image/png;base64," + _b64u.b64encode(buf.getvalue()).decode()
+        except Exception as e_wms:
+            pass  # Image non bloquante
+
+        # ── 4. Zone PLU via apicarto.ign.fr ─────────────────────────────────
+        zone_plu = ""; type_zone = ""; libelle_plu = ""; url_reglement = ""
+        try:
+            geom_encoded = _up_urb.quote(
+                _j_urb.dumps({"type": "Point", "coordinates": [lon, lat]})
+            )
+            gpu_url = f"https://apicarto.ign.fr/api/gpu/zone-urba?geom={geom_encoded}"
+            req_gpu = _ur_urb.Request(gpu_url, headers={"User-Agent": "BarbierImmo/1.0"})
+            with _ur_urb.urlopen(req_gpu, timeout=10) as rgpu:
+                gpu_data = _j_urb.load(rgpu)
+            features_plu = gpu_data.get("features", [])
+            if features_plu:
+                p = features_plu[0]["properties"]
+                zone_plu    = p.get("libelle", "")
+                type_zone   = p.get("typezone", "")
+                libelle_plu = p.get("libelong", "")
+                url_reglement = p.get("urlfic", "")
+        except Exception:
+            pass
+
+        # ── 5. Résumé PLU par GPT-4o ─────────────────────────────────────────
+        resume_plu = ""
+        if libelle_plu or zone_plu:
+            try:
+                api_key = _os_urb.environ.get("OPENAI_API_KEY", "")
+                if api_key:
+                    prompt_plu = (
+                        f"Tu es expert en droit de l'urbanisme et en immobilier commercial.
+"
+                        f"Résume en 2-3 phrases claires et professionnelles la zone PLU suivante "
+                        f"pour un dossier de présentation destiné à un investisseur ou locataire professionnel.
+
+"
+                        f"Bien : {type_bien} — {adresse}, {ville}
+"
+                        f"Zone PLU : {zone_plu} (type {type_zone})
+"
+                        f"Libellé officiel : {libelle_plu}
+
+"
+                        f"Indique : ce que la zone autorise, ce qu'elle interdit ou limite, "
+                        f"et pourquoi c'est favorable (ou non) pour ce type de bien.
+"
+                        f"Ton : factuel, professionnel, accessible à un non-juriste. 2-3 phrases maximum."
+                    )
+                    gpt_payload = _j_urb.dumps({
+                        "model": "gpt-4o",
+                        "messages": [{"role": "user", "content": prompt_plu}],
+                        "max_tokens": 200, "temperature": 0.3
+                    }).encode()
+                    req_gpt = _ur_urb.Request(
+                        "https://api.openai.com/v1/chat/completions",
+                        data=gpt_payload, method="POST",
+                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                    )
+                    with _ur_urb.urlopen(req_gpt, timeout=30) as rgpt:
+                        resume_plu = _j_urb.load(rgpt)["choices"][0]["message"]["content"].strip()
+            except Exception:
+                resume_plu = f"Zone {zone_plu} ({type_zone}) — {libelle_plu[:150]}" if libelle_plu else ""
+
+        # ── 6. Servitudes (best-effort) ──────────────────────────────────────
+        servitudes = []
+        try:
+            serv_geom = _up_urb.quote(_j_urb.dumps({"type": "Point", "coordinates": [lon, lat]}))
+            serv_url = f"https://apicarto.ign.fr/api/gpu/servitude?geom={serv_geom}"
+            req_serv = _ur_urb.Request(serv_url, headers={"User-Agent": "BarbierImmo/1.0"})
+            with _ur_urb.urlopen(req_serv, timeout=8) as rs:
+                serv_data = _j_urb.load(rs)
+            for sf in serv_data.get("features", [])[:5]:
+                sp = sf.get("properties", {})
+                libserv = sp.get("libelle") or sp.get("typessup") or ""
+                if libserv:
+                    servitudes.append(libserv[:80])
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok":           True,
+            "lon":          lon,
+            "lat":          lat,
+            "zone_plu":     zone_plu,
+            "type_zone":    type_zone,
+            "libelle_plu":  libelle_plu,
+            "url_reglement": url_reglement,
+            "resume_plu":   resume_plu,
+            "servitudes":   servitudes,
+            "cadastre_image_b64": cadastre_b64,
+            "code_insee":   code_insee,
+            "section":      section,
+            "numero":       numero,
+        })
+
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()[:500]}), 500
 
 
 @app.route("/estimer", methods=["POST"])
