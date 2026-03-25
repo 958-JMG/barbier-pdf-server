@@ -1363,9 +1363,108 @@ def _get_poi_blocks_osm(lat_c, lon_c, radius=500):
     return results[:6]
 
 
+# ── PICTO DYNAMIQUE (base64) ──────────────────────────────────────────────────
+_PICTO_DYNAMIQUE_B64 = "iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAYAAAByDd+UAAAEbUlEQVR4nK2WW4iVVRTHf+ucY9aUWTnmZIZmhdENQ4wuppToqGiQZvXQzegC2UO9FUX20kNGaWVFdlVLBAkRswuGNGbZQ2n5YNhAkgliRCjalJc5vx6+9TWfJ4keZsNhr7PP3vu/1n+t9d8H/mOokXObOl5tq67361BrOU9Vt6sbc55a/b2/wCI/g9VutTPXO/P74HJPfwGW0V2ldqXdyLlLHV/d9z+cr6v1/wRUG+oQ9Sd1Rq5P79cI85JGy9o4dbP6ofqNOjn31apnWqOtFNxIdY36lNqIyoZ6RPSm3QZMB84H9gIC7cAW4PuIOJIAUZ4pQSLCtBsRcUx9DrgUuAiYexwl6kjgYWAq8BOwBxgMnAo0gDZgOPBGRCzOM6cB9wKbI2JrCVoGoE4CPgDeBx6rUrJI3aouUEeVPdfiUId6WVL7uvqQuk1dqu5Uh7WmRn1SfTPtWi0pmAXcANwB/Aa8CuxRr0hnTs6cvA2MAa4GBgCTgPnJxl/A4Uoh9SbobcArWaVRFkgnsAR4FBgCvAiMAPZFxDHgmDocGJS53AY8ApwNLAJ+BKZFxP4ErAFNYAawPyK2tVK1UZ2lbqlQ91Xa9ZzvVNel3al+oa4re7KksuXMR+qt6i3qWICGOgb4EzhcoWQysC/vGQD0AlOAdWotIj4FPq0A1YFmFksti2UkcCGwGlgLrAS+K0PvABYC6/OOS4HutI9kAV0PbI2IZhWoBCjbIekEuB/oyvWjGRCNiOhWHwEuBt5NL0cDa9PzGnA6sBtYqvYAvwJrI2LZCdSmLJabgHmV9TiO97QbWdKL1Nc4wVAvUW9Xd1Qkr8xZPc/fZGpwrq9WZ5cRmqpRq+RhAdClrsjImsAh4GdgU0SsUmdRKFGf91Dm70FgRVW9ylEDyLw0I6KpXgI8AVwHjKLoz6DI8+vADHUEcC3wXjLUm7k8qnbkuRWtYFDIVRW8CUwDRkdET1I1LyJ2JjUTgeXAOxTydiDz1QTq6exbwAbgHHVqRCylr5CoKnxZZROB5Xl4INCdub2PQlHaM7rF6ZDJ0lFgMYXYj6JQozktlPPPE5PcDwQuADYCDwDrI6KZajMbWAa8DLwWET3ZDr3FFS5MoKEUr8oBiryfkNJIT8cCByLiD/VGYG461MiLdgN7ImKhekoCDAKWUsjbNcDQiNih3lyNrBWwzN8UYJN6JXAoInaqJ+X79y3wPLBEnQPcAwwDzgMeiog1WUCr1JkU6vQvwDKHZf4mAJ8Ad1M0flAI99D0vofiZZkLXJ6ULQe+VC8G6sAZLXceH2Elf6dSPLa7MtKZ2ZMN4HNgZUQ8k1R3AeMpCuyljHx3RDyrVoFsmfuKJikYRPHe3R0Ru3LPBuCzBKsDLwDjgO3A3oj4Ky88UgaRc1TsRn6nfIBrefBpitJ+XP1Y/Rr4gaLB78qK/AX4nUJl5qezPaQ4U1Rn6cDBXDtYcShj7nvLzlYnqFfb9//zLPXctIdlX9bVIbl2pjoo7Y6cT1bb027PquZvxEhzVOc8u6cAAAAASUVORK5CYII="
+
+def _draw_poi_icon(c, cat, cx, cy, r, col):
+    """Dessine une icône vectorielle simple selon la catégorie POI."""
+    import unicodedata as _ud
+    cat_up = cat.upper()
+    c.setFillColor(_BLANC); c.setStrokeColor(_BLANC); c.setLineWidth(0.5)
+
+    if "PARKING" in cat_up or "STATIONNEMENT" in cat_up:
+        # Lettre P
+        c.setFont("Helvetica-Bold", r*1.4); c.setFillColor(_BLANC)
+        c.drawCentredString(cx, cy - r*0.45, "P")
+
+    elif "TRANSPORT" in cat_up or "GARE" in cat_up or "BUS" in cat_up:
+        # Bus simplifié : rectangle arrondi
+        w=r*1.1; h=r*0.8
+        c.roundRect(cx-w/2, cy-h/2, w, h, 1*_mm, fill=1, stroke=0)
+        c.setFillColor(col)
+        c.roundRect(cx-w/2+1, cy-h/2+1, w-2, h-2, 0.8*_mm, fill=1, stroke=0)
+        c.setFillColor(_BLANC)
+        # Roues
+        c.circle(cx-w/3, cy-h/2-1, 1.2, fill=1, stroke=0)
+        c.circle(cx+w/3, cy-h/2-1, 1.2, fill=1, stroke=0)
+
+    elif "RESTAURATION" in cat_up or "CAFE" in cat_up or "RESTAURANT" in cat_up:
+        # Fourchette + couteau simplifié = deux traits verticaux
+        c.setLineWidth(1.2)
+        c.line(cx-2, cy-r*0.8, cx-2, cy+r*0.8)
+        c.line(cx+2, cy-r*0.8, cx+2, cy+r*0.8)
+        # Petit arc = cuillère
+        p = c.beginPath()
+        p.moveTo(cx-2, cy); p.curveTo(cx-2, cy+r*0.4, cx+2, cy+r*0.4, cx+2, cy)
+        c.drawPath(p, fill=0, stroke=1)
+
+    elif "COMMERCE" in cat_up or "MAGASIN" in cat_up or "SUPERMARCHÉ" in cat_up:
+        # Sachet shopping
+        w=r*1.1; h=r*0.9; hy=cy-h/2
+        c.roundRect(cx-w/2, hy, w, h, 1*_mm, fill=1, stroke=0)
+        # Anse
+        c.setFillColor(col)
+        p2 = c.beginPath()
+        p2.moveTo(cx-w/4, hy+h); p2.curveTo(cx-w/4, hy+h+r*0.6, cx+w/4, hy+h+r*0.6, cx+w/4, hy+h)
+        c.drawPath(p2, fill=0, stroke=1)
+        c.setFillColor(_BLANC)
+
+    elif "FORMATION" in cat_up or "ECOLE" in cat_up or "UNIVERSITÉ" in cat_up:
+        # Chapeau de diplômé simplifié
+        w=r*1.2
+        c.rect(cx-w/2, cy-r*0.2, w, r*0.35, fill=1, stroke=0)
+        # Triangle chapeau
+        p3 = c.beginPath()
+        p3.moveTo(cx-w/2-2, cy+r*0.15)
+        p3.lineTo(cx, cy+r*0.9)
+        p3.lineTo(cx+w/2+2, cy+r*0.15)
+        p3.close()
+        c.drawPath(p3, fill=1, stroke=0)
+
+    elif "BANQUE" in cat_up or "SERVICE" in cat_up:
+        # Symbole € simplifié
+        c.setFont("Helvetica-Bold", r*1.5); c.setFillColor(_BLANC)
+        c.drawCentredString(cx, cy - r*0.5, "€")
+
+    elif "HOTEL" in cat_up or "HÉBERGEMENT" in cat_up:
+        # Lit simplifié
+        w=r*1.2; h=r*0.5
+        c.roundRect(cx-w/2, cy-h/2, w, h, 1*_mm, fill=1, stroke=0)
+        # Tête de lit
+        c.rect(cx-w/2, cy+h/2-1, w*0.35, r*0.45, fill=1, stroke=0)
+
+    elif "DYNAMISME" in cat_up or "ZONE" in cat_up:
+        # Graphique croissant (flèche vers le haut)
+        try:
+            import base64 as _b64, io as _io
+            from reportlab.lib.utils import ImageReader as _IR
+            img_data = _b64.b64decode(_PICTO_DYNAMIQUE_B64)
+            img_obj = _IR(_io.BytesIO(img_data))
+            sz = r * 1.6
+            c.drawImage(img_obj, cx-sz/2, cy-sz/2, sz, sz, mask="auto")
+        except Exception:
+            # Fallback flèche
+            p4 = c.beginPath()
+            p4.moveTo(cx, cy+r*0.9); p4.lineTo(cx-r*0.4, cy+r*0.2)
+            p4.lineTo(cx-r*0.15, cy+r*0.2); p4.lineTo(cx-r*0.15, cy-r*0.8)
+            p4.lineTo(cx+r*0.15, cy-r*0.8); p4.lineTo(cx+r*0.15, cy+r*0.2)
+            p4.lineTo(cx+r*0.4, cy+r*0.2); p4.close()
+            c.drawPath(p4, fill=1, stroke=0)
+    else:
+        # Fallback : point blanc
+        c.circle(cx, cy, r*0.4, fill=1, stroke=0)
+
+
 def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
-    """Dessine un bloc POI avec pastille colorée + texte."""
+    """Dessine un bloc POI avec pastille colorée + icône vectorielle + texte."""
+    import unicodedata as _ud
     from reportlab.lib import colors as _rc
+    def _safe_str(s):
+        try:
+            str(s).encode('latin-1'); return str(s)
+        except:
+            return _ud.normalize('NFKD', str(s)).encode('ascii', 'ignore').decode('ascii')
+
     col = _rc.HexColor(color_hex)
     # Fond gris clair
     c.setFillColor(_GRIS)
@@ -1373,23 +1472,20 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
     # Pastille colorée à gauche
     dot_x = bx + 5.5*_mm; dot_y = by + bh/2
     c.setFillColor(col)
-    c.circle(dot_x, dot_y, 3*_mm, fill=1, stroke=0)
-    # Petite icône blanche dans la pastille (trait simple)
-    c.setFillColor(_BLANC)
-    c.setFont("Helvetica-Bold", 7)
-    c.drawCentredString(dot_x, dot_y - 2.2*_mm, "•")
+    c.circle(dot_x, dot_y, 3.5*_mm, fill=1, stroke=0)
+    # Icône vectorielle dans la pastille
+    _draw_poi_icon(c, label, dot_x, dot_y, 3.5*_mm, col)
     # Texte
-    txt_x = bx + 11*_mm
+    txt_x = bx + 12*_mm
     c.setFillColor(col)
     c.setFont("Helvetica-Bold", 7.5)
-    c.drawString(txt_x, by + bh - 5*_mm, label.upper())
+    c.drawString(txt_x, by + bh - 5*_mm, _safe_str(label).upper())
     c.setFillColor(_GTEXTE)
     c.setFont("Helvetica", 7)
-    # Tronquer si trop long
-    max_w = bw - 13*_mm
-    txt = valeur
+    max_w = bw - 14*_mm
+    txt = _safe_str(valeur)
     while c.stringWidth(txt, "Helvetica", 7) > max_w and len(txt) > 4:
-        txt = txt[:-2] + "…"
+        txt = txt[:-2] + "..."
     c.drawString(txt_x, by + 2.5*_mm, txt)
 
 
