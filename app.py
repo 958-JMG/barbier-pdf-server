@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.20"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.21"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -2710,18 +2710,12 @@ def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6)
 
     # 2. DVF CSV années 2024 → 2022
     # Mapper le type de bien vers les types DVF correspondants
+    # Note DVF : les bureaux sont classés "Local industriel. commercial ou assimilé"
+    # Il n'existe pas de type "Bureau" dans la nomenclature DVF officielle
     type_bien_lower = (type_bien or "").lower()
-    if "bureau" in type_bien_lower:
-        dvf_types_ok = ["bureau"]
-    elif "fonds" in type_bien_lower or "commerce" in type_bien_lower:
-        dvf_types_ok = ["local industriel. commercial ou assimilé", "local commercial"]
-    elif "entrepôt" in type_bien_lower or "entrepot" in type_bien_lower or "industriel" in type_bien_lower:
-        dvf_types_ok = ["local industriel. commercial ou assimilé"]
-    elif "terrain" in type_bien_lower:
-        dvf_types_ok = []  # DVF terrain = pas de bati
-    else:
-        # Local commercial, restaurant, hôtel, etc.
-        dvf_types_ok = ["local industriel. commercial ou assimilé", "local commercial", "bureau"]
+    dvf_types_ok = ["local industriel. commercial ou assimilé"]
+    if "terrain" in type_bien_lower:
+        dvf_types_ok = []  # pas de bati
 
     results = []
     for annee in ["2024", "2023", "2022"]:
