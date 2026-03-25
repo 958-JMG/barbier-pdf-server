@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.23"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.24"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1548,8 +1548,8 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
         c.setFont("Helvetica-Bold", fsz)
         if c.stringWidth(txt, "Helvetica-Bold", fsz) <= max_w:
             break
-        if len(txt) > 26:
-            txt = txt[:26] + "..."
+        if len(txt) > 32:
+            txt = txt[:32] + "..."
     c.drawString(lbl_x, by + 3*_mm, txt)
 
 
@@ -1672,7 +1672,7 @@ def _page3(c, d):
     # ── Zone 1 : POI quartier (Overpass — ce qui existe autour) ────────────
     _sec(c, "Environnement du quartier", 14*_mm, my - 14*_mm)
     pt_y = my - 24*_mm
-    ncols = 3; card_w = (_W-28*_mm - (ncols-1)*4*_mm)/ncols; card_h = 13*_mm
+    ncols = 3; card_w = (_W-28*_mm - (ncols-1)*4*_mm)/ncols; card_h = 16*_mm
     for i, item in enumerate(poi_blocks[:6]):
         lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#1B3A5C")
         col_idx = i % ncols; row_idx = i // ncols
@@ -2124,102 +2124,96 @@ def dossier():
 
         comparables = data.get("comparables", [])
 
-        # Auto-fetch DVF directement (sans HTTP interne)
-        if not comparables:
+        # Détecter location vs vente dès le départ
+        _is_location_gen = bool(data.get("loyer_mensuel")) or "location" in str(data.get("statut_mandat","")).lower()
+
+        # ── VENTE : récupérer comparables DVF ─────────────────────────────────
+        # DVF = mutations foncières = VENTES uniquement. Ne pas appeler pour location.
+        dvf_pm2 = 0
+        if not comparables and not _is_location_gen:
             try:
                 dvf_comps, dvf_pm2, dvf_stats = _run_dvf(
-                    ville   = data.get("ville", "Vannes"),
+                    ville       = data.get("ville", "Vannes"),
                     code_postal = data.get("code_postal", "56000"),
-                    surface = float(data.get("surface") or 0),
+                    surface     = float(data.get("surface") or 0),
                     type_bien   = data.get("type_bien", "Local commercial"),
-                    limit   = 4
+                    limit       = 4
                 )
                 comparables = dvf_comps
+            except Exception:
+                pass
 
-                # ── Fallback web search si DVF insuffisant (< 3 comparables) ──
-                dvf_ok = len(comparables) >= 3 and dvf_pm2 > 0
-                if not dvf_ok:
-                    try:
-                        import os as _os_ws
-                        api_key_ws = _os_ws.environ.get("OPENAI_API_KEY", "")
-                        if api_key_ws:
-                            surface_ws  = data.get("surface", "")
-                            type_ws     = data.get("type_bien", "local commercial")
-                            ville_ws    = data.get("ville", "Vannes")
-                            loyer_ws    = data.get("loyer_mensuel", 0)
-                            is_loc_ws   = bool(loyer_ws) or "location" in str(data.get("statut_mandat","")).lower()
-                            op_ws       = "en location" if is_loc_ws else "a la vente"
-                            prompt_ws = (
-                                f"Recherche sur les portails immobiliers (SeLoger, BienIci, Logic-immo, PAP) "
-                                f"des annonces de {type_ws} {op_ws} a {ville_ws} (Morbihan, 56), "
-                                f"surface entre {int(float(str(surface_ws) or 0)*0.80)} et {int(float(str(surface_ws) or 0)*1.20)} m2. "
-                                f"Donne-moi une fourchette realiste de prix au m2 ({'loyer annuel HT/m2' if is_loc_ws else 'prix de vente/m2'}) "
-                                f"basee sur les annonces actuelles. "
-                                f"Reponds UNIQUEMENT en JSON sans backticks : "
-                                f'{{ "pm2_min": <int>, "pm2_max": <int>, "pm2_retenu": <int>, "nb_annonces": <int>, "source": "web_search" }}'
-                            )
-                            import urllib.request as _ur_ws, json as _js_ws
-                            ws_payload = _js_ws.dumps({
-                                "model": "gpt-4o-search-preview",
-                                "messages": [{"role": "user", "content": prompt_ws}],
-                                "max_tokens": 300
-                            }).encode()
-                            ws_req = _ur_ws.Request(
-                                "https://api.openai.com/v1/chat/completions",
-                                data=ws_payload, method="POST",
-                                headers={"Authorization": f"Bearer {api_key_ws}", "Content-Type": "application/json"}
-                            )
-                            with _ur_ws.urlopen(ws_req, timeout=45) as ws_res:
-                                ws_resp = _js_ws.load(ws_res)
-                            ws_txt = ws_resp["choices"][0]["message"]["content"].strip().strip("`").strip()
-                            if ws_txt.startswith("json"): ws_txt = ws_txt[4:].strip()
-                            ws_data = _js_ws.loads(ws_txt)
-                            pm2_ws = int(ws_data.get("pm2_retenu", 0))
-                            pm2_ws_min = int(ws_data.get("pm2_min", 0))
-                            pm2_ws_max = int(ws_data.get("pm2_max", 0))
-                            nb_ws = int(ws_data.get("nb_annonces", 0))
-                            if pm2_ws > 0:
-                                surf_f = float(str(surface_ws) or 0)
-                                if is_loc_ws:
-                                    # Loyer annuel : reconvertir en mensuel
-                                    d["prix_estime_min"] = int(pm2_ws_min * surf_f / 12) if pm2_ws_min else int(pm2_ws * 0.88 * surf_f / 12)
-                                    d["prix_estime_max"] = int(pm2_ws_max * surf_f / 12) if pm2_ws_max else int(pm2_ws * 1.12 * surf_f / 12)
-                                    d["prix_retenu"]     = int(pm2_ws * surf_f / 12)
-                                    if not d.get("prix"): d["prix"] = d["prix_retenu"]
-                                else:
-                                    d["prix_estime_min"] = int(pm2_ws_min * surf_f) if pm2_ws_min else int(pm2_ws * 0.90 * surf_f)
-                                    d["prix_estime_max"] = int(pm2_ws_max * surf_f) if pm2_ws_max else int(pm2_ws * 1.10 * surf_f)
-                                    d["prix_retenu"]     = int(pm2_ws * surf_f)
-                                # Marqueur source pour affichage PDF
-                                d["dvf_source"] = f"Estimation marche — {nb_ws} annonces web" if nb_ws else "Estimation marche — sources web"
-                                dvf_pm2 = pm2_ws
-                    except Exception:
-                        pass  # DVF + web search indisponibles : on continue sans fourchette
+        # ── WEB SEARCH : toujours pour location / fallback vente si DVF < 3 ──
+        _need_ws = _is_location_gen or (not _is_location_gen and len(comparables) < 3)
+        if _need_ws:
+            try:
+                import os as _os_ws, urllib.request as _ur_ws, json as _js_ws
+                api_key_ws = _os_ws.environ.get("OPENAI_API_KEY", "")
+                if api_key_ws:
+                    surface_ws = data.get("surface", "")
+                    type_ws    = data.get("type_bien", "local commercial")
+                    ville_ws   = data.get("ville", "Vannes")
+                    loyer_ws   = data.get("loyer_mensuel", 0)
+                    op_ws      = "en location" if _is_location_gen else "a la vente"
+                    unite_ws   = "loyer annuel HT/m2" if _is_location_gen else "prix de vente/m2"
+                    surf_min   = int(float(str(surface_ws) or 0) * 0.80)
+                    surf_max   = int(float(str(surface_ws) or 0) * 1.20)
+                    prompt_ws = (
+                        f"Recherche sur les portails immobiliers (SeLoger, BienIci, Logic-immo, PAP) "
+                        f"des annonces de {type_ws} {op_ws} a {ville_ws} (Morbihan, 56), "
+                        f"surface entre {surf_min} et {surf_max} m2. "
+                        f"Donne une fourchette realiste de {unite_ws} basee sur les annonces actuelles. "
+                        f"Reponds UNIQUEMENT en JSON sans backticks ni markdown : "
+                        f'{{ "pm2_min": <int>, "pm2_max": <int>, "pm2_retenu": <int>, "nb_annonces": <int> }}'
+                    )
+                    ws_payload = _js_ws.dumps({
+                        "model": "gpt-4o-search-preview",
+                        "messages": [{"role": "user", "content": prompt_ws}],
+                        "max_tokens": 300
+                    }).encode()
+                    ws_req = _ur_ws.Request(
+                        "https://api.openai.com/v1/chat/completions",
+                        data=ws_payload, method="POST",
+                        headers={"Authorization": f"Bearer {api_key_ws}", "Content-Type": "application/json"}
+                    )
+                    with _ur_ws.urlopen(ws_req, timeout=45) as ws_res:
+                        ws_resp = _js_ws.load(ws_res)
+                    ws_txt = ws_resp["choices"][0]["message"]["content"].strip().strip("`").strip()
+                    if ws_txt.startswith("json"): ws_txt = ws_txt[4:].strip()
+                    ws_data = _js_ws.loads(ws_txt)
+                    pm2_ws      = int(ws_data.get("pm2_retenu", 0))
+                    pm2_ws_min  = int(ws_data.get("pm2_min", 0))
+                    pm2_ws_max  = int(ws_data.get("pm2_max", 0))
+                    nb_ws       = int(ws_data.get("nb_annonces", 0))
+                    if pm2_ws > 0:
+                        surf_f = float(str(surface_ws) or 0)
+                        if _is_location_gen:
+                            # pm2_ws = loyer annuel HT/m2 → convertir en mensuel
+                            d["prix_estime_min"] = int(pm2_ws_min * surf_f / 12) if pm2_ws_min else int(pm2_ws * 0.88 * surf_f / 12)
+                            d["prix_estime_max"] = int(pm2_ws_max * surf_f / 12) if pm2_ws_max else int(pm2_ws * 1.12 * surf_f / 12)
+                            d["prix_retenu"]     = int(pm2_ws * surf_f / 12)
+                            if not d.get("prix"): d["prix"] = d["prix_retenu"]
+                        else:
+                            d["prix_estime_min"] = int(pm2_ws_min * surf_f) if pm2_ws_min else int(pm2_ws * 0.90 * surf_f)
+                            d["prix_estime_max"] = int(pm2_ws_max * surf_f) if pm2_ws_max else int(pm2_ws * 1.10 * surf_f)
+                            d["prix_retenu"]     = int(pm2_ws * surf_f)
+                        d["dvf_source"] = f"Estimation marche — {nb_ws} annonces web" if nb_ws else "Estimation marche — sources web"
+                        dvf_pm2 = pm2_ws
+            except Exception:
+                pass
 
-                # Calculer les fourchettes de prix depuis DVF si absentes
+        # ── Fourchette depuis DVF vente si web search non déclenché ──────────
+        if dvf_pm2 > 0 and not _is_location_gen and len(comparables) >= 3:
+            try:
                 surface_val = float(data.get("surface") or 0)
                 prix_v = d.get("prix") or 0
-                loyer_m = data.get("loyer_mensuel") or 0
-
-                if dvf_pm2 > 0 and surface_val > 0 and dvf_ok:
-                    # Marché locatif : on calcule sur le loyer/m²
-                    if loyer_m:
-                        loyer_m2_actuel = (loyer_m * 12) / surface_val
-                        # Fourchette ±15% autour du loyer actuel pondéré par le marché
-                        pm2_ref = dvf_pm2 if dvf_pm2 > 50 else loyer_m2_actuel
-                        d["prix_estime_min"] = int(pm2_ref * 0.88 * surface_val)
-                        d["prix_estime_max"] = int(pm2_ref * 1.12 * surface_val)
-                        d["prix_retenu"]     = int(pm2_ref * surface_val)
-                        if not d.get("prix"):
-                            d["prix"] = d["prix_retenu"]
-                    elif prix_v:
-                        # Bien à vendre : fourchette ±10% autour du DVF
-                        pm2_vente = prix_v / surface_val
-                        pm2_ref = (pm2_vente + dvf_pm2) / 2
-                        d["prix_estime_min"] = int(pm2_ref * 0.90 * surface_val)
-                        d["prix_estime_max"] = int(pm2_ref * 1.10 * surface_val)
-                        d["prix_retenu"]     = int(pm2_ref * surface_val)
-                        d["prix"] = prix_v  # garder le prix affiché réel
+                if surface_val > 0 and prix_v:
+                    pm2_vente = prix_v / surface_val
+                    pm2_ref = (pm2_vente + dvf_pm2) / 2
+                    d["prix_estime_min"] = int(pm2_ref * 0.90 * surface_val)
+                    d["prix_estime_max"] = int(pm2_ref * 1.10 * surface_val)
+                    d["prix_retenu"]     = int(pm2_ref * surface_val)
+                    d["prix"] = prix_v
             except Exception:
                 pass
 
