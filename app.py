@@ -1305,11 +1305,14 @@ def _page1(c, d):
         c.drawCentredString(_W/2, py0+ph/2+3*_mm, "[ Photo principale du bien ]")
         c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#AAAAAA"))
         c.drawCentredString(_W/2, py0+ph/2-6*_mm, "Ajoutez une photo depuis le cockpit")
-    # Logo en overlay — fond blanc opaque pour garantir lisibilité
-    logo_x = _W-54*_mm; logo_y = _H-20*_mm; logo_w = 36*_mm; logo_h = 18*_mm
-    c.setFillColor(_colors.HexColor("#FFFFFF")); c.setStrokeColor(_colors.HexColor("#E0E0E0"))
-    c.setLineWidth(0.5)
-    c.roundRect(logo_x-2*_mm, logo_y-2*_mm, logo_w+4*_mm, logo_h+4*_mm, 3*_mm, fill=1, stroke=1)
+    # Logo dans le bandeau bleu — fond blanc arrondi, coin supérieur droit
+    logo_w = 36*_mm; logo_h = 18*_mm
+    logo_x = _W - logo_w - 10*_mm
+    logo_y = _H - logo_h - 8*_mm   # 8mm du haut, reste dans le bandeau bleu
+    # Fond blanc arrondi derrière le logo
+    pad = 3*_mm
+    c.setFillColor(_BLANC); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0)
+    c.roundRect(logo_x - pad, logo_y - pad, logo_w + pad*2, logo_h + pad*2, 4*_mm, fill=1, stroke=0)
     _logo(c, logo_x, logo_y, w=logo_w)
     c.setFillColor(_GTEXTE); c.setFont("Helvetica", 7.5)
     c.drawString(14*_mm, 13*_mm, f"Dossier préparé par  {_safe(d.get('negociateur'),'Barbier Immobilier')}  ·  Réf. {_safe(d.get('reference'))}")
