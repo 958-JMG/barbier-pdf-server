@@ -1689,8 +1689,8 @@ def _page3(c, d):
             pass  # GPT indisponible ou JSON invalide : on garde ce qu'Overpass a trouvé
 
     # ── Zone 1 : POI quartier (Overpass — ce qui existe autour) ────────────
-    _sec(c, "Environnement du quartier", 14*_mm, my - 4*_mm)
-    pt_y = my - 12*_mm
+    _sec(c, "Environnement du quartier", 14*_mm, my - 10*_mm)
+    pt_y = my - 18*_mm
     ncols = 3; card_w = (_W-28*_mm - (ncols-1)*4*_mm)/ncols; card_h = 13*_mm
     for i, item in enumerate(poi_blocks[:6]):
         lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#1B3A5C")
