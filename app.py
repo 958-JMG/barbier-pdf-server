@@ -783,7 +783,7 @@ def generate_by_ref():
             val = request.args.get(param) or overrides.get(param)
             if val:
                 try:
-                    row[key] = float(str(val).replace(' ', '').replace(' ', '').replace(' ', ''))
+                    row[key] = float(str(val).replace(' ', '').replace(' ', '').replace(' ', ''))
                 except Exception:
                     pass
         # Override avis de valeur (texte GPT)
@@ -1196,7 +1196,7 @@ def _page1(c, d):
     if is_location:
         val_affiche  = loyer_m
         label_prix   = "LOYER MENSUEL HT"
-        suffix_val   = "HT/mois"
+        suffix_val   = " HT/mois"
         show_pm2     = False
     else:
         val_affiche  = prix
@@ -1636,7 +1636,7 @@ def _page3(c, d):
     taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
     if taxe and float(str(taxe).replace(" ","")) > 0:
         try:
-            taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(","," ") + " EUR/an"
+            taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(","," ") + " EUR/an"
         except Exception:
             taxe_fmt = str(taxe)
         carac_bien.append(("Taxe fonciere", taxe_fmt, "#5C1B3A"))
@@ -1825,7 +1825,7 @@ def _page5(c, d):
 
         def _pfmt_loyer(v):
             if not v: return "—"
-            try: return f"{int(v):,}".replace(",", " ") + " €/an"
+            try: return f"{int(v):,}".replace(",", " ") + " €/an"
             except: return str(v)
 
         by2=_H-82*_mm; sw=(_W-28*_mm)/3
@@ -1845,7 +1845,7 @@ def _page5(c, d):
         if loyer_m2_actuel and surf_f:
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
             c.drawCentredString(_W/2,by2-42*_mm,
-                f"Loyer mensuel : {int(loyer_m):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
+                f"Loyer mensuel : {int(loyer_m):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
         ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
         c.setFillColor(_colors.HexColor("#E8F4F8")); c.roundRect(14*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
         c.setFillColor(_BLEU); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm,ay-7*_mm,"ATOUTS DU BIEN")
@@ -1866,6 +1866,8 @@ def _page5(c, d):
         for i,line in enumerate(loyer_expl):
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
             c.drawString(18*_mm+cw2+6*_mm, ay-16*_mm-i*7*_mm, line)
+        _footer(c,5)
+        return  # Fin branche location — ne pas exécuter la suite (vente)
 
     else:
         # ── VENTE : afficher fourchette valeur vénale ────────────────────────
@@ -2785,7 +2787,7 @@ def dvf_comparables():
                         "date": row.get("date_mutation") or "",
                         "url": "",
                         "type_bien": row.get("type_local") or type_local,
-                        "description": f"{row.get('type_local','?')} — {round(prix):,} € — {row.get('date_mutation','')} — {surf} m²".replace(",", " ")
+                        "description": f"{row.get('type_local','?')} — {round(prix):,} € — {row.get('date_mutation','')} — {surf} m²".replace(",", " ")
                     })
 
                     if len(dvf_results) >= 10:
@@ -2840,7 +2842,7 @@ def dvf_comparables():
                                 "date": _time.strftime("%Y-%m-%d"),
                                 "url": "https://www.bienici.com" + (ad.get("publicationUrl") or ""),
                                 "type_bien": type_local,
-                                "description": (ad.get("description") or "")[:200] or f"Annonce active — {round(prix):,} €".replace(",", " ")
+                                "description": (ad.get("description") or "")[:200] or f"Annonce active — {round(prix):,} €".replace(",", " ")
                             })
                         break
                     except:
