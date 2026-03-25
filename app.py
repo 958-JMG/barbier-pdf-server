@@ -1557,18 +1557,61 @@ def _page3(c, d):
             ("Restauration", "Cafes & restaurants",      "#E8472A"),
             ("Commerce",     "Services de proximite",    "#3A1B5C"),
             ("Formation",    "Etablissements proches",   "#5C3A1B"),
-            ("Dynamisme",    "Zone d'activite",          "#1B5C3A"),
+            ("Dynamisme",    "Zone active",              "#1B5C3A"),
         ]
 
-    # ── Grille 3×2 blocs POI ───────────────────────────────────────────────
-    pt_y = my - 8*_mm
+    # ── Zone 1 : POI quartier (Overpass — ce qui existe autour) ────────────
+    _sec(c, "Environnement du quartier", 14*_mm, my - 4*_mm)
+    pt_y = my - 12*_mm
     ncols = 3; card_w = (_W-28*_mm - (ncols-1)*4*_mm)/ncols; card_h = 13*_mm
-    for i, item in enumerate(poi_blocks):
+    for i, item in enumerate(poi_blocks[:6]):
         lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#1B3A5C")
         col_idx = i % ncols; row_idx = i // ncols
         bx = 14*_mm + col_idx*(card_w+4*_mm)
         by = pt_y - row_idx*(card_h+3*_mm) - card_h
         _draw_poi_card(c, bx, by, card_w, card_h, lbl, val, col_hex)
+
+    # ── Zone 2 : Caractéristiques du bien (données Airtable uniquement) ────
+    # N'affiche QUE ce qui est explicitement renseigné dans les données
+    carac_bien = []
+
+    parking_val = d.get("parking") or ""
+    if parking_val and str(parking_val).strip() not in ("", "0", "False", "Non", "nan"):
+        carac_bien.append(("Parking", str(parking_val), "#1B3A5C"))
+
+    pmr = d.get("pmr") or d.get("PMR") or ""
+    if str(pmr).strip() in ("Oui", "oui", "True", "1", "true"):
+        carac_bien.append(("Accessibilite PMR", "Acces PMR", "#0D5570"))
+
+    dpe = d.get("dpe_classe") or d.get("DPE") or ""
+    if str(dpe).strip() not in ("", "nan", "None"):
+        carac_bien.append(("DPE", f"Classe {dpe}", "#5C3A1B"))
+
+    bail = d.get("type_bail") or d.get("bail") or ""
+    if str(bail).strip() not in ("", "nan", "None"):
+        carac_bien.append(("Type de bail", str(bail), "#3A1B5C"))
+
+    etat = d.get("etat_bien") or d.get("etat") or ""
+    if str(etat).strip() not in ("", "nan", "None", "—"):
+        carac_bien.append(("Etat", str(etat), "#1B5C3A"))
+
+    taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
+    if taxe and float(str(taxe).replace(" ","")) > 0:
+        try:
+            taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(","," ") + " EUR/an"
+        except Exception:
+            taxe_fmt = str(taxe)
+        carac_bien.append(("Taxe fonciere", taxe_fmt, "#5C1B3A"))
+
+    if carac_bien:
+        carac_y = pt_y - 2*(card_h+3*_mm) - 10*_mm
+        _sec(c, "Caracteristiques du bien", 14*_mm, carac_y + 4*_mm)
+        carac_y2 = carac_y - 4*_mm
+        for i, (lbl, val, col_hex) in enumerate(carac_bien[:6]):
+            col_idx = i % ncols; row_idx = i // ncols
+            bx = 14*_mm + col_idx*(card_w+4*_mm)
+            by = carac_y2 - row_idx*(card_h+3*_mm) - card_h
+            _draw_poi_card(c, bx, by, card_w, card_h, lbl, val, col_hex)
 
     # Plan cadastral IGN
     ref_cad = d.get("ref_cadastrale","")
