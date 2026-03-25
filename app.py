@@ -1431,27 +1431,31 @@ def _get_poi_blocks_osm(lat_c, lon_c, radius=500):
 _PICTO_DYNAMIQUE_B64 = "iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAYAAAByDd+UAAAEbUlEQVR4nK2WW4iVVRTHf+ucY9aUWTnmZIZmhdENQ4wuppToqGiQZvXQzegC2UO9FUX20kNGaWVFdlVLBAkRswuGNGbZQ2n5YNhAkgliRCjalJc5vx6+9TWfJ4keZsNhr7PP3vu/1n+t9d8H/mOokXObOl5tq67361BrOU9Vt6sbc55a/b2/wCI/g9VutTPXO/P74HJPfwGW0V2ldqXdyLlLHV/d9z+cr6v1/wRUG+oQ9Sd1Rq5P79cI85JGy9o4dbP6ofqNOjn31apnWqOtFNxIdY36lNqIyoZ6RPSm3QZMB84H9gIC7cAW4PuIOJIAUZ4pQSLCtBsRcUx9DrgUuAiYexwl6kjgYWAq8BOwBxgMnAo0gDZgOPBGRCzOM6cB9wKbI2JrCVoGoE4CPgDeBx6rUrJI3aouUEeVPdfiUId6WVL7uvqQuk1dqu5Uh7WmRn1SfTPtWi0pmAXcANwB/Aa8CuxRr0hnTs6cvA2MAa4GBgCTgPnJxl/A4Uoh9SbobcArWaVRFkgnsAR4FBgCvAiMAPZFxDHgmDocGJS53AY8ApwNLAJ+BKZFxP4ErAFNYAawPyK2tVK1UZ2lbqlQ91Xa9ZzvVNel3al+oa4re7KksuXMR+qt6i3qWICGOgb4EzhcoWQysC/vGQD0AlOAdWotIj4FPq0A1YFmFksti2UkcCGwGlgLrAS+K0PvABYC6/OOS4HutI9kAV0PbI2IZhWoBCjbIekEuB/oyvWjGRCNiOhWHwEuBt5NL0cDa9PzGnA6sBtYqvYAvwJrI2LZCdSmLJabgHmV9TiO97QbWdKL1Nc4wVAvUW9Xd1Qkr8xZPc/fZGpwrq9WZ5cRmqpRq+RhAdClrsjImsAh4GdgU0SsUmdRKFGf91Dm70FgRVW9ylEDyLw0I6KpXgI8AVwHjKLoz6DI8+vADHUEcC3wXjLUm7k8qnbkuRWtYFDIVRW8CUwDRkdET1I1LyJ2JjUTgeXAOxTydiDz1QTq6exbwAbgHHVqRCylr5CoKnxZZROB5Xl4INCdub2PQlHaM7rF6ZDJ0lFgMYXYj6JQozktlPPPE5PcDwQuADYCDwDrI6KZajMbWAa8DLwWET3ZDr3FFS5MoKEUr8oBiryfkNJIT8cCByLiD/VGYG461MiLdgN7ImKhekoCDAKWUsjbNcDQiNih3lyNrBWwzN8UYJN6JXAoInaqJ+X79y3wPLBEnQPcAwwDzgMeiog1WUCr1JkU6vQvwDKHZf4mAJ8Ad1M0flAI99D0vofiZZkLXJ6ULQe+VC8G6sAZLXceH2Elf6dSPLa7MtKZ2ZMN4HNgZUQ8k1R3AeMpCuyljHx3RDyrVoFsmfuKJikYRPHe3R0Ru3LPBuCzBKsDLwDjgO3A3oj4Ky88UgaRc1TsRn6nfIBrefBpitJ+XP1Y/Rr4gaLB78qK/AX4nUJl5qezPaQ4U1Rn6cDBXDtYcShj7nvLzlYnqFfb9//zLPXctIdlX9bVIbl2pjoo7Y6cT1bb027PquZvxEhzVOc8u6cAAAAASUVORK5CYII="
 
 def _draw_poi_icon(c, cat, cx, cy, r, col):
-    """Icone categorie POI : lettre/symbole blanc dans le cercle bleu."""
+    """Dessine un symbole lisible dans le cercle bleu selon la catégorie POI."""
     cat_up = cat.upper()
-    ICONS = {
-        "PARKING":      "P",
-        "TRANSPORT":    "T",
-        "RESTAURATION": "R",
-        "COMMERCE":     "C",
-        "BANQUE":       "B",
-        "SANTE":        "+",
-    }
-    # Trouver la lettre correspondante
-    lettre = "•"
-    for key, val in ICONS.items():
-        if key in cat_up:
-            lettre = val
-            break
     c.setFillColor(_BLANC)
-    c.setFont("Helvetica-Bold", r * 1.2)
-    c.drawCentredString(cx, cy - r * 0.4, lettre)
-
-
+    # Mapping catégorie → lettre ou symbole court — toujours lisible en PDF
+    if "PARKING" in cat_up:
+        c.setFont("Helvetica-Bold", r * 1.5)
+        c.drawCentredString(cx, cy - r * 0.5, "P")
+    elif "TRANSPORT" in cat_up or "BUS" in cat_up or "GARE" in cat_up:
+        c.setFont("Helvetica-Bold", r * 1.3)
+        c.drawCentredString(cx, cy - r * 0.45, "T")
+    elif "RESTAURATION" in cat_up or "CAFE" in cat_up or "RESTAURANT" in cat_up:
+        c.setFont("Helvetica-Bold", r * 1.3)
+        c.drawCentredString(cx, cy - r * 0.45, "R")
+    elif "COMMERCE" in cat_up or "MAGASIN" in cat_up:
+        c.setFont("Helvetica-Bold", r * 1.3)
+        c.drawCentredString(cx, cy - r * 0.45, "C")
+    elif "BANQUE" in cat_up or "SERVICE" in cat_up:
+        c.setFont("Helvetica-Bold", r * 1.3)
+        c.drawCentredString(cx, cy - r * 0.45, "B")
+    elif "SANTE" in cat_up or "SANTÉ" in cat_up or "PHARMAC" in cat_up or "MEDICAL" in cat_up:
+        c.setFont("Helvetica-Bold", r * 1.5)
+        c.drawCentredString(cx, cy - r * 0.5, "+")
+    else:
+        c.setFont("Helvetica-Bold", r * 1.3)
+        c.drawCentredString(cx, cy - r * 0.45, "·")
 def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
     """Dessine un bloc POI — style identique aux pills page 2 (cercle bleu + icone blanche)."""
     import unicodedata as _ud
@@ -1747,6 +1751,89 @@ def _page3(c, d):
     _footer(c, 3)
 
 def _page4(c, comparables, d):
+    # Détecter si c'est une location
+    _is_loc_p4 = bool(d.get("loyer_mensuel")) or "location" in str(d.get("statut_mandat","")).lower()
+
+    if _is_loc_p4:
+        # ── PAGE 4 LOCATION : Positionnement loyer de marché ──────────────────
+        _header(c, "Positionnement loyer")
+        _sec(c, "Loyers de marché de référence", 14*_mm, _H-32*_mm)
+
+        # Données transmises par le cockpit depuis 02_Loyers_Marche
+        _pm2_min = d.get("loyer_pm2_min") or 0
+        _pm2_max = d.get("loyer_pm2_max") or 0
+        _pm2_med = d.get("loyer_pm2_median") or 0
+        _loyer_m = float(str(d.get("loyer_mensuel") or 0).replace(" ",""))
+        _surf     = float(str(d.get("surface") or 0).replace(" ",""))
+        _dvf_src  = d.get("dvf_source") or "Référentiel marché Barbier"
+        _notes    = d.get("loyer_notes") or ""
+        _ville_m  = d.get("loyer_ville_match") or d.get("ville") or ""
+
+        # Bloc intro
+        _loyer_m2_actuel = (_loyer_m * 12 / _surf) if _surf > 0 and _loyer_m > 0 else 0
+        intro_txt = (
+            f"Positionnement du loyer proposé ({int(_loyer_m):,} € HT/mois) au regard des références de marché "
+            f"pour ce type de bien à {_ville_m}.".replace(",", " ")
+            if _loyer_m else
+            f"Références de marché pour ce type de bien à {_ville_m}."
+        )
+        intro = _Para(intro_txt, _PS("sm", fontName="Helvetica", fontSize=9, textColor=_GTEXTE, leading=13))
+        _, ih = intro.wrap(_W-28*_mm, 9999)
+        intro.drawOn(c, 14*_mm, _H-40*_mm-ih)
+
+        ct = _H-42*_mm-ih-6*_mm
+
+        if _pm2_med > 0:
+            # 3 blocs : fourchette basse / médiane / haute
+            bw = (_W-28*_mm-8*_mm)/3; bh = 38*_mm; gap = 4*_mm
+            cols_data = [
+                ("FOURCHETTE BASSE", f"{_pm2_min} €/m²/an", f"{int(_pm2_min*_surf/12):,} €/mois".replace(",", " ") if _surf else ""),
+                ("MÉDIANE MARCHÉ", f"{_pm2_med} €/m²/an", f"{int(_pm2_med*_surf/12):,} €/mois".replace(",", " ") if _surf else ""),
+                ("FOURCHETTE HAUTE", f"{_pm2_max} €/m²/an", f"{int(_pm2_max*_surf/12):,} €/mois".replace(",", " ") if _surf else ""),
+            ]
+            for i, (lbl, val_m2, val_mois) in enumerate(cols_data):
+                bx = 14*_mm + i*(bw+gap)
+                by = ct - bh
+                is_med = (i == 1)
+                bg = _BLEU if is_med else _colors.HexColor("#E8F0F8")
+                c.setFillColor(bg); c.roundRect(bx, by, bw, bh, 3*_mm, fill=1, stroke=0)
+                lbl_col = _BLANC if is_med else _colors.HexColor("#777777")
+                val_col = _BLANC if is_med else _BLEU_F
+                c.setFillColor(lbl_col); c.setFont("Helvetica", 7)
+                c.drawCentredString(bx+bw/2, by+bh-7*_mm, lbl)
+                c.setFillColor(val_col); c.setFont("Helvetica-Bold", 13)
+                c.drawCentredString(bx+bw/2, by+bh/2+1*_mm, val_m2)
+                c.setFillColor(val_col); c.setFont("Helvetica", 9)
+                c.drawCentredString(bx+bw/2, by+bh/2-8*_mm, val_mois)
+
+            # Loyer actuel si renseigné
+            if _loyer_m > 0 and _loyer_m2_actuel > 0:
+                arrow_x = 14*_mm + (_loyer_m2_actuel - _pm2_min) / max(_pm2_max - _pm2_min, 1) * (_W-28*_mm)
+                arrow_x = max(16*_mm, min(arrow_x, _W-16*_mm))
+                ay = ct - bh - 8*_mm
+                c.setFillColor(_ORANGE)
+                c.drawCentredString(arrow_x, ay, "▲")
+                c.setFont("Helvetica-Bold", 8); c.setFillColor(_BLEU_F)
+                c.drawCentredString(arrow_x, ay-5*_mm, f"Loyer proposé : {int(_loyer_m2_actuel)} €/m²/an")
+
+            # Source
+            src_y = ct - bh - 16*_mm
+            c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica-Oblique", 7)
+            c.drawString(14*_mm, src_y, f"Source : {_dvf_src}")
+            if _notes:
+                c.drawString(14*_mm, src_y-4*_mm, _notes)
+        else:
+            # Pas de données — afficher message simple
+            c.setFillColor(_GRIS); c.roundRect(14*_mm, ct-50*_mm, _W-28*_mm, 50*_mm, 3*_mm, fill=1, stroke=0)
+            c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica-Oblique", 9)
+            c.drawCentredString(_W/2, ct-25*_mm, "Référentiel loyer non disponible pour ce secteur")
+            c.setFont("Helvetica", 7.5)
+            c.drawCentredString(_W/2, ct-33*_mm, "Mettre à jour la table 02_Loyers_Marche dans Airtable")
+
+        _footer(c, 4)
+        return  # Sortir — pas de suite vente
+
+    # ── PAGE 4 VENTE : Biens comparables DVF ──────────────────────────────────
     _header(c, "Biens comparables"); _sec(c,"Analyse des biens comparables",14*_mm,_H-32*_mm)
     intro = _Para("Sélection des transactions les plus récentes permettant de positionner ce bien dans son marché local.",
         _PS("sm",fontName="Helvetica",fontSize=9,textColor=_GTEXTE,leading=13))
@@ -1754,18 +1841,8 @@ def _page4(c, comparables, d):
     ct=_H-42*_mm-ih-6*_mm; ch=50*_mm
     if not comparables:
         c.setFillColor(_GRIS); c.roundRect(14*_mm,ct-ch,_W-28*_mm,ch,3*_mm,fill=1,stroke=0)
-        dvf_src = d.get("dvf_source", "")
-        if dvf_src:
-            # Fallback web search utilisé
-            c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 9)
-            c.drawCentredString(_W/2, ct-ch/2+6*_mm, "Estimation basee sur analyse de marche en ligne")
-            c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica-Oblique", 8)
-            c.drawCentredString(_W/2, ct-ch/2-2*_mm, dvf_src)
-            c.setFont("Helvetica", 7.5)
-            c.drawCentredString(_W/2, ct-ch/2-9*_mm, "Les transactions DVF ne sont pas disponibles pour ce type de bien sur cette commune.")
-        else:
-            c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica-Oblique", 9)
-            c.drawCentredString(_W/2, ct-ch/2, "Aucun comparable disponible — relancer la recherche dans 01_Biens")
+        c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica-Oblique", 9)
+        c.drawCentredString(_W/2, ct-ch/2, "Aucun comparable disponible — relancer la recherche dans 01_Biens")
     else:
         # Layout: 2 columns x up to 2 rows (max 4 cards)
         cards = comparables[:4]
