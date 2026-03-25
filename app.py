@@ -1760,8 +1760,8 @@ def _page5(c, d):
         c.setFillColor(_BLEU); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm,ay-7*_mm,"ATOUTS DU BIEN")
         for i,a in enumerate(["Emplacement commercial stratégique",f"Surface : {_safe(surf)} m²","Visibilité et accessibilité","Secteur à forte demande locative"]):
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5); c.drawString(18*_mm,ay-16*_mm-i*10*_mm,f"·  {a}")
-        c.setFillColor(_colors.HexColor("#FFF8F0")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
-        c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"POSITIONNEMENT LOYER")
+        c.setFillColor(_colors.HexColor("#E8F0F8")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
+        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"▸ POSITIONNEMENT LOYER")
         loyer_expl = [
             "Le loyer affiché est positionné",
             f"a {int(loyer_m2_actuel):.0f} EUR/m2/an, cohérent" if loyer_m2_actuel else "en cohérence avec le marché",
@@ -1805,17 +1805,17 @@ def _page5(c, d):
     for i,a in enumerate(["Emplacement commercial stratégique",f"Surface adaptée ({_safe(surf)} m²)","Potentiel de développement","Secteur à forte demande"]):
         c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5); c.drawString(18*_mm,ay-16*_mm-i*10*_mm,f"·  {a}")
     # Bloc explication DVF vs estimation
-    c.setFillColor(_colors.HexColor("#FFF8F0")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
-    c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"▸ POURQUOI CET ÉCART AVEC LES DVF ?")
+    c.setFillColor(_colors.HexColor("#E8F0F8")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
+    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"▸ POURQUOI CET ÉCART AVEC LES DVF ?")
     expl = [
         "Les DVF (données officielles) recensent",
         "toutes les ventes de locaux commerciaux",
         "dans la commune, quelle que soit leur",
         "localisation ou configuration.",
         "",
-        "Notre estimation intègre les spécificités",
-        "de ce bien : visibilité, état, emplacement",
-        "précis et potentiel locatif réel.",
+        "Notre estimation integre les specificites",
+        "de ce bien : visibilite, etat, emplacement",
+        "precis et potentiel locatif reel.",
     ]
     for i,line in enumerate(expl):
         c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
