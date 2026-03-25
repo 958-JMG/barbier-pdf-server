@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.25"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.26"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1431,92 +1431,25 @@ def _get_poi_blocks_osm(lat_c, lon_c, radius=500):
 _PICTO_DYNAMIQUE_B64 = "iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAYAAAByDd+UAAAEbUlEQVR4nK2WW4iVVRTHf+ucY9aUWTnmZIZmhdENQ4wuppToqGiQZvXQzegC2UO9FUX20kNGaWVFdlVLBAkRswuGNGbZQ2n5YNhAkgliRCjalJc5vx6+9TWfJ4keZsNhr7PP3vu/1n+t9d8H/mOokXObOl5tq67361BrOU9Vt6sbc55a/b2/wCI/g9VutTPXO/P74HJPfwGW0V2ldqXdyLlLHV/d9z+cr6v1/wRUG+oQ9Sd1Rq5P79cI85JGy9o4dbP6ofqNOjn31apnWqOtFNxIdY36lNqIyoZ6RPSm3QZMB84H9gIC7cAW4PuIOJIAUZ4pQSLCtBsRcUx9DrgUuAiYexwl6kjgYWAq8BOwBxgMnAo0gDZgOPBGRCzOM6cB9wKbI2JrCVoGoE4CPgDeBx6rUrJI3aouUEeVPdfiUId6WVL7uvqQuk1dqu5Uh7WmRn1SfTPtWi0pmAXcANwB/Aa8CuxRr0hnTs6cvA2MAa4GBgCTgPnJxl/A4Uoh9SbobcArWaVRFkgnsAR4FBgCvAiMAPZFxDHgmDocGJS53AY8ApwNLAJ+BKZFxP4ErAFNYAawPyK2tVK1UZ2lbqlQ91Xa9ZzvVNel3al+oa4re7KksuXMR+qt6i3qWICGOgb4EzhcoWQysC/vGQD0AlOAdWotIj4FPq0A1YFmFksti2UkcCGwGlgLrAS+K0PvABYC6/OOS4HutI9kAV0PbI2IZhWoBCjbIekEuB/oyvWjGRCNiOhWHwEuBt5NL0cDa9PzGnA6sBtYqvYAvwJrI2LZCdSmLJabgHmV9TiO97QbWdKL1Nc4wVAvUW9Xd1Qkr8xZPc/fZGpwrq9WZ5cRmqpRq+RhAdClrsjImsAh4GdgU0SsUmdRKFGf91Dm70FgRVW9ylEDyLw0I6KpXgI8AVwHjKLoz6DI8+vADHUEcC3wXjLUm7k8qnbkuRWtYFDIVRW8CUwDRkdET1I1LyJ2JjUTgeXAOxTydiDz1QTq6exbwAbgHHVqRCylr5CoKnxZZROB5Xl4INCdub2PQlHaM7rF6ZDJ0lFgMYXYj6JQozktlPPPE5PcDwQuADYCDwDrI6KZajMbWAa8DLwWET3ZDr3FFS5MoKEUr8oBiryfkNJIT8cCByLiD/VGYG461MiLdgN7ImKhekoCDAKWUsjbNcDQiNih3lyNrBWwzN8UYJN6JXAoInaqJ+X79y3wPLBEnQPcAwwDzgMeiog1WUCr1JkU6vQvwDKHZf4mAJ8Ad1M0flAI99D0vofiZZkLXJ6ULQe+VC8G6sAZLXceH2Elf6dSPLa7MtKZ2ZMN4HNgZUQ8k1R3AeMpCuyljHx3RDyrVoFsmfuKJikYRPHe3R0Ru3LPBuCzBKsDLwDjgO3A3oj4Ky88UgaRc1TsRn6nfIBrefBpitJ+XP1Y/Rr4gaLB78qK/AX4nUJl5qezPaQ4U1Rn6cDBXDtYcShj7nvLzlYnqFfb9//zLPXctIdlX9bVIbl2pjoo7Y6cT1bb027PquZvxEhzVOc8u6cAAAAASUVORK5CYII="
 
 def _draw_poi_icon(c, cat, cx, cy, r, col):
-    """Dessine une icône vectorielle simple selon la catégorie POI."""
-    import unicodedata as _ud
+    """Icone categorie POI : lettre/symbole blanc dans le cercle bleu."""
     cat_up = cat.upper()
-    c.setFillColor(_BLANC); c.setStrokeColor(_BLANC); c.setLineWidth(0.5)
-
-    if "PARKING" in cat_up or "STATIONNEMENT" in cat_up:
-        # Lettre P
-        c.setFont("Helvetica-Bold", r*1.4); c.setFillColor(_BLANC)
-        c.drawCentredString(cx, cy - r*0.45, "P")
-
-    elif "TRANSPORT" in cat_up or "GARE" in cat_up or "BUS" in cat_up:
-        # Bus simplifié : rectangle arrondi
-        w=r*1.1; h=r*0.8
-        c.roundRect(cx-w/2, cy-h/2, w, h, 1*_mm, fill=1, stroke=0)
-        c.setFillColor(col)
-        c.roundRect(cx-w/2+1, cy-h/2+1, w-2, h-2, 0.8*_mm, fill=1, stroke=0)
-        c.setFillColor(_BLANC)
-        # Roues
-        c.circle(cx-w/3, cy-h/2-1, 1.2, fill=1, stroke=0)
-        c.circle(cx+w/3, cy-h/2-1, 1.2, fill=1, stroke=0)
-
-    elif "RESTAURATION" in cat_up or "CAFE" in cat_up or "RESTAURANT" in cat_up:
-        # Fourchette + couteau simplifié = deux traits verticaux
-        c.setLineWidth(1.2)
-        c.line(cx-2, cy-r*0.8, cx-2, cy+r*0.8)
-        c.line(cx+2, cy-r*0.8, cx+2, cy+r*0.8)
-        # Petit arc = cuillère
-        p = c.beginPath()
-        p.moveTo(cx-2, cy); p.curveTo(cx-2, cy+r*0.4, cx+2, cy+r*0.4, cx+2, cy)
-        c.drawPath(p, fill=0, stroke=1)
-
-    elif "COMMERCE" in cat_up or "MAGASIN" in cat_up or "SUPERMARCHÉ" in cat_up:
-        # Sachet shopping
-        w=r*1.1; h=r*0.9; hy=cy-h/2
-        c.roundRect(cx-w/2, hy, w, h, 1*_mm, fill=1, stroke=0)
-        # Anse
-        c.setFillColor(col)
-        p2 = c.beginPath()
-        p2.moveTo(cx-w/4, hy+h); p2.curveTo(cx-w/4, hy+h+r*0.6, cx+w/4, hy+h+r*0.6, cx+w/4, hy+h)
-        c.drawPath(p2, fill=0, stroke=1)
-        c.setFillColor(_BLANC)
-
-    elif "FORMATION" in cat_up or "ECOLE" in cat_up or "UNIVERSITÉ" in cat_up:
-        # Chapeau de diplômé simplifié
-        w=r*1.2
-        c.rect(cx-w/2, cy-r*0.2, w, r*0.35, fill=1, stroke=0)
-        # Triangle chapeau
-        p3 = c.beginPath()
-        p3.moveTo(cx-w/2-2, cy+r*0.15)
-        p3.lineTo(cx, cy+r*0.9)
-        p3.lineTo(cx+w/2+2, cy+r*0.15)
-        p3.close()
-        c.drawPath(p3, fill=1, stroke=0)
-
-    elif "BANQUE" in cat_up or "SERVICE" in cat_up:
-        # Symbole € simplifié
-        c.setFont("Helvetica-Bold", r*1.5); c.setFillColor(_BLANC)
-        c.drawCentredString(cx, cy - r*0.5, "€")
-
-    elif "HOTEL" in cat_up or "HÉBERGEMENT" in cat_up:
-        # Lit simplifié
-        w=r*1.2; h=r*0.5
-        c.roundRect(cx-w/2, cy-h/2, w, h, 1*_mm, fill=1, stroke=0)
-        # Tête de lit
-        c.rect(cx-w/2, cy+h/2-1, w*0.35, r*0.45, fill=1, stroke=0)
-
-    elif "DYNAMISME" in cat_up or "ZONE" in cat_up:
-        # Graphique croissant (flèche vers le haut)
-        try:
-            import base64 as _b64, io as _io
-            from reportlab.lib.utils import ImageReader as _IR
-            img_data = _b64.b64decode(_PICTO_DYNAMIQUE_B64)
-            img_obj = _IR(_io.BytesIO(img_data))
-            sz = r * 1.6
-            c.drawImage(img_obj, cx-sz/2, cy-sz/2, sz, sz, mask="auto")
-        except Exception:
-            # Fallback flèche
-            p4 = c.beginPath()
-            p4.moveTo(cx, cy+r*0.9); p4.lineTo(cx-r*0.4, cy+r*0.2)
-            p4.lineTo(cx-r*0.15, cy+r*0.2); p4.lineTo(cx-r*0.15, cy-r*0.8)
-            p4.lineTo(cx+r*0.15, cy-r*0.8); p4.lineTo(cx+r*0.15, cy+r*0.2)
-            p4.lineTo(cx+r*0.4, cy+r*0.2); p4.close()
-            c.drawPath(p4, fill=1, stroke=0)
-    else:
-        # Fallback : point blanc
-        c.circle(cx, cy, r*0.4, fill=1, stroke=0)
+    ICONS = {
+        "PARKING":      "P",
+        "TRANSPORT":    "T",
+        "RESTAURATION": "R",
+        "COMMERCE":     "C",
+        "BANQUE":       "B",
+        "SANTE":        "+",
+    }
+    # Trouver la lettre correspondante
+    lettre = "•"
+    for key, val in ICONS.items():
+        if key in cat_up:
+            lettre = val
+            break
+    c.setFillColor(_BLANC)
+    c.setFont("Helvetica-Bold", r * 1.2)
+    c.drawCentredString(cx, cy - r * 0.4, lettre)
 
 
 def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
@@ -1563,11 +1496,18 @@ def _page3(c, d):
         "services et equipements a proximite immediate, offrant un environnement favorable a "
         "l'exploitation d'une activite commerciale ou professionnelle."
     )
-    # Tronquer le texte à 600 caractères max pour tenir sur la page
-    if len(texte) > 600:
-        texte = texte[:597] + "..."
     p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15))
     _, ph = p.wrap(_W-28*_mm, 9999)
+    # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
+    max_text_h = _H - 38*_mm - 80*_mm
+    if ph > max_text_h and max_text_h > 0:
+        # Recalculer avec taille réduite
+        for fsz in [9, 8, 7.5]:
+            p2 = _Para(texte, _PS("b2", fontName="Helvetica", fontSize=fsz, textColor=_GTEXTE, leading=fsz*1.5))
+            _, ph = p2.wrap(_W-28*_mm, 9999)
+            if ph <= max_text_h:
+                p = p2
+                break
     p.drawOn(c, 14*_mm, _H-38*_mm-ph)
     qbot = _H-38*_mm-ph-10*_mm
 
@@ -1611,10 +1551,12 @@ def _page3(c, d):
         c.drawCentredString(_W/2, my+mh/2, "Carte indisponible")
 
     # ── POI réels via Overpass (utilise lat/lon de la carte) ───────────────
+    POI_CATS_PRO = {"parking", "transport", "restauration", "commerce", "banque", "sante"}
     poi_blocks = []
     if lat and lon:
         try:
-            poi_blocks = _get_poi_blocks_osm(lat, lon, radius=500)
+            raw_blocks = _get_poi_blocks_osm(lat, lon, radius=500)
+            poi_blocks = [b for b in raw_blocks if b[0].lower() in POI_CATS_PRO]
         except Exception:
             pass
 
@@ -1633,7 +1575,7 @@ def _page3(c, d):
                     " liste les points d'interet REELS certains dans un rayon de 500m."
                     " Reponds UNIQUEMENT en JSON (sans backticks ni markdown) :"
                     ' [{"categorie":"Parking","nom":"Nom exact ou description"}]'
-                    " Categories : Parking, Transport, Restauration, Commerce, Formation, Banque, Sante, Dynamisme."
+                    " Categories : Parking, Transport, Restauration, Commerce, Banque, Sante."
                     " N'inclus QUE ce dont tu es certain. Si incertain = ne pas inclure."
                     " Maximum 6 elements."
                 )
@@ -1670,6 +1612,10 @@ def _page3(c, d):
             pass  # GPT indisponible ou JSON invalide : on garde ce qu'Overpass a trouvé
 
     # ── Zone 1 : POI quartier (Overpass — ce qui existe autour) ────────────
+    # Filtrer catégories non pertinentes pour l'immobilier pro
+    _CATS_PRO = {"parking", "transport", "restauration", "commerce", "banque", "sante", "santé"}
+    poi_blocks = [b for b in poi_blocks if b[0].lower() in _CATS_PRO]
+
     _sec(c, "Environnement du quartier", 14*_mm, my - 14*_mm)
     pt_y = my - 24*_mm
     ncols = 3; card_w = (_W-28*_mm - (ncols-1)*4*_mm)/ncols; card_h = 16*_mm
@@ -2144,65 +2090,63 @@ def dossier():
                 pass
 
         # ── WEB SEARCH : toujours pour location / fallback vente si DVF < 3 ──
-        _need_ws = _is_location_gen or (not _is_location_gen and len(comparables) < 3)
-        if _need_ws:
+        # ── LOCATION : lookup Airtable 02_Loyers_Marche (fiable, instantané) ──
+        if _is_location_gen:
             try:
-                import os as _os_ws, urllib.request as _ur_ws, json as _js_ws
-                api_key_ws = _os_ws.environ.get("OPENAI_API_KEY", "")
-                if api_key_ws:
-                    surface_ws = data.get("surface", "")
-                    type_ws    = data.get("type_bien", "local commercial")
-                    ville_ws   = data.get("ville", "Vannes")
-                    loyer_ws   = data.get("loyer_mensuel", 0)
-                    op_ws      = "en location" if _is_location_gen else "a la vente"
-                    unite_ws   = "loyer annuel HT/m2" if _is_location_gen else "prix de vente/m2"
-                    surf_min   = int(float(str(surface_ws) or 0) * 0.80)
-                    surf_max   = int(float(str(surface_ws) or 0) * 1.20)
-                    prompt_ws = (
-                        f"Recherche sur les portails immobiliers (SeLoger, BienIci, Logic-immo, PAP) "
-                        f"des annonces de {type_ws} {op_ws} a {ville_ws} (Morbihan, 56), "
-                        f"surface entre {surf_min} et {surf_max} m2. "
-                        f"Donne une fourchette realiste de {unite_ws} basee sur les annonces actuelles. "
-                        f"Reponds UNIQUEMENT en JSON sans backticks ni markdown : "
-                        f'{{ "pm2_min": <int>, "pm2_max": <int>, "pm2_retenu": <int>, "nb_annonces": <int> }}'
+                import urllib.request as _ur_at2, json as _js_at2, os as _os_at2
+                _at_pat   = _os_at2.environ.get("AIRTABLE_PAT", "")
+                _at_base  = "appscgBdxTzSPtOaZ"
+                _at_table = "tblYEfE6WhP6mnlAf"
+                _ville_at = str(data.get("ville") or "Vannes")
+                _type_at  = str(data.get("type_bien") or "Local commercial")
+                # Chercher correspondance exacte type+ville, puis fallback type seul
+                _at_url = (
+                    f"https://api.airtable.com/v0/{_at_base}/{_at_table}"
+                    f"?filterByFormula=AND({{Type de bien}}='{_type_at}',{{Ville}}='{_ville_at}')"
+                    f"&maxRecords=1"
+                )
+                _at_req = _ur_at2.Request(
+                    _at_url,
+                    headers={"Authorization": f"Bearer {_at_pat}"}
+                )
+                with _ur_at2.urlopen(_at_req, timeout=8) as _at_res:
+                    _at_data = _js_at2.load(_at_res)
+                _at_records = _at_data.get("records", [])
+                # Fallback : chercher uniquement par type si pas de correspondance ville
+                if not _at_records:
+                    _at_url2 = (
+                        f"https://api.airtable.com/v0/{_at_base}/{_at_table}"
+                        f"?filterByFormula={{Type de bien}}='{_type_at}'"
+                        f"&maxRecords=1"
                     )
-                    ws_payload = _js_ws.dumps({
-                        "model": "gpt-4o-search-preview",
-                        "messages": [{"role": "user", "content": prompt_ws}],
-                        "max_tokens": 300
-                    }).encode()
-                    ws_req = _ur_ws.Request(
-                        "https://api.openai.com/v1/chat/completions",
-                        data=ws_payload, method="POST",
-                        headers={"Authorization": f"Bearer {api_key_ws}", "Content-Type": "application/json"}
+                    _at_req2 = _ur_at2.Request(
+                        _at_url2,
+                        headers={"Authorization": f"Bearer {_at_pat}"}
                     )
-                    with _ur_ws.urlopen(ws_req, timeout=45) as ws_res:
-                        ws_resp = _js_ws.load(ws_res)
-                    ws_txt = ws_resp["choices"][0]["message"]["content"].strip().strip("`").strip()
-                    if ws_txt.startswith("json"): ws_txt = ws_txt[4:].strip()
-                    ws_data = _js_ws.loads(ws_txt)
-                    pm2_ws      = int(ws_data.get("pm2_retenu", 0))
-                    pm2_ws_min  = int(ws_data.get("pm2_min", 0))
-                    pm2_ws_max  = int(ws_data.get("pm2_max", 0))
-                    nb_ws       = int(ws_data.get("nb_annonces", 0))
-                    if pm2_ws > 0:
-                        surf_f = float(str(surface_ws) or 0)
-                        if _is_location_gen:
-                            # pm2_ws = loyer annuel HT/m2 → convertir en mensuel
-                            d["prix_estime_min"] = int(pm2_ws_min * surf_f / 12) if pm2_ws_min else int(pm2_ws * 0.88 * surf_f / 12)
-                            d["prix_estime_max"] = int(pm2_ws_max * surf_f / 12) if pm2_ws_max else int(pm2_ws * 1.12 * surf_f / 12)
-                            d["prix_retenu"]     = int(pm2_ws * surf_f / 12)
-                            if not d.get("prix"): d["prix"] = d["prix_retenu"]
-                        else:
-                            d["prix_estime_min"] = int(pm2_ws_min * surf_f) if pm2_ws_min else int(pm2_ws * 0.90 * surf_f)
-                            d["prix_estime_max"] = int(pm2_ws_max * surf_f) if pm2_ws_max else int(pm2_ws * 1.10 * surf_f)
-                            d["prix_retenu"]     = int(pm2_ws * surf_f)
-                        d["dvf_source"] = f"Estimation marche — {nb_ws} annonces web" if nb_ws else "Estimation marche — sources web"
-                        dvf_pm2 = pm2_ws
+                    with _ur_at2.urlopen(_at_req2, timeout=8) as _at_res2:
+                        _at_data2 = _js_at2.load(_at_res2)
+                    _at_records = _at_data2.get("records", [])
+                if _at_records:
+                    _at_f     = _at_records[0].get("fields", {})
+                    _pm2_min  = int(_at_f.get("Loyer min HT m2 an") or 0)
+                    _pm2_max  = int(_at_f.get("Loyer max HT m2 an") or 0)
+                    _pm2_med  = int(_at_f.get("Loyer median HT m2 an") or 0)
+                    _nb_refs  = int(_at_f.get("Nb references") or 0)
+                    _maj      = _at_f.get("Date mise a jour", "")
+                    _surf_f   = float(str(data.get("surface") or 0))
+                    if _pm2_med > 0 and _surf_f > 0:
+                        # Fourchette mensuelle depuis loyer annuel HT/m2
+                        d["prix_estime_min"] = int(_pm2_min * _surf_f / 12)
+                        d["prix_estime_max"] = int(_pm2_max * _surf_f / 12)
+                        d["prix_retenu"]     = int(_pm2_med * _surf_f / 12)
+                        if not d.get("prix"): d["prix"] = d["prix_retenu"]
+                        d["dvf_source"]      = f"Referentiel Barbier — {_nb_refs} refs ({_maj})"
+                        d["loyer_marche_pm2_an"] = _pm2_med
+                        dvf_pm2 = _pm2_med
             except Exception:
-                pass
+                pass  # Airtable indisponible — on continue sans fourchette
 
-        # ── Fourchette depuis DVF vente si web search non déclenché ──────────
+        # ── VENTE : fourchette depuis DVF si suffisant ─────────────────────────
         if dvf_pm2 > 0 and not _is_location_gen and len(comparables) >= 3:
             try:
                 surface_val = float(data.get("surface") or 0)
