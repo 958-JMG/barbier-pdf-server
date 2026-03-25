@@ -1206,12 +1206,18 @@ def _page1(c, d):
     loyer_m  = d.get("loyer_mensuel") or 0
     loyer_a  = d.get("loyer_annuel") or 0
     surf     = d.get("surface")
-    # Location : loyer_mensuel présent (même si prix aussi renseigné)
-    is_location = bool(loyer_m)
+    # Location : loyer_mensuel présent OU statut_mandat = Location
+    statut_mandat = str(d.get("statut_mandat") or "").lower()
+    is_location = bool(loyer_m) or "location" in statut_mandat
+    if is_location and not loyer_m:
+        # Location sans loyer renseigné — afficher "— € HT/mois"
+        val_affiche_fallback = True
+    else:
+        val_affiche_fallback = False
     if is_location and not prix:
-        prix = 0  # on n'affiche pas le prix de vente sur une location
+        prix = 0
     if is_location:
-        val_affiche  = loyer_m
+        val_affiche  = loyer_m if loyer_m else None
         label_prix   = "LOYER MENSUEL HT"
         suffix_val   = " HT/mois"
         show_pm2     = False
@@ -1243,7 +1249,7 @@ def _page1(c, d):
             try:
                 loyer_an = float(str(val_affiche).replace(" ","")) * 12
                 pm2_an   = loyer_an / float(str(surf).replace(" ",""))
-                c.drawString(14*_mm, _H-98*_mm, f"soit {int(pm2_an):,} € HT/m²/an".replace(",", "\u202f"))
+                c.drawString(14*_mm, _H-98*_mm, f"soit {int(pm2_an):,} € HT/m²/an".replace(",", " "))
             except Exception:
                 c.drawString(14*_mm, _H-98*_mm, f"soit {_pm2(val_affiche, surf)}")
         else:
@@ -1299,8 +1305,12 @@ def _page1(c, d):
         c.drawCentredString(_W/2, py0+ph/2+3*_mm, "[ Photo principale du bien ]")
         c.setFont("Helvetica", 8); c.setFillColor(_colors.HexColor("#AAAAAA"))
         c.drawCentredString(_W/2, py0+ph/2-6*_mm, "Ajoutez une photo depuis le cockpit")
-    # Logo en overlay au-dessus de tout (bandeau bleu + photo)
-    _logo(c, _W-52*_mm, _H-18*_mm, w=34*_mm)
+    # Logo en overlay — fond blanc opaque pour garantir lisibilité
+    logo_x = _W-54*_mm; logo_y = _H-20*_mm; logo_w = 36*_mm; logo_h = 18*_mm
+    c.setFillColor(_colors.HexColor("#FFFFFF")); c.setStrokeColor(_colors.HexColor("#E0E0E0"))
+    c.setLineWidth(0.5)
+    c.roundRect(logo_x-2*_mm, logo_y-2*_mm, logo_w+4*_mm, logo_h+4*_mm, 3*_mm, fill=1, stroke=1)
+    _logo(c, logo_x, logo_y, w=logo_w)
     c.setFillColor(_GTEXTE); c.setFont("Helvetica", 7.5)
     c.drawString(14*_mm, 13*_mm, f"Dossier préparé par  {_safe(d.get('negociateur'),'Barbier Immobilier')}  ·  Réf. {_safe(d.get('reference'))}")
     _footer(c, 1)
@@ -1803,7 +1813,7 @@ def _page4(c, comparables, d):
     _sec(c,"Synthèse marché",14*_mm,sy+2*_mm)
     if comparables:
         try:
-            pl=[float(str(x.get("Prix",0)).replace(" ","").replace("\u202f","")) for x in comparables if x.get("Prix")]
+            pl=[float(str(x.get("Prix",0)).replace(" ","").replace(" ","")) for x in comparables if x.get("Prix")]
             sl=[float(str(x.get("Surface",0)).replace(" ","")) for x in comparables if x.get("Surface")]
             mp=int(sum(pl)/len(pl)) if pl else 0
             mm2v=int(sum(p/s for p,s in zip(pl,sl))/len(pl)) if (pl and sl) else 0
@@ -1826,7 +1836,8 @@ def _page4(c, comparables, d):
     _footer(c,4)
 
 def _page5(c, d):
-    is_loc = bool(d.get("loyer_mensuel"))
+    statut_m = str(d.get("statut_mandat") or "").lower()
+    is_loc = bool(d.get("loyer_mensuel")) or "location" in statut_m
     loyer_m = float(str(d.get("loyer_mensuel") or 0).replace(" ",""))
     surf = d.get("surface")
 
@@ -1914,25 +1925,22 @@ def _page5(c, d):
         c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5); c.drawString(18*_mm,ay-16*_mm-i*10*_mm,f"·  {a}")
     # Bloc explication DVF vs estimation
     c.setFillColor(_colors.HexColor("#E8F0F8")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
-    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"▸ POURQUOI CET ÉCART AVEC LES DVF ?")
-    expl = [
-        "Les DVF (données officielles) recensent",
-        "toutes les ventes de locaux commerciaux",
-        "dans la commune, quelle que soit leur",
-        "localisation ou configuration.",
-        "",
-        "Notre estimation integre les specificites",
-        "de ce bien : visibilite, etat, emplacement",
-        "precis et potentiel locatif reel.",
-    ]
-    for i,line in enumerate(expl):
-        c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
-        c.drawString(18*_mm+cw2+6*_mm, ay-16*_mm-i*7*_mm, line)
+    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"POURQUOI CET ECART AVEC LES DVF ?")
+    dvf_txt = (
+        "Les DVF (donnees officielles) recensent toutes les ventes de locaux "
+        "commerciaux dans la commune, quelle que soit leur localisation ou configuration. "
+        "Notre estimation integre les specificites de ce bien : visibilite, etat, "
+        "emplacement precis et potentiel locatif reel."
+    )
+    dvf_para = _Para(dvf_txt, _PS("dvf", fontName="Helvetica", fontSize=8,
+                     textColor=_GTEXTE, leading=12))
+    _, dvf_h = dvf_para.wrap(cw2 - 10*_mm, 9999)
+    dvf_para.drawOn(c, 18*_mm+cw2+6*_mm, ay - 14*_mm - dvf_h)
     # Taxe foncière si disponible
     taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
     if taxe:
         try:
-            taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(",","\u202f") + " €/an"
+            taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(","," ") + " €/an"
         except Exception:
             taxe_fmt = str(taxe)
         c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#D1D8E8")); c.setLineWidth(0.5)
@@ -2435,7 +2443,7 @@ def generer_avis():
 
         is_loc = bool(loyer)
         def fmt(v):
-            try: return f"{int(float(str(v).replace(' ',''))) :,}".replace(",", "\u202f") + " €"
+            try: return f"{int(float(str(v).replace(' ',''))) :,}".replace(",", " ") + " €"
             except: return str(v)
 
         valeur_bien = f"Loyer : {fmt(loyer)}/mois" if is_loc else f"Prix de vente : {fmt(prix)}"
@@ -2544,8 +2552,8 @@ def annonce():
         mandat  = data.get("statut_mandat", "")
         nego    = data.get("negociateur", "Barbier Immobilier")
 
-        prix_str = f"{int(float(str(prix).replace(' ',''))):,} €".replace(",","\u202f") if prix else ""
-        loyer_str = f"{int(float(str(loyer).replace(' ',''))):,} € HT/mois".replace(",","\u202f") if loyer else ""
+        prix_str = f"{int(float(str(prix).replace(' ',''))):,} €".replace(","," ") if prix else ""
+        loyer_str = f"{int(float(str(loyer).replace(' ',''))):,} € HT/mois".replace(","," ") if loyer else ""
         val_str = prix_str or loyer_str
 
         is_location = bool(loyer)
@@ -2924,7 +2932,7 @@ def _safe_str(v):
     """Nettoie les caractères problématiques sans perdre les accents."""
     if v is None: return ""
     s = str(v)
-    s = s.replace("\u202f", " ").replace("\u00a0", " ")
+    s = s.replace(" ", " ").replace("\u00a0", " ")
     s = s.replace("\u00b2", "2").replace("\u00b3", "3")
     # Remplacer les guillemets typographiques par des guillemets droits
     s = s.replace("\u2018", "'").replace("\u2019", "'")
