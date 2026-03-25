@@ -1056,50 +1056,67 @@ def _fetch_cadastre_image(ref_cadastrale, adresse="", ville=""):
             c = features_geo[0]["geometry"]["coordinates"]
             lon, lat = c[0], c[1]
 
-        # 2. Récupérer les tiles IGN plan cadastral (WMTS PM)
+        # 2. Tiles cadastraux : fond Plan IGN + parcelles en superposition
         zoom = 19
         n = 2**zoom
         cx = int((lon+180)/360*n)
         cy = int((1 - _m2.log(_m2.tan(_m2.radians(lat))+1/_m2.cos(_m2.radians(lat)))/_m2.pi)/2*n)
+        tiles_grid = 3; tw, th = 256, 256
 
-        tiles_grid = 3
-        rows = []
-        for row in range(tiles_grid):
-            ri = []
-            for col in range(tiles_grid):
-                tx = cx - tiles_grid//2 + col
-                ty = cy - tiles_grid//2 + row
-                tile_url = (
-                    f"https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile"
-                    f"&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal"
-                    f"&FORMAT=image/png&TILEMATRIXSET=PM"
-                    f"&TILEMATRIX={zoom}&TILEROW={ty}&TILECOL={tx}"
-                )
-                req2 = _ur.Request(tile_url, headers={"User-Agent": "BarbierImmo/1.0"})
-                with _ur.urlopen(req2, timeout=10) as r2:
-                    tile = _PILImage.open(_BytesIO(r2.read())).convert("RGB")
-                ri.append(tile)
-            rows.append(ri)
+        def _fetch_tiles(layer, fmt="image/png", convert="RGBA"):
+            rows_t = []
+            for row in range(tiles_grid):
+                ri = []
+                for col in range(tiles_grid):
+                    tx = cx - tiles_grid//2 + col
+                    ty = cy - tiles_grid//2 + row
+                    url_t = (
+                        f"https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile"
+                        f"&LAYER={layer}&STYLE=normal"
+                        f"&FORMAT={fmt}&TILEMATRIXSET=PM"
+                        f"&TILEMATRIX={zoom}&TILEROW={ty}&TILECOL={tx}"
+                    )
+                    req_t = _ur.Request(url_t, headers={"User-Agent": "BarbierImmo/1.0"})
+                    with _ur.urlopen(req_t, timeout=10) as rt:
+                        tile = _PILImage.open(_BytesIO(rt.read())).convert(convert)
+                    ri.append(tile)
+                rows_t.append(ri)
+            canvas_t = _PILImage.new(convert, (tw*tiles_grid, th*tiles_grid),
+                                     (255,255,255,255) if convert=="RGBA" else (255,255,255))
+            for r2 in range(tiles_grid):
+                for c2 in range(tiles_grid):
+                    canvas_t.paste(rows_t[r2][c2], (c2*tw, r2*th))
+            return canvas_t
 
-        tw, th = 256, 256
-        result = _PILImage.new("RGB", (tw*tiles_grid, th*tiles_grid), (255,255,255))
-        for row in range(tiles_grid):
-            for col in range(tiles_grid):
-                result.paste(rows[row][col], (col*tw, row*th))
+        # Fond : Plan IGN (fond propre blanc/gris, rues, bâtiments)
+        try:
+            base_img = _fetch_tiles("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", convert="RGB")
+        except Exception:
+            base_img = _PILImage.new("RGB", (tw*tiles_grid, th*tiles_grid), (245,245,242))
 
-        # Ajouter marqueur orange au centre
+        # Superposition : parcelles cadastrales en transparent
+        try:
+            cad_overlay = _fetch_tiles("CADASTRALPARCELS.PARCELLAIRE_EXPRESS", convert="RGBA")
+            # Les parcelles IGN RGBA ont fond transparent et contours colorés
+            # On convertit en fond blanc pour coller proprement
+            result = base_img.copy().convert("RGBA")
+            result.paste(cad_overlay, mask=cad_overlay.split()[3])
+            result = result.convert("RGB")
+        except Exception:
+            result = base_img
+
+        # Marqueur orange au centre (position de la parcelle)
         from PIL import ImageDraw as _ID
         draw = _ID.Draw(result)
         cx_img = tw*tiles_grid//2; cy_img = th*tiles_grid//2
-        r_marker = 10
-        draw.ellipse([cx_img-r_marker, cy_img-r_marker, cx_img+r_marker, cy_img+r_marker],
-                     fill=(240,121,91), outline=(255,255,255), width=3)
+        r_m = 8
+        draw.ellipse([cx_img-r_m, cy_img-r_m, cx_img+r_m, cy_img+r_m],
+                     fill=(232,71,42), outline=(255,255,255), width=2)
 
-        # Recadrer sur la zone utile (crop central 70%)
+        # Crop central 70%
         w, h = result.size
-        margin_x = int(w * 0.15); margin_y = int(h * 0.15)
-        result = result.crop((margin_x, margin_y, w-margin_x, h-margin_y))
-
+        mx = int(w*0.15); my = int(h*0.15)
+        result = result.crop((mx, my, w-mx, h-my))
         return result
 
     except Exception:
@@ -1852,20 +1869,18 @@ def _page5(c, d):
         for i,a in enumerate(["Emplacement commercial stratégique",f"Surface : {_safe(surf)} m²","Visibilité et accessibilité","Secteur à forte demande locative"]):
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5); c.drawString(18*_mm,ay-16*_mm-i*10*_mm,f"·  {a}")
         c.setFillColor(_colors.HexColor("#E8F0F8")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
-        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"▸ POSITIONNEMENT LOYER")
-        loyer_expl = [
-            "Le loyer affiché est positionné",
-            f"a {int(loyer_m2_actuel):.0f} EUR/m2/an, cohérent" if loyer_m2_actuel else "en cohérence avec le marché",
-            "avec le marché local des locaux",
-            "commerciaux du secteur.",
-            "",
-            "Les DVF renseignent les ventes,",
-            "pas les loyers. Notre estimation",
-            "s'appuie sur les baux en cours.",
-        ]
-        for i,line in enumerate(loyer_expl):
-            c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
-            c.drawString(18*_mm+cw2+6*_mm, ay-16*_mm-i*7*_mm, line)
+        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"POSITIONNEMENT LOYER")
+        lm2_str = f"{int(loyer_m2_actuel)} EUR/m2/an" if loyer_m2_actuel else "en coherence avec le marche"
+        loyer_txt = (
+            f"Le loyer affiche est positionne a {lm2_str}, coherent avec le marche "
+            "local des locaux commerciaux de ce secteur. "
+            "Les DVF recensent uniquement les ventes ; notre positionnement "
+            "s appuie sur les baux commerciaux en cours et la demande locative locale."
+        )
+        loyer_para = _Para(loyer_txt, _PS("lp", fontName="Helvetica", fontSize=8,
+                           textColor=_GTEXTE, leading=12))
+        _, lph = loyer_para.wrap(cw2 - 10*_mm, 9999)
+        loyer_para.drawOn(c, 18*_mm+cw2+6*_mm, ay - 14*_mm - lph)
         _footer(c,5)
         return  # Fin branche location — ne pas exécuter la suite (vente)
 
@@ -2220,7 +2235,7 @@ def urbanisme():
                 "https://data.geopf.fr/wms-r/wms?"
                 "SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap"
                 "&LAYERS=CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
-                "&FORMAT=image/png&TRANSPARENT=false"
+                "&FORMAT=image/png&TRANSPARENT=true"
                 "&CRS=CRS:84&STYLES="
                 f"&WIDTH=500&HEIGHT=400&BBOX={bbox}"
             )
