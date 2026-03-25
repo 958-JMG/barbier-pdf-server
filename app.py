@@ -1192,7 +1192,7 @@ def _gpt_quartier(adresse, ville, type_bien, surface):
 # PAGES
 # ══════════════════════════════════════════════════════════════
 def _page1(c, d):
-    c.setFillColor(_BLEU); c.rect(0, _H*0.48, _W, _H*0.52, fill=1, stroke=0)
+    c.setFillColor(_BLEU); c.rect(0, _H*0.50, _W, _H*0.50, fill=1, stroke=0)
     # Logo dessiné en overlay APRÈS la photo (voir fin de fonction)
     # Titre
     c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 30)
@@ -1274,8 +1274,8 @@ def _page1(c, d):
             if c.stringWidth(val, "Helvetica-Bold", fsz) < bw-4*_mm: break
         c.drawCentredString(bx+bw/2, by+5*_mm, val)
     # Zone blanche + photo principale
-    c.setFillColor(_BLANC); c.rect(0, 0, _W, _H*0.48, fill=1, stroke=0)
-    ph = _H*0.48-22*_mm
+    c.setFillColor(_BLANC); c.rect(0, 0, _W, _H*0.50, fill=1, stroke=0)
+    ph = _H*0.50-22*_mm
     px0, py0, pw0 = 14*_mm, 20*_mm, _W-28*_mm
     photos = d.get("photos") or []
     img0 = _fetch_photo_image(photos[0]) if photos else None
@@ -1308,7 +1308,7 @@ def _page1(c, d):
     # Logo dans le bandeau bleu — fond blanc arrondi, coin supérieur droit
     logo_w = 36*_mm; logo_h = 18*_mm
     logo_x = _W - logo_w - 10*_mm
-    logo_y = _H - logo_h - 8*_mm   # 8mm du haut, reste dans le bandeau bleu
+    logo_y = _H - logo_h - 6*_mm   # 6mm du haut, dans le bandeau bleu (50%)
     # Fond blanc arrondi derrière le logo
     pad = 3*_mm
     c.setFillColor(_BLANC); c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0)
@@ -1415,19 +1415,7 @@ def _get_poi_blocks_osm(lat_c, lon_c, radius=500):
                 break
     except Exception:
         pass
-    # Compléter avec valeurs par défaut si API indisponible
-    defaults = [
-        ("Parking",      "Stationnement disponible", "#1B3A5C"),
-        ("Transport",    "Gare SNCF / Bus",          "#0D5570"),
-        ("Restauration", "Cafés & restaurants",      "#E8472A"),
-        ("Commerce",     "Services de proximite",    "#3A1B5C"),
-        ("Formation",    "Etablissements proches",   "#5C3A1B"),
-        ("Dynamisme",    "Zone active",              "#1B5C3A"),
-    ]
-    for d_lbl, d_val, d_col in defaults:
-        if len(results) >= 6: break
-        if not any(r[0] == d_lbl for r in results):
-            results.append((d_lbl, d_val, d_col))
+    # Ne retourner QUE ce qui est réellement trouvé par Overpass — pas d'invention
     return results[:6]
 
 
@@ -1618,15 +1606,7 @@ def _page3(c, d):
         except Exception:
             pass
 
-    if not poi_blocks:
-        poi_blocks = [
-            ("Parking",      "Stationnement disponible", "#1B3A5C"),
-            ("Transport",    "Gare SNCF / Bus",          "#0D5570"),
-            ("Restauration", "Cafes & restaurants",      "#E8472A"),
-            ("Commerce",     "Services de proximite",    "#3A1B5C"),
-            ("Formation",    "Etablissements proches",   "#5C3A1B"),
-            ("Dynamisme",    "Zone active",              "#1B5C3A"),
-        ]
+    # Pas de fallback : si aucun POI trouvé, ne rien afficher
 
     # ── Zone 1 : POI quartier (Overpass — ce qui existe autour) ────────────
     _sec(c, "Environnement du quartier", 14*_mm, my - 4*_mm)
@@ -2649,6 +2629,20 @@ def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6)
     dept = code_commune[:2]
 
     # 2. DVF CSV années 2024 → 2022
+    # Mapper le type de bien vers les types DVF correspondants
+    type_bien_lower = (type_bien or "").lower()
+    if "bureau" in type_bien_lower:
+        dvf_types_ok = ["bureau"]
+    elif "fonds" in type_bien_lower or "commerce" in type_bien_lower:
+        dvf_types_ok = ["local industriel. commercial ou assimilé", "local commercial"]
+    elif "entrepôt" in type_bien_lower or "entrepot" in type_bien_lower or "industriel" in type_bien_lower:
+        dvf_types_ok = ["local industriel. commercial ou assimilé"]
+    elif "terrain" in type_bien_lower:
+        dvf_types_ok = []  # DVF terrain = pas de bati
+    else:
+        # Local commercial, restaurant, hôtel, etc.
+        dvf_types_ok = ["local industriel. commercial ou assimilé", "local commercial", "bureau"]
+
     results = []
     for annee in ["2024", "2023", "2022"]:
         if len(results) >= limit * 2:
@@ -2658,7 +2652,6 @@ def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6)
             with _ur.urlopen(_ur.Request(csv_url, headers={"User-Agent": "Barbier-Immobilier/1.0"}), timeout=15) as r:
                 raw = r.read().decode("utf-8", errors="ignore")
             reader = _csv2.DictReader(_io2.StringIO(raw))
-            commercial_kw = ["commercial", "industriel", "bureau", "activité"]
             for row in reader:
                 nature = (row.get("nature_mutation") or "").lower()
                 type_l = (row.get("type_local") or "").lower()
@@ -2675,12 +2668,17 @@ def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6)
                     continue
                 if "vente" not in nature:
                     continue
-                if not any(kw in type_l for kw in commercial_kw):
+                # Filtrage strict par type de bien DVF
+                if dvf_types_ok and not any(kw in type_l for kw in dvf_types_ok):
                     continue
-                # Filtrer par surface similaire (±70%)
+                # Surface similaire : ±60% (plus strict qu'avant)
                 if surface and surface > 0:
-                    if abs(s - surface) / max(surface, 1) > 0.70:
+                    if abs(s - surface) / max(surface, 1) > 0.60:
                         continue
+                # Filtre anti-aberration : prix/m² entre 200 et 30000 €/m²
+                pm2 = p / s if s > 0 else 0
+                if pm2 < 200 or pm2 > 30000:
+                    continue
                 adresse_row = " ".join(filter(None, [
                     row.get("numero_voie",""), row.get("type_voie",""), row.get("nom_voie","")
                 ])).strip().upper()
