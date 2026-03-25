@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.18"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.19"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1555,13 +1555,13 @@ def _page3(c, d):
         "services et equipements a proximite immediate, offrant un environnement favorable a "
         "l'exploitation d'une activite commerciale ou professionnelle."
     )
-    p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=10, textColor=_GTEXTE, leading=16))
-    # Limiter la hauteur max du texte : 45mm max pour laisser de la place à la carte
-    max_text_h = 45*_mm
-    _, ph = p.wrap(_W-28*_mm, max_text_h)
-    ph = min(ph, max_text_h)
+    # Tronquer le texte à 600 caractères max pour tenir sur la page
+    if len(texte) > 600:
+        texte = texte[:597] + "..."
+    p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15))
+    _, ph = p.wrap(_W-28*_mm, 9999)
     p.drawOn(c, 14*_mm, _H-38*_mm-ph)
-    qbot = _H-38*_mm-ph-12*_mm
+    qbot = _H-38*_mm-ph-10*_mm
 
     _sec(c, "Localisation", 14*_mm, qbot-2*_mm)
     mh = 72*_mm; mx = 14*_mm; mw = _W-28*_mm; my = qbot-14*_mm-mh
@@ -2749,7 +2749,46 @@ def _run_dvf(ville, code_postal, surface, type_bien="Local commercial", limit=6)
         except Exception:
             continue
 
-    # 3. Si aucun résultat avec filtre strict → relancer sans filtre surface
+    # 3. Si aucun résultat → relancer sans filtre surface, puis commune voisine
+    if not results:
+        # 3a. Relancer sur même commune sans filtre surface
+        pass  # déjà fait dans la boucle ci-dessous
+
+    if not results:
+        # 3b. Chercher dans la commune voisine (Vannes = 56260)
+        try:
+            geo_url2 = f"https://geo.api.gouv.fr/communes?nom=Vannes&fields=code,nom,codesPostaux&boost=population&limit=1"
+            with _ur.urlopen(_ur.Request(geo_url2, headers={"User-Agent": "Barbier-Immobilier/1.0"}), timeout=8) as r_v:
+                geo_v = _json.load(r_v)
+            if geo_v:
+                code_vannes = geo_v[0]["code"]
+                dept_v = code_vannes[:2]
+                for annee in ["2024", "2023", "2022"]:
+                    if len(results) >= limit: break
+                    try:
+                        csv_v = f"https://files.data.gouv.fr/geo-dvf/latest/csv/{annee}/communes/{dept_v}/{code_vannes}.csv"
+                        with _ur.urlopen(_ur.Request(csv_v, headers={"User-Agent": "Barbier-Immobilier/1.0"}), timeout=15) as rv:
+                            raw_v = rv.read().decode("utf-8", errors="ignore")
+                        reader_v = _csv2.DictReader(_io2.StringIO(raw_v))
+                        for row_v in reader_v:
+                            nature_v = (row_v.get("nature_mutation") or "").lower()
+                            type_v = (row_v.get("type_local") or "").lower()
+                            if "vente" not in nature_v: continue
+                            if dvf_types_ok and not any(kw in type_v for kw in dvf_types_ok): continue
+                            try:
+                                sv = float((row_v.get("surface_reelle_bati") or "0").replace(",","."))
+                                pv2 = float((row_v.get("valeur_fonciere") or "0").replace(",",".").replace(" ",""))
+                            except: continue
+                            if sv <= 0 or pv2 < 5000: continue
+                            if surface and surface > 0 and abs(sv-surface)/max(surface,1) > 0.60: continue
+                            pm2_v = pv2/sv if sv > 0 else 0
+                            if pm2_v < 200 or pm2_v > 30000: continue
+                            adr_v = " ".join(filter(None,[row_v.get("numero_voie",""),row_v.get("type_voie",""),row_v.get("nom_voie","")])).strip().upper()
+                            results.append({"Adresse": adr_v or "—","Ville": "Vannes","Prix": int(pv2),"Surface": int(sv),"Statut": "Vendu","Source": f"DVF {annee} Vannes","Date": row_v.get("date_mutation","")[:7] or annee})
+                            if len(results) >= limit: break
+                    except: continue
+        except: pass
+
     if not results:
         for annee in ["2024", "2023", "2022"]:
             if len(results) >= limit:
