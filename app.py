@@ -1494,12 +1494,31 @@ def _page3(c, d):
     max_text_h = _H - 38*_mm - 80*_mm
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite
-        for fsz in [9, 8, 7.5]:
+        for fsz in [9, 8, 7.5, 7]:
             p2 = _Para(texte, _PS("b2", fontName="Helvetica", fontSize=fsz, textColor=_GTEXTE, leading=fsz*1.5))
-            _, ph = p2.wrap(_W-28*_mm, 9999)
-            if ph <= max_text_h:
-                p = p2
+            _, ph2 = p2.wrap(_W-28*_mm, 9999)
+            if ph2 <= max_text_h:
+                p = p2; ph = ph2
                 break
+        else:
+            # Même à 7pt ça déborde : tronquer le texte par les phrases
+            _sentences = texte.replace(". ", ".|").split("|")
+            _kept = []
+            for _fsz_final in [7.5, 7]:
+                _kept = []
+                for _s in _sentences:
+                    _candidate = " ".join(_kept + [_s])
+                    _pt = _Para(_candidate, _PS("bt", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5))
+                    _, _ph = _pt.wrap(_W-28*_mm, 9999)
+                    if _ph <= max_text_h:
+                        _kept.append(_s)
+                    else:
+                        break
+                if _kept:
+                    _texte_final = " ".join(_kept)
+                    p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5))
+                    _, ph = p.wrap(_W-28*_mm, 9999)
+                    break
     p.drawOn(c, 14*_mm, _H-38*_mm-ph)
     qbot = _H-38*_mm-ph-10*_mm
 
@@ -1910,11 +1929,18 @@ def _page5(c, d):
         # ── LOCATION : afficher fourchette loyer annuel au m² ──────────────
         _header(c,"Notre positionnement locatif"); _sec(c,"Loyer de marché",14*_mm,_H-32*_mm)
         surf_f = float(str(surf or 0).replace(" ","")) if surf else 0
-        loyer_an_actuel = loyer_m * 12
+
+        # Priorité : loyer_mensuel saisi → sinon loyer_estime_median (calculé depuis web search / référentiel)
+        loyer_m_use = loyer_m if loyer_m else float(str(d.get("loyer_estime_median") or 0))
+        loyer_an_actuel = loyer_m_use * 12
         loyer_m2_actuel = loyer_an_actuel / surf_f if surf_f else 0
-        pm = int(loyer_an_actuel * 0.90) if loyer_an_actuel else 0
+
+        # Fourchette : depuis loyer_estime_min/max si disponible, sinon ±10 %
+        _est_min = float(str(d.get("loyer_estime_min") or 0))
+        _est_max = float(str(d.get("loyer_estime_max") or 0))
+        pm = int(_est_min * 12) if _est_min else int(loyer_an_actuel * 0.90)
         pv = int(loyer_an_actuel)
-        px = int(loyer_an_actuel * 1.10)
+        px = int(_est_max * 12) if _est_max else int(loyer_an_actuel * 1.10)
 
         def _pfmt_loyer(v):
             if not v: return "—"
@@ -2162,61 +2188,101 @@ def dossier():
                 pass
 
         # ── WEB SEARCH : toujours pour location / fallback vente si DVF < 3 ──
-        # ── LOCATION : web search gpt-4o-search-preview (fonctionne depuis Railway) ──
+        # ── LOCATION : web search JSON strict + fallback 02_Loyers_Marche ──
         if _is_location_gen:
-            try:
-                import os as _os_ws2, urllib.request as _ur_ws2, json as _js_ws2
-                _api2    = _os_ws2.environ.get("OPENAI_API_KEY", "")
-                _surf2   = float(str(data.get("surface") or 0))
-                _type2   = str(data.get("type_bien") or "bureau")
-                _ville2  = str(data.get("ville") or "Vannes")
-                _smin2   = int(_surf2 * 0.75)
-                _smax2   = int(_surf2 * 1.25)
-                if _api2 and _surf2 > 0:
+            import os as _os_ws2, urllib.request as _ur_ws2, json as _js_ws2, re as _re_ws2
+            _api2   = _os_ws2.environ.get("OPENAI_API_KEY", "")
+            _at_pat = _os_ws2.environ.get("AIRTABLE_PAT", "")
+            _surf2  = float(str(data.get("surface") or 0))
+            _type2  = str(data.get("type_bien") or "Bureau")
+            _ville2 = str(data.get("ville") or "Vannes")
+            _smin2  = int(_surf2 * 0.75)
+            _smax2  = int(_surf2 * 1.25)
+            _pm2_min2 = _pm2_max2 = _pm2_ret2 = _nb2 = 0
+            _ws_source = ""
+
+            # ── Étape 1 : Web search avec prompt JSON strict ──────────────────
+            if _api2 and _surf2 > 0:
+                try:
                     _prompt2 = (
-                        f"Recherche sur SeLoger, BienIci, Logic-immo des annonces actuelles de {_type2} "
-                        f"en location a {_ville2} (Morbihan, 56), surface entre {_smin2} et {_smax2} m2. "
-                        f"Donne le loyer annuel HT au m2 constate. "
-                        f"Reponds UNIQUEMENT en JSON valide sans backticks ni markdown : "
-                        "Format attendu: {pm2_min: X, pm2_max: X, pm2_retenu: X, nb_annonces: X}"
+                        f"Tu es expert en immobilier commercial. Recherche sur SeLoger, BienIci et Logic-immo "
+                        f"les annonces actuelles de {_type2} en location à {_ville2} (Morbihan, 56), "
+                        f"surface entre {_smin2} et {_smax2} m². "
+                        f"Si pas de résultats pour {_ville2}, utilise les données de Vannes ou du secteur proche. "
+                        f"Retourne UNIQUEMENT ce JSON, sans texte avant ni après, sans backticks : "
+                        f'{{\"pm2_min\": X, \"pm2_max\": X, \"pm2_retenu\": X, \"nb_annonces\": X}} '
+                        f"où X est le loyer annuel HT en euros/m²."
                     )
                     _pl2 = _js_ws2.dumps({
                         "model": "gpt-4o-search-preview",
                         "messages": [{"role": "user", "content": _prompt2}],
-                        "max_tokens": 200
+                        "max_tokens": 100
                     }).encode()
                     _req2 = _ur_ws2.Request(
                         "https://api.openai.com/v1/chat/completions",
                         data=_pl2, method="POST",
                         headers={"Authorization": f"Bearer {_api2}", "Content-Type": "application/json"}
                     )
-                    with _ur_ws2.urlopen(_req2, timeout=30) as _res2:
+                    with _ur_ws2.urlopen(_req2, timeout=35) as _res2:
                         _resp2 = _js_ws2.load(_res2)
                     _txt2 = _resp2["choices"][0]["message"]["content"].strip()
-                    # Extraire le JSON même s il est dans des backticks
-                    import re as _re2
-                    _m2 = _re2.search(r"\{[^}]+\}", _txt2)
+                    # Extraire le JSON même si GPT ajoute du texte malgré l'instruction
+                    _m2 = _re_ws2.search(r"\{[^{}]+\}", _txt2)
                     if _m2:
                         _d2 = _js_ws2.loads(_m2.group())
-                        _pm2_min2   = int(float(_d2.get("pm2_min", 0)))
-                        _pm2_max2   = int(float(_d2.get("pm2_max", 0)))
-                        _pm2_ret2   = int(float(_d2.get("pm2_retenu", 0)))
-                        _nb2        = int(_d2.get("nb_annonces", 0))
+                        _pm2_min2 = int(float(_d2.get("pm2_min") or 0))
+                        _pm2_max2 = int(float(_d2.get("pm2_max") or 0))
+                        _pm2_ret2 = int(float(_d2.get("pm2_retenu") or 0))
+                        _nb2      = int(_d2.get("nb_annonces") or 0)
                         if _pm2_ret2 > 0:
-                            # pm2 = loyer annuel HT/m2 → mensuel total
-                            d["prix_estime_min"]     = int(_pm2_min2 * _surf2 / 12) if _pm2_min2 else int(_pm2_ret2 * 0.85 * _surf2 / 12)
-                            d["prix_estime_max"]     = int(_pm2_max2 * _surf2 / 12) if _pm2_max2 else int(_pm2_ret2 * 1.15 * _surf2 / 12)
-                            d["prix_retenu"]         = int(_pm2_ret2 * _surf2 / 12)
-                            d["loyer_marche_pm2_an"] = _pm2_ret2
-                            d["loyer_pm2_min"]        = _pm2_min2 if _pm2_min2 else int(_pm2_ret2 * 0.85)
-                            d["loyer_pm2_max"]        = _pm2_max2 if _pm2_max2 else int(_pm2_ret2 * 1.15)
-                            d["loyer_pm2_median"]     = _pm2_ret2
-                            d["loyer_ville_match"]    = _ville2
-                            d["dvf_source"]           = f"Sources web — {_nb2} annonces ({_ville2})" if _nb2 else f"Estimation marche {_ville2}"
-                            if not d.get("prix"): d["prix"] = d["prix_retenu"]
-                            dvf_pm2 = _pm2_ret2
-            except Exception:
-                pass  # Web search indisponible — on continue sans fourchette
+                            _ws_source = f"Sources web — {_nb2} annonces ({_ville2})" if _nb2 else f"Estimation marché {_ville2}"
+                except Exception:
+                    pass  # Web search indisponible — on passe au fallback
+
+            # ── Étape 2 : Fallback 02_Loyers_Marche si web search vide ────────
+            if _pm2_ret2 == 0 and _at_pat:
+                try:
+                    _at_base = "appscgBdxTzSPtOaZ"
+                    _at_tbl  = "tblYEfE6WhP6mnlAf"
+                    # Clé exacte : "Bureau|Saint-Avé" — essai ville exacte puis Vannes
+                    for _v_try in [_ville2, "Vannes"]:
+                        _cle = f"{_type2}|{_v_try}"
+                        _filter = _ur_ws2.quote(f"{{Clé}} = \"{_cle}\"")
+                        _at_url = f"https://api.airtable.com/v0/{_at_base}/{_at_tbl}?filterByFormula={_filter}&maxRecords=1"
+                        _at_req = _ur_ws2.Request(_at_url, headers={"Authorization": f"Bearer {_at_pat}"})
+                        with _ur_ws2.urlopen(_at_req, timeout=10) as _at_res:
+                            _at_data = _js_ws2.load(_at_res)
+                        _at_recs = _at_data.get("records", [])
+                        if _at_recs:
+                            _af = _at_recs[0].get("fields", {})
+                            _pm2_min2 = int(float(_af.get("Loyer min HT m2 an") or 0))
+                            _pm2_max2 = int(float(_af.get("Loyer max HT m2 an") or 0))
+                            _pm2_ret2 = int(float(_af.get("Loyer median HT m2 an") or 0))
+                            if _pm2_ret2 > 0:
+                                _ws_source = f"Référentiel Barbier Immobilier ({_v_try}, 2025-Q4)"
+                                break
+                except Exception:
+                    pass  # Fallback Airtable indisponible
+
+            # ── Injection dans d si on a un résultat ─────────────────────────
+            if _pm2_ret2 > 0 and _surf2 > 0:
+                _loc_min = _pm2_min2 if _pm2_min2 else int(_pm2_ret2 * 0.85)
+                _loc_max = _pm2_max2 if _pm2_max2 else int(_pm2_ret2 * 1.15)
+                d["loyer_pm2_min"]        = _loc_min
+                d["loyer_pm2_max"]        = _loc_max
+                d["loyer_pm2_median"]     = _pm2_ret2
+                d["loyer_marche_pm2_an"]  = _pm2_ret2
+                d["loyer_ville_match"]    = _ville2
+                d["dvf_source"]           = _ws_source
+                # Loyer mensuel estimé (pm2 annuel → mensuel × surface)
+                d["loyer_estime_min"]     = int(_loc_min * _surf2 / 12)
+                d["loyer_estime_max"]     = int(_loc_max * _surf2 / 12)
+                d["loyer_estime_median"]  = int(_pm2_ret2 * _surf2 / 12)
+                # Pour page 5 location : utiliser clés dédiées, ne pas écraser prix_estime vente
+                d["prix_retenu"]          = d["loyer_estime_median"]
+                if not d.get("prix"):
+                    d["prix"] = d["loyer_estime_median"]
+                dvf_pm2 = _pm2_ret2
 
         # ── VENTE : fourchette depuis DVF si suffisant ─────────────────────────
         if dvf_pm2 > 0 and not _is_location_gen and len(comparables) >= 3:
