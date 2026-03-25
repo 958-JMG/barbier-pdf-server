@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.28"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.29"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -3733,3 +3733,41 @@ def test_websearch():
     except Exception as e:
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+@app.route("/debug-location", methods=["POST"])
+def debug_location():
+    """Debug endpoint — teste le web search location et retourne les données brutes."""
+    import os, urllib.request, json, re
+    data = request.get_json(silent=True) or {}
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    surf = float(str(data.get("surface", 41)))
+    type_b = str(data.get("type_bien", "bureau"))
+    ville = str(data.get("ville", "Saint-Ave"))
+    smin = int(surf * 0.75)
+    smax = int(surf * 1.25)
+    prompt = (
+        f"Recherche sur SeLoger, BienIci, Logic-immo des annonces actuelles de {type_b} "
+        f"en location a {ville} (Morbihan, 56), surface entre {smin} et {smax} m2. "
+        f"Donne le loyer annuel HT au m2 constate. "
+        f"Format attendu: {{pm2_min: X, pm2_max: X, pm2_retenu: X, nb_annonces: X}}"
+    )
+    try:
+        pl = json.dumps({
+            "model": "gpt-4o-search-preview",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 300
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=pl, method="POST",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=40) as res:
+            resp = json.load(res)
+        raw = resp["choices"][0]["message"]["content"]
+        m = re.search(r'\{[^{}]*\}', raw, re.DOTALL)
+        parsed = json.loads(m.group()) if m else {}
+        return jsonify({"ok": True, "raw": raw[:500], "parsed": parsed})
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()[:800]})
