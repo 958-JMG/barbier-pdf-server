@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.24"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.25"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -3692,3 +3692,28 @@ def dossier_pptx():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
+@app.route("/test-websearch", methods=["GET"])
+def test_websearch():
+    """Debug endpoint — teste gpt-4o-search-preview."""
+    import os, urllib.request, json
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        return jsonify({"error": "OPENAI_API_KEY manquante"}), 500
+    try:
+        payload = json.dumps({
+            "model": "gpt-4o-search-preview",
+            "messages": [{"role": "user", "content": "Recherche des bureaux en location a Vannes (56) surface 40m2 sur SeLoger ou BienIci. Donne le loyer annuel HT/m2 moyen constate. Reponds uniquement en JSON: {\"pm2_min\": X, \"pm2_max\": X, \"pm2_retenu\": X, \"nb_annonces\": X}"}],
+            "max_tokens": 300
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=payload, method="POST",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=45) as res:
+            resp = json.load(res)
+        return jsonify({"ok": True, "response": resp})
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
