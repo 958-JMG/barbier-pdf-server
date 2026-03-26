@@ -1537,7 +1537,7 @@ def _page3(c, d):
     qbot = _H-38*_mm-ph-10*_mm
 
     _sec(c, "Localisation", 14*_mm, qbot-2*_mm)
-    mh = 72*_mm; mx = 14*_mm; mw = _W-28*_mm; my = qbot-14*_mm-mh
+    mh = 72*_mm; mx = 14*_mm; mw = _W-28*_mm; my = qbot-8*_mm-mh
 
     # ── Carte OSM ──────────────────────────────────────────────────────────
     lat = lon = None
@@ -2268,8 +2268,32 @@ def dossier():
             _pm2_min2 = _pm2_max2 = _pm2_ret2 = _nb2 = 0
             _ws_source = ""
 
-            # ── Étape 1 : Web search avec prompt JSON strict ──────────────────
-            if _api2 and _surf2 > 0:
+            # ── Étape 1 : Airtable 02_Loyers_Marche (source fiable et stable) ─
+            if _at_pat and _pm2_ret2 == 0:
+                try:
+                    _at_base = "appscgBdxTzSPtOaZ"
+                    _at_tbl  = "tblYEfE6WhP6mnlAf"
+                    for _v_try in [_ville2, "Vannes"]:
+                        _cle = f"{_type2}|{_v_try}"
+                        _filter = _ur_ws2.quote(f"{{Clé}} = \"{_cle}\"")
+                        _at_url = f"https://api.airtable.com/v0/{_at_base}/{_at_tbl}?filterByFormula={_filter}&maxRecords=1"
+                        _at_req = _ur_ws2.Request(_at_url, headers={"Authorization": f"Bearer {_at_pat}"})
+                        with _ur_ws2.urlopen(_at_req, timeout=10) as _at_res:
+                            _at_data = _js_ws2.load(_at_res)
+                        _at_recs = _at_data.get("records", [])
+                        if _at_recs:
+                            _af = _at_recs[0].get("fields", {})
+                            _pm2_min2 = int(float(_af.get("Loyer min HT m2 an") or 0))
+                            _pm2_max2 = int(float(_af.get("Loyer max HT m2 an") or 0))
+                            _pm2_ret2 = int(float(_af.get("Loyer median HT m2 an") or 0))
+                            if _pm2_ret2 > 0:
+                                _ws_source = f"Référentiel Barbier Immobilier ({_v_try}, 2025-Q4)"
+                                break
+                except Exception:
+                    pass  # Airtable indisponible
+
+            # ── Étape 2 : Web search si Airtable vide ────────────────────────────
+            if _api2 and _surf2 > 0 and _pm2_ret2 == 0:
                 try:
                     _prompt2 = (
                         f"Tu es expert en immobilier commercial. Recherche sur SeLoger, BienIci et Logic-immo "
@@ -2293,7 +2317,6 @@ def dossier():
                     with _ur_ws2.urlopen(_req2, timeout=35) as _res2:
                         _resp2 = _js_ws2.load(_res2)
                     _txt2 = _resp2["choices"][0]["message"]["content"].strip()
-                    # Extraire le JSON même si GPT ajoute du texte malgré l'instruction
                     _m2 = _re_ws2.search(r"\{[^{}]+\}", _txt2)
                     if _m2:
                         _d2 = _js_ws2.loads(_m2.group())
@@ -2304,32 +2327,7 @@ def dossier():
                         if _pm2_ret2 > 0:
                             _ws_source = f"Sources web — {_nb2} annonces ({_ville2})" if _nb2 else f"Estimation marché {_ville2}"
                 except Exception:
-                    pass  # Web search indisponible — on passe au fallback
-
-            # ── Étape 2 : Fallback 02_Loyers_Marche si web search vide ────────
-            if _pm2_ret2 == 0 and _at_pat:
-                try:
-                    _at_base = "appscgBdxTzSPtOaZ"
-                    _at_tbl  = "tblYEfE6WhP6mnlAf"
-                    # Clé exacte : "Bureau|Saint-Avé" — essai ville exacte puis Vannes
-                    for _v_try in [_ville2, "Vannes"]:
-                        _cle = f"{_type2}|{_v_try}"
-                        _filter = _ur_ws2.quote(f"{{Clé}} = \"{_cle}\"")
-                        _at_url = f"https://api.airtable.com/v0/{_at_base}/{_at_tbl}?filterByFormula={_filter}&maxRecords=1"
-                        _at_req = _ur_ws2.Request(_at_url, headers={"Authorization": f"Bearer {_at_pat}"})
-                        with _ur_ws2.urlopen(_at_req, timeout=10) as _at_res:
-                            _at_data = _js_ws2.load(_at_res)
-                        _at_recs = _at_data.get("records", [])
-                        if _at_recs:
-                            _af = _at_recs[0].get("fields", {})
-                            _pm2_min2 = int(float(_af.get("Loyer min HT m2 an") or 0))
-                            _pm2_max2 = int(float(_af.get("Loyer max HT m2 an") or 0))
-                            _pm2_ret2 = int(float(_af.get("Loyer median HT m2 an") or 0))
-                            if _pm2_ret2 > 0:
-                                _ws_source = f"Référentiel Barbier Immobilier ({_v_try}, 2025-Q4)"
-                                break
-                except Exception:
-                    pass  # Fallback Airtable indisponible
+                    pass  # Web search indisponible
 
             # ── Injection dans d si on a un résultat ─────────────────────────
             if _pm2_ret2 > 0 and _surf2 > 0:
