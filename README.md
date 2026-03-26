@@ -31,3 +31,4 @@ Response:
 GET https://ton-app.railway.app/
 → { "status": "ok" }
 ```
+ 
