@@ -999,13 +999,13 @@ def _pill_picto(c, x, y, picto_b64, label, value, w=57*_mm, h=16*_mm):
     c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#D1D8E8")); c.setLineWidth(0.5)
     c.roundRect(x, y, w, h, 2*_mm, fill=1, stroke=1)
     r = 5.5*_mm; cx = x+r+2*_mm; cy = y+h/2
-    c.setFillColor(_BLEU); c.circle(cx, cy, r, fill=1, stroke=0)
+    c.setFillColor(_colors.HexColor("#F0F4F8")); c.circle(cx, cy, r, fill=1, stroke=0)
     try:
         ico = _ir(picto_b64)
-        s = r*1.3
+        s = r*1.2
         c.drawImage(ico, cx-s/2, cy-s/2, width=s, height=s, mask='auto')
     except:
-        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 8)
+        c.setFillColor(_BLEU); c.setFont("Helvetica-Bold", 8)
         c.drawCentredString(cx, cy-3*_mm, "•")
     c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 6.5)
     c.drawString(x+r*2+5*_mm, y+h-4.5*_mm, label.upper())
@@ -1510,15 +1510,15 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
             return _ud.normalize('NFKD', str(s)).encode('ascii', 'ignore').decode('ascii')
     cat = _safe_str(label).upper()
     PICTO_MAP = {
-        "PARKING":      _PICTO_PARKING_W,
-        "TRANSPORT":    _PICTO_TRANSPORT_W,
-        "RESTAURATION": _PICTO_RESTAURATION_W,
-        "COMMERCE":     _PICTO_COMMERCE_W,
-        "BANQUE":       _PICTO_BANQUE_W,
-        "HOTELLERIE":   _PICTO_HOTELLERIE_W,
-        "FORMATION":    _PICTO_FORMATION_W,
-        "DYNAMIQUE":    _PICTO_DYNAMIQUE_W,
-        "SANTE":        _PICTO_BANQUE_W,
+        "PARKING":      PICTO_PARKING_B64,
+        "TRANSPORT":    PICTO_TRANSPORT_B64,
+        "RESTAURATION": PICTO_RESTAURATION_B64,
+        "COMMERCE":     PICTO_COMMERCE_B64,
+        "BANQUE":       PICTO_BANQUE_B64,
+        "HOTELLERIE":   PICTO_HOTELLERIE_B64,
+        "FORMATION":    PICTO_FORMATION_B64,
+        "DYNAMIQUE":    PICTO_DYNAMIQUE_B64,
+        "SANTE":        PICTO_BANQUE_B64,
     }
     picto = next((v for k, v in PICTO_MAP.items() if k in cat), PICTO_LIEU_B64)
     _pill_picto(c, bx, by, picto, _safe_str(label), _safe_str(valeur), w=bw, h=bh)
@@ -1534,14 +1534,14 @@ def _page3(c, d):
         "services et equipements a proximite immediate, offrant un environnement favorable a "
         "l'exploitation d'une activite commerciale ou professionnelle."
     )
-    p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15))
+    p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15, alignment=4))
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
     max_text_h = _H - 38*_mm - 80*_mm
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite
         for fsz in [9, 8, 7.5, 7]:
-            p2 = _Para(texte, _PS("b2", fontName="Helvetica", fontSize=fsz, textColor=_GTEXTE, leading=fsz*1.5))
+            p2 = _Para(texte, _PS("b2", fontName="Helvetica", fontSize=fsz, textColor=_GTEXTE, leading=fsz*1.5, alignment=4))
             _, ph2 = p2.wrap(_W-28*_mm, 9999)
             if ph2 <= max_text_h:
                 p = p2; ph = ph2
@@ -1554,7 +1554,7 @@ def _page3(c, d):
                 _kept = []
                 for _s in _sentences:
                     _candidate = " ".join(_kept + [_s])
-                    _pt = _Para(_candidate, _PS("bt", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5))
+                    _pt = _Para(_candidate, _PS("bt", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5, alignment=4))
                     _, _ph = _pt.wrap(_W-28*_mm, 9999)
                     if _ph <= max_text_h:
                         _kept.append(_s)
@@ -1562,7 +1562,7 @@ def _page3(c, d):
                         break
                 if _kept:
                     _texte_final = " ".join(_kept)
-                    p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5))
+                    p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5, alignment=4))
                     _, ph = p.wrap(_W-28*_mm, 9999)
                     break
     p.drawOn(c, 14*_mm, _H-38*_mm-ph)
@@ -2061,22 +2061,28 @@ def _page5(c, d):
             c.drawCentredString(_W/2,by2-42*_mm,
                 f"{_lbl_loyer} : {int(loyer_m_use):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
         ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
+        # Atouts 2x2 pleine largeur
+        atouts_h = 2*(22*_mm + 3*_mm)
         _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
-        c.setFillColor(_colors.HexColor("#E8F0F8")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
-        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"POSITIONNEMENT LOYER")
-        lm2_str = f"{int(loyer_m2_actuel)} EUR/m2/an" if loyer_m2_actuel else "en coherence avec le marche"
+        # Bloc positionnement loyer — en dessous
+        loyer_y = ay - 3*_mm - atouts_h - 8*_mm
+        lm2_str = f"{int(loyer_m2_actuel)} €/m²/an" if loyer_m2_actuel else "cohérent avec le marché"
         loyer_txt = (
-            f"Le loyer affiche est positionne a {lm2_str}, coherent avec le marche "
+            f"Le loyer affiché est positionné à {lm2_str}, en cohérence avec le marché "
             "local des locaux commerciaux de ce secteur. "
             "Les DVF recensent uniquement les ventes ; notre positionnement "
-            "s appuie sur les baux commerciaux en cours et la demande locative locale."
+            "s'appuie sur les baux commerciaux en cours et la demande locative locale."
         )
-        loyer_para = _Para(loyer_txt, _PS("lp", fontName="Helvetica", fontSize=8,
-                           textColor=_GTEXTE, leading=12, alignment=4))
-        _, lph = loyer_para.wrap(cw2 - 10*_mm, 9999)
-        loyer_para.drawOn(c, 18*_mm+cw2+6*_mm, ay - 14*_mm - lph)
+        loyer_para = _Para(loyer_txt, _PS("lp", fontName="Helvetica", fontSize=8.5,
+                           textColor=_GTEXTE, leading=13, alignment=4))
+        _, lph = loyer_para.wrap(_W-36*_mm, 9999)
+        box_h = lph + 16*_mm
+        c.setFillColor(_colors.HexColor("#EEF4F8")); c.roundRect(14*_mm, loyer_y-box_h, _W-28*_mm, box_h, 2*_mm, fill=1, stroke=0)
+        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
+        c.drawString(18*_mm, loyer_y-7*_mm, "POSITIONNEMENT LOYER")
+        loyer_para.drawOn(c, 18*_mm, loyer_y - 11*_mm - lph)
         _footer(c,5)
-        return  # Fin branche location — ne pas exécuter la suite (vente)
+        return  # Fin branche location
 
     else:
         # ── VENTE : afficher fourchette valeur vénale ────────────────────────
@@ -2105,21 +2111,25 @@ def _page5(c, d):
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
             c.drawCentredString(_W/2,by2-42*_mm,f"Valeur estimée au m² : {_pm2(pv,surf)}  ·  Surface : {_safe(surf)} m²")
     ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
-    # Bloc atouts
+    # Atouts 2x2 pleine largeur
+    atouts_h_v = 2*(22*_mm + 3*_mm)
     _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
-    # Bloc explication DVF vs estimation
-    c.setFillColor(_colors.HexColor("#E8F0F8")); c.roundRect(14*_mm+cw2+6*_mm,ay-52*_mm,cw2,50*_mm,2*_mm,fill=1,stroke=0)
-    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold",8.5); c.drawString(18*_mm+cw2+6*_mm,ay-7*_mm,"POURQUOI CET ECART AVEC LES DVF ?")
+    # Bloc DVF en dessous
+    dvf_y = ay - 3*_mm - atouts_h_v - 8*_mm
     dvf_txt = (
-        "Les DVF (donnees officielles) recensent toutes les ventes de locaux "
+        "Les DVF (données officielles) recensent toutes les ventes de locaux "
         "commerciaux dans la commune, quelle que soit leur localisation ou configuration. "
-        "Notre estimation integre les specificites de ce bien : visibilite, etat, "
-        "emplacement precis et potentiel locatif reel."
+        "Notre estimation intègre les spécificités de ce bien : visibilité, état, "
+        "emplacement précis et potentiel locatif réel."
     )
-    dvf_para = _Para(dvf_txt, _PS("dvf", fontName="Helvetica", fontSize=8,
-                     textColor=_GTEXTE, leading=12, alignment=4))
-    _, dvf_h = dvf_para.wrap(cw2 - 10*_mm, 9999)
-    dvf_para.drawOn(c, 18*_mm+cw2+6*_mm, ay - 14*_mm - dvf_h)
+    dvf_para = _Para(dvf_txt, _PS("dvf", fontName="Helvetica", fontSize=8.5,
+                     textColor=_GTEXTE, leading=13, alignment=4))
+    _, dvf_h = dvf_para.wrap(_W-36*_mm, 9999)
+    box_h_v = dvf_h + 16*_mm
+    c.setFillColor(_colors.HexColor("#EEF4F8")); c.roundRect(14*_mm, dvf_y-box_h_v, _W-28*_mm, box_h_v, 2*_mm, fill=1, stroke=0)
+    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
+    c.drawString(18*_mm, dvf_y-7*_mm, "POURQUOI CET ÉCART AVEC LES DVF ?")
+    dvf_para.drawOn(c, 18*_mm, dvf_y - 11*_mm - dvf_h)
     # Taxe foncière si disponible
     taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
     if taxe:
