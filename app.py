@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.39"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.40"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -2832,83 +2832,239 @@ RÈGLES :
 @app.route("/annonce", methods=["POST"])
 def annonce():
     """
-    Génère un texte d'annonce portail optimisé pour un bien commercial.
+    Génère un texte d'annonce portail optimisé + PDF mise en page charte Barbier.
     Payload JSON : type_bien, adresse, ville, surface, prix, loyer_mensuel,
-                   description_brute, activite, type_bail, statut_mandat, notes
-    Retourne : {"annonce": "texte..."}
+                   description_brute, activite, type_bail, statut_mandat, notes,
+                   dpe, reference, photo_url, negociateur
+    Retourne : {"annonce": "texte...", "pdf_b64": "...base64..."}
     """
     try:
-        import os as _os
+        import os as _os_an
+        import io as _io_an
+        import base64 as _b64_an
         data = request.get_json(silent=True) or {}
-        api_key = _os.environ.get("OPENAI_API_KEY", "")
+        api_key = _os_an.environ.get("OPENAI_API_KEY", "")
         if not api_key:
             return jsonify({"error": "OPENAI_API_KEY manquant"}), 500
 
-        # Construire le contexte depuis le payload
-        type_b  = data.get("type_bien", "")
-        adresse = data.get("adresse", "")
-        ville   = data.get("ville", "Vannes")
-        surface = data.get("surface", "")
-        prix    = data.get("prix", "") or data.get("prix_retenu", "")
-        loyer   = data.get("loyer_mensuel", "")
-        desc    = data.get("description_brute", "") or data.get("notes", "")
-        activite= data.get("activite", "")
-        bail    = data.get("type_bail", "")
-        mandat  = data.get("statut_mandat", "")
-        nego    = data.get("negociateur", "Barbier Immobilier")
+        type_b   = data.get("type_bien", "")
+        adresse  = data.get("adresse", "")
+        ville    = data.get("ville", "Vannes")
+        surface  = str(data.get("surface", ""))
+        prix     = data.get("prix", "") or data.get("prix_retenu", "") or data.get("prix_de_vente", "")
+        loyer    = data.get("loyer_mensuel", "")
+        desc     = data.get("description_brute", "") or data.get("notes", "") or data.get("Description commerciale", "")
+        activite = data.get("activite", "") or data.get("Activité", "")
+        bail     = data.get("type_bail", "")
+        mandat   = data.get("statut_mandat", "")
+        nego     = data.get("negociateur", "Barbier Immobilier")
+        dpe      = data.get("dpe", "") or data.get("DPE classe", "")
+        reference= data.get("reference", "") or data.get("Référence Modelo", "")
+        photo_url= data.get("photo_url", "") or data.get("Photo principale URL", "")
+        charges  = data.get("charges_mensuelles", "")
+        honoraires = data.get("honoraires", "")
+        hon_charge = data.get("honoraires_charge", "")
 
-        prix_str = f"{int(float(str(prix).replace(' ',''))):,} €".replace(","," ") if prix else ""
-        loyer_str = f"{int(float(str(loyer).replace(' ',''))):,} € HT/mois".replace(","," ") if loyer else ""
-        val_str = prix_str or loyer_str
+        def fmt_v(v):
+            try: return f"{int(float(str(v).replace(' ','').replace(',','.'))):,}".replace(",", " ") + " \u20ac"
+            except: return str(v) if v else ""
 
+        prix_str  = fmt_v(prix) if prix else ""
+        loyer_str = fmt_v(loyer) + " HT/mois" if loyer else ""
         is_location = bool(loyer)
-        operation = "À LOUER" if is_location else "À VENDRE"
+        operation   = "\u00c0 LOUER" if is_location else "\u00c0 VENDRE"
         val_affichee = loyer_str if is_location else prix_str
 
+        # ── Prompt GPT amélioré ───────────────────────────────────────────
         prompt = (
-            f"Tu es négociateur expert chez Barbier Immobilier, spécialiste de l'immobilier commercial "
-            f"dans le Golfe du Morbihan (Vannes, Bretagne Sud). "
-            f"Rédige une annonce portail professionnelle, percutante et précise.\n\n"
-            f"OPÉRATION : {operation}\n"
-            f"TYPE : {type_b}\n"
-            f"SURFACE : {surface} m²\n"
-            f"LOCALISATION : {adresse}, {ville} (Morbihan, 56)\n"
-            f"VALEUR : {val_affichee or 'Prix sur demande'}\n"
+            "Tu es directeur de la communication chez Barbier Immobilier, agence spécialiste "
+            "de l'immobilier commercial dans le Morbihan (Vannes, Bretagne Sud). "
+            "Tu rédiges les annonces qui paraissent sur les portails professionnels (BureauxLocaux, Loopnet, SeLoger Pro).\n\n"
+            "Rédige une annonce en 3 blocs bien séparés par un saut de ligne :\n\n"
+            "BLOC 1 — ACCROCHE (1 phrase max, 20 mots max) :\n"
+            "- Formule percutante, spécifique, qui donne envie de lire la suite\n"
+            "- Commencer par le type d'opération (\u00c0 VENDRE ou \u00c0 LOUER) et le type de bien\n"
+            "- Inclure la localisation et l'argument différenciant le plus fort\n\n"
+            "BLOC 2 — DESCRIPTION (3-4 phrases) :\n"
+            "- Surface exacte, agencement, état, équipements (climatisation, parking, etc.)\n"
+            "- Atouts commerciaux concrets : flux piétons, visibilité, accès\n"
+            "- Éléments financiers si pertinents (loyer/m²/an, rentabilité, charges)\n"
+            "- Contexte marché Morbihan si valorisant\n\n"
+            "BLOC 3 — CALL-TO-ACTION (1 phrase) :\n"
+            "- Invitation directe à contacter Barbier Immobilier au 02.97.47.11.11\n\n"
+            "DONNÉES DU BIEN :\n"
+            f"- Opération : {operation}\n"
+            f"- Type : {type_b}\n"
+            f"- Surface : {surface} m²\n"
+            f"- Localisation : {adresse}, {ville} (Morbihan 56)\n"
+            f"- Valeur : {val_affichee or 'Prix sur demande'}\n"
         )
-        if activite: prompt += f"ACTIVITÉ ACTUELLE / DESTINATION : {activite}\n"
-        if bail:     prompt += f"TYPE DE BAIL : {bail}\n"
-        if mandat:   prompt += f"TYPE DE MANDAT : {mandat}\n"
-        if desc:     prompt += f"\nINFORMATIONS DISPONIBLES SUR LE BIEN :\n{desc[:1500]}\n"
+        if activite: prompt += f"- Activité / destination : {activite}\n"
+        if bail:     prompt += f"- Type de bail : {bail}\n"
+        if charges:  prompt += f"- Charges : {fmt_v(charges)}/mois\n"
+        if honoraires: prompt += f"- Honoraires : {fmt_v(honoraires)} ({hon_charge})\n"
+        if dpe:      prompt += f"- DPE : {dpe}\n"
+        if mandat:   prompt += f"- Mandat : {mandat}\n"
+        if desc:     prompt += f"\nDESCRIPTIF BRUT (utilise ces infos, ne les recopie pas mot pour mot) :\n{desc[:2000]}\n"
         prompt += (
-            "\nRÈGLES DE RÉDACTION :\n"
-            "1. Accroche forte en 1 phrase (type de bien + localisation + argument clé)\n"
-            "2. Description précise du bien : surface, agencement, état, équipements notables (2-3 phrases)\n"
-            "3. Atouts emplacement : visibilité, flux, accessibilité, environnement commercial (1-2 phrases)\n"
-            "4. Éléments financiers clés si pertinent : loyer/m²/an, rentabilité, charges\n"
-            "5. Call-to-action direct avec contact Barbier Immobilier\n\n"
-            "CONTRAINTES :\n"
-            "- 150-200 mots, ton professionnel et vendeur\n"
-            "- Aucune formule vague (éviter : 'idéalement situé', 'bel emplacement')\n"
-            "- Chiffres précis obligatoires (surface m², loyer €/m², etc.)\n"
-            "- Pas de hashtags, pas de emojis\n"
-            "- Langue française impeccable\n"
-            "- Mettre en valeur le rapport qualité/prix et l'opportunité commerciale"
+            "\nCONTRAINTES ABSOLUES :\n"
+            "- 200-250 mots au total\n"
+            "- Ton professionnel, direct, vendeur — jamais vague ni générique\n"
+            "- Zéro formule creuse : interdit d'écrire 'idéalement situé', 'rare sur le marché', 'bel emplacement', 'à saisir'\n"
+            "- Chiffres précis obligatoires (surface m², loyer €/m²/an, etc.)\n"
+            "- Pas de hashtags, pas d'emojis, pas de puces\n"
+            "- Français impeccable, phrases courtes et rythmées\n"
+            "- Mettre en avant l'opportunité concrète pour l'acquéreur ou le locataire"
         )
 
-        import json as _json2, urllib.request as _ur2
-        payload = _json2.dumps({
+        import json as _json_an, urllib.request as _ur_an
+        gpt_payload = _json_an.dumps({
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 400,
-            "temperature": 0.7
+            "max_tokens": 500,
+            "temperature": 0.72
         }).encode()
-        req = _ur2.Request("https://api.openai.com/v1/chat/completions",
-            data=payload, method="POST",
+        req_gpt = _ur_an.Request("https://api.openai.com/v1/chat/completions",
+            data=gpt_payload, method="POST",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
-        with _ur2.urlopen(req, timeout=30) as res:
-            annonce_txt = _json2.load(res)["choices"][0]["message"]["content"].strip()
+        with _ur_an.urlopen(req_gpt, timeout=30) as res_gpt:
+            annonce_txt = _json_an.load(res_gpt)["choices"][0]["message"]["content"].strip()
 
-        return jsonify({"annonce": annonce_txt, "negociateur": nego})
+        # ── Génération PDF avec charte Barbier ───────────────────────────
+        try:
+            from reportlab.pdfgen import canvas as _cv_an
+            from reportlab.lib.pagesizes import A4 as _A4_an
+            from reportlab.lib import colors as _rc_an
+            from reportlab.lib.utils import ImageReader as _IR_an
+            from reportlab.platypus import Paragraph as _Para_an
+            from reportlab.lib.styles import ParagraphStyle as _PS_an
+            from reportlab.lib.enums import TA_LEFT as _TAL_an, TA_CENTER as _TAC_an, TA_JUSTIFY as _TAJ_an
+            from reportlab.lib.units import mm as _mm_an
+
+            TEAL   = _rc_an.HexColor("#16708B")
+            ORANGE = _rc_an.HexColor("#F0795B")
+            DARK   = _rc_an.HexColor("#1A2E3B")
+            GRIS   = _rc_an.HexColor("#F4F5F7")
+            WHITE  = _rc_an.white
+
+            PW, PH = _A4_an
+            ML = 20 * _mm_an
+            MR = 20 * _mm_an
+            CW = PW - ML - MR
+
+            buf_an = _io_an.BytesIO()
+            c = _cv_an.Canvas(buf_an, pagesize=_A4_an)
+
+            # ── Bande header ──────────────────────────────────────────────
+            c.setFillColor(TEAL)
+            c.rect(0, PH - 14*_mm_an, PW, 14*_mm_an, fill=1, stroke=0)
+            # Logo
+            try:
+                lh = 10 * _mm_an
+                lw = lh * (488/662)
+                logo_buf = _io_an.BytesIO(_b64_an.b64decode(LOGO_B64))
+                c.drawImage(_IR_an(logo_buf), ML, PH - 12*_mm_an, width=lw, height=lh, mask='auto')
+            except: pass
+            c.setFillColor(WHITE)
+            c.setFont("Helvetica-Bold", 9)
+            c.drawRightString(PW - MR, PH - 7*_mm_an, f"ANNONCE — {operation} — {type_b.upper()}")
+            c.setFont("Helvetica", 7.5)
+            ref_txt = f"Réf. {reference}  ·  {ville}  ·  {nego}" if reference else f"{ville}  ·  {nego}"
+            c.drawRightString(PW - MR, PH - 11*_mm_an, ref_txt)
+
+            y = PH - 14*_mm_an - 8*_mm_an
+
+            # ── Photo du bien ─────────────────────────────────────────────
+            if photo_url:
+                try:
+                    photo_img = _fetch_photo_image(photo_url)
+                    if photo_img:
+                        ph_h = 65 * _mm_an
+                        c.drawImage(photo_img, ML, y - ph_h, width=CW, height=ph_h,
+                                    preserveAspectRatio=True, mask='auto')
+                        y -= ph_h + 4*_mm_an
+                except: pass
+
+            # ── Badges info ───────────────────────────────────────────────
+            badges = []
+            if surface: badges.append(f"{surface} m²")
+            if type_b:  badges.append(type_b)
+            if ville:   badges.append(ville)
+            if dpe:     badges.append(f"DPE {dpe}")
+
+            bx = ML
+            for badge in badges:
+                bw = len(badge) * 5.5 + 12
+                c.setFillColor(GRIS)
+                c.roundRect(bx, y - 7*_mm_an, bw, 7*_mm_an, 3, fill=1, stroke=0)
+                c.setFillColor(DARK)
+                c.setFont("Helvetica-Bold", 8)
+                c.drawString(bx + 6, y - 4.5*_mm_an, badge)
+                bx += bw + 4
+
+            y -= 10*_mm_an
+
+            # ── Prix mis en évidence ──────────────────────────────────────
+            if val_affichee:
+                c.setFillColor(ORANGE)
+                c.roundRect(ML, y - 12*_mm_an, CW, 12*_mm_an, 4, fill=1, stroke=0)
+                c.setFillColor(WHITE)
+                c.setFont("Helvetica-Bold", 18)
+                c.drawCentredString(PW/2, y - 8.5*_mm_an, val_affichee)
+                if honoraires and hon_charge:
+                    c.setFont("Helvetica", 8)
+                    c.drawCentredString(PW/2, y - 11.5*_mm_an,
+                        f"+ {fmt_v(honoraires)} honoraires ({hon_charge})")
+                y -= 15*_mm_an
+
+            # ── Texte annonce ─────────────────────────────────────────────
+            c.line(ML, y, ML + CW, y)
+            y -= 5*_mm_an
+
+            blocs = annonce_txt.split("\n\n")
+            for i_b, bloc in enumerate(blocs):
+                bloc = bloc.strip()
+                if not bloc: continue
+                # Premier bloc = accroche en gras teal
+                if i_b == 0:
+                    style = _PS_an("accroche", fontName="Helvetica-Bold", fontSize=12,
+                                   leading=16, textColor=TEAL, alignment=_TAL_an, spaceAfter=6)
+                else:
+                    style = _PS_an("corps", fontName="Helvetica", fontSize=9.5,
+                                   leading=14.5, textColor=DARK, alignment=_TAJ_an, spaceAfter=8)
+                p = _Para_an(bloc, style)
+                aw, ah = p.wrap(CW, 9999)
+                p.drawOn(c, ML, y - ah)
+                y -= ah + 8
+
+            # ── Adresse ───────────────────────────────────────────────────
+            y -= 4*_mm_an
+            c.setFillColor(GRIS)
+            c.roundRect(ML, y - 8*_mm_an, CW, 8*_mm_an, 3, fill=1, stroke=0)
+            c.setFillColor(TEAL)
+            c.setFont("Helvetica-Bold", 8.5)
+            c.drawString(ML + 6, y - 5*_mm_an, f"📍  {adresse}  —  {ville} (Morbihan)")
+            y -= 11*_mm_an
+
+            # ── Footer ────────────────────────────────────────────────────
+            c.setFillColor(TEAL)
+            c.rect(0, 0, PW, 10*_mm_an, fill=1, stroke=0)
+            c.setFillColor(WHITE)
+            c.setFont("Helvetica-Bold", 8.5)
+            c.drawCentredString(PW/2, 6*_mm_an, "barbier immobilier  ·  02.97.47.11.11  ·  contact@barbierimmobilier.com")
+            c.setFont("Helvetica", 7)
+            c.drawCentredString(PW/2, 3*_mm_an, "2 place Albert Einstein  —  56000 Vannes  ·  barbierimmobilier.com")
+
+            c.save()
+            buf_an.seek(0)
+            pdf_b64 = _b64_an.b64encode(buf_an.read()).decode()
+        except Exception as e_pdf:
+            pdf_b64 = None
+
+        result = {"annonce": annonce_txt, "negociateur": nego}
+        if pdf_b64:
+            result["pdf_b64"] = pdf_b64
+        return jsonify(result)
 
     except Exception as e:
         import traceback
