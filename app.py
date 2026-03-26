@@ -1195,6 +1195,37 @@ def _gpt_quartier(adresse, ville, type_bien, surface):
     with _ur.urlopen(req, timeout=30) as res:
         return _json.load(res)["choices"][0]["message"]["content"].strip()
 
+
+def _gpt_atouts(type_bien, ville, surface, adresse, activite):
+    import os, re as _re2
+    api_key = os.environ.get('OPENAI_API_KEY', '')
+    if not api_key: return None
+    t = type_bien or 'local'
+    v = ville or 'Vannes'
+    s = surface or '?'
+    act_str = f' ({activite})' if activite else ''
+    prompt = (
+        f'Tu es expert en immobilier commercial dans le Morbihan. Pour ce bien : {t}{act_str}, {s} m\u00b2, {adresse or v}, {v}.\n'
+        'G\u00e9n\u00e8re 4 atouts commerciaux percutants, adapt\u00e9s \u00e0 ce type de bien et cette localisation.\n'
+        'Chaque atout : titre court (2-3 mots, MAJUSCULES) + texte 1-2 phrases concr\u00e8tes.\n'
+        'Utilise des biais cognitifs : raret\u00e9, ancrage g\u00e9ographique, urgence.\n'
+        'R\u00e9ponds UNIQUEMENT avec ce JSON (sans texte, sans backticks) :\n'
+        '[{"titre": "TITRE", "texte": "Texte"}, {"titre": "TITRE", "texte": "Texte"}, {"titre": "TITRE", "texte": "Texte"}, {"titre": "TITRE", "texte": "Texte"}]'
+    )
+    try:
+        payload = _json.dumps({'model': 'gpt-4o-mini', 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 400, 'temperature': 0.7}).encode()
+        req = _ur.Request('https://api.openai.com/v1/chat/completions', data=payload, method='POST',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'})
+        with _ur.urlopen(req, timeout=25) as res:
+            raw = _json.load(res)['choices'][0]['message']['content'].strip()
+        match = _re2.search(r'\[.*?\]', raw, _re2.DOTALL)
+        if match:
+            atouts = _json.loads(match.group(0))
+            if len(atouts) >= 4: return atouts
+    except Exception:
+        pass
+    return None
+
 # ══════════════════════════════════════════════════════════════
 # PAGES
 # ══════════════════════════════════════════════════════════════
@@ -1946,16 +1977,20 @@ def _draw_atouts_cards(c, d, x, y, total_w):
         except Exception:
             pass
     if not atouts or len(atouts) < 4:
-        # Fallback générique basé sur les données du bien
-        surf = _safe(d.get("surface"))
-        ville = _safe(d.get("ville"))
-        type_bien = _safe(d.get("type_bien"), "bien")
-        atouts = [
-            {"titre": "LOCALISATION PRIME", "texte": f"Au cœur de {ville}, ce {type_bien.lower()} bénéficie d'une visibilité immédiate et d'un accès fluide pour vos clients et collaborateurs."},
-            {"titre": "FORMAT OPTIMISÉ", "texte": f"{surf} m² agencés pour maximiser la productivité. Une surface rare sur ce secteur, prisée des professions libérales et PME."},
-            {"titre": "ZONE EN ESSOR", "texte": "Secteur à forte dynamique économique. Vos clients vous trouvent facilement, vos équipes s'y installent durablement."},
-            {"titre": "DISPONIBILITÉ IMMÉDIATE", "texte": "Bien disponible rapidement. Les opportunités de cette qualité se louent vite — prenez de l'avance sur vos concurrents."},
-        ]
+        # Tentative GPT dynamique
+        atouts_gen = _gpt_atouts(d.get("type_bien"), d.get("ville"), d.get("surface"), d.get("adresse"), d.get("activite"))
+        if atouts_gen and len(atouts_gen) >= 4:
+            atouts = atouts_gen
+        else:
+            surf = _safe(d.get("surface"))
+            ville = _safe(d.get("ville"))
+            type_bien = _safe(d.get("type_bien"), "bien")
+            atouts = [
+                {"titre": "LOCALISATION PRIME", "texte": f"Au cœur de {ville}, ce {type_bien.lower()} bénéficie d'une visibilité immédiate et d'un accès fluide pour vos clients et collaborateurs."},
+                {"titre": "FORMAT OPTIMISÉ", "texte": f"{surf} m² agencés pour maximiser la productivité. Une surface rare sur ce secteur, prisée des professions libérales et PME."},
+                {"titre": "ZONE EN ESSOR", "texte": "Secteur à forte dynamique économique. Vos clients vous trouvent facilement, vos équipes s'y installent durablement."},
+                {"titre": "DISPONIBILITÉ IMMÉDIATE", "texte": "Bien disponible rapidement. Les opportunités de cette qualité se louent vite — prenez de l'avance sur vos concurrents."},
+            ]
     # Mise en page : 2 colonnes × 2 lignes
     gap = 3 * _mm
     card_w = (total_w - gap) / 2
