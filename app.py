@@ -1959,7 +1959,7 @@ def _draw_atouts_cards(c, d, x, y, total_w):
     # Mise en page : 2 colonnes × 2 lignes
     gap = 3 * _mm
     card_w = (total_w - gap) / 2
-    card_h = 22 * _mm
+    card_h = 26 * _mm
     row_gap = 3 * _mm
     for i, atout in enumerate(atouts[:4]):
         col = i % 2
@@ -1972,11 +1972,11 @@ def _draw_atouts_cards(c, d, x, y, total_w):
         c.roundRect(cx, cy + card_h - 2.5 * _mm, card_w, 2.5 * _mm, 2 * _mm, fill=1, stroke=0)
         titre = atout.get("titre", "").upper()
         c.setFillColor(_ORANGE)
-        c.setFont("Helvetica-Bold", 7)
+        c.setFont("Helvetica-Bold", 8)
         c.drawString(cx + 3 * _mm, cy + card_h - 7 * _mm, titre[:28])
         texte = atout.get("texte", "")
-        para = _Para(texte, _PS("ac", fontName="Helvetica", fontSize=6.8,
-                                textColor=_BLANC, leading=10, alignment=4))
+        para = _Para(texte, _PS("ac", fontName="Helvetica", fontSize=8.5,
+                                textColor=_BLANC, leading=12, alignment=4))
         tw = card_w - 6 * _mm
         _, ph = para.wrap(tw, 9999)
         para.drawOn(c, cx + 3 * _mm, cy + card_h - 10 * _mm - ph)
@@ -2030,7 +2030,7 @@ def _page5(c, d):
                 f"{_lbl_loyer} : {int(loyer_m_use):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
         ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
         # Atouts 2x2 pleine largeur
-        atouts_h = 2*(22*_mm + 3*_mm)
+        atouts_h = 2*(26*_mm + 3*_mm)
         _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
         # Bloc positionnement loyer — en dessous
         loyer_y = ay - 3*_mm - atouts_h - 8*_mm
@@ -2080,7 +2080,7 @@ def _page5(c, d):
             c.drawCentredString(_W/2,by2-42*_mm,f"Valeur estimée au m² : {_pm2(pv,surf)}  ·  Surface : {_safe(surf)} m²")
     ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
     # Atouts 2x2 pleine largeur
-    atouts_h_v = 2*(22*_mm + 3*_mm)
+    atouts_h_v = 2*(26*_mm + 3*_mm)
     _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
     # Bloc DVF en dessous
     dvf_y = ay - 3*_mm - atouts_h_v - 8*_mm
