@@ -21,23 +21,25 @@ def _img_reader(b64_str):
 
 from PIL import Image, ImageDraw
 import PIL.ImageOps as _PIL_OPS
-import numpy as _np
-
 def _invert_picto_b64(b64_str):
-    """Picto noir sur fond noir → blanc sur fond transparent pour affichage sur cercle coloré."""
+    """Picto noir sur fond noir → blanc sur fond transparent. Pure Pillow, sans numpy."""
     import io as _io2, base64 as _b64_inv
     try:
         raw = _b64_inv.b64decode(b64_str)
         img = Image.open(_io2.BytesIO(raw)).convert('RGBA')
-        arr = _np.array(img)
-        # Détecter tracé : pixels sombres (luminosité < 128) avec alpha > 128
-        lum = arr[:,:,0].astype(int) + arr[:,:,1].astype(int) + arr[:,:,2].astype(int)
-        new = _np.zeros_like(arr)
-        new[:,:,0] = 255; new[:,:,1] = 255; new[:,:,2] = 255
-        new[:,:,3] = _np.where((lum < 384) & (arr[:,:,3] > 64), 255, 0).astype(_np.uint8)
-        result = Image.fromarray(new, 'RGBA')
+        pixels = img.load()
+        w, h = img.size
+        out = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+        op = out.load()
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = pixels[x, y]
+                # Pixel sombre + opaque = tracé → blanc opaque
+                if (r + g + b) < 384 and a > 64:
+                    op[x, y] = (255, 255, 255, 255)
+                # Sinon transparent
         buf = _io2.BytesIO()
-        result.save(buf, format='PNG')
+        out.save(buf, format='PNG')
         return _b64_inv.b64encode(buf.getvalue()).decode()
     except Exception:
         return b64_str
