@@ -2274,8 +2274,10 @@ def dossier():
                     _at_base = "appscgBdxTzSPtOaZ"
                     _at_tbl  = "tblYEfE6WhP6mnlAf"
                     for _v_try in [_ville2, "Vannes"]:
-                        _cle = f"{_type2}|{_v_try}"
-                        _filter = _ur_ws2.quote(f"{{Clé}} = \"{_cle}\"")
+                        # Recherche par champs Type + Ville (robuste, indépendant de la clé)
+                        _filter = _ur_ws2.quote(
+                            f"AND({{Type de bien}}=\"{_type2}\",{{Ville}}=\"{_v_try}\")"
+                        )
                         _at_url = f"https://api.airtable.com/v0/{_at_base}/{_at_tbl}?filterByFormula={_filter}&maxRecords=1"
                         _at_req = _ur_ws2.Request(_at_url, headers={"Authorization": f"Bearer {_at_pat}"})
                         with _ur_ws2.urlopen(_at_req, timeout=10) as _at_res:
@@ -2283,11 +2285,12 @@ def dossier():
                         _at_recs = _at_data.get("records", [])
                         if _at_recs:
                             _af = _at_recs[0].get("fields", {})
-                            _pm2_min2 = int(float(_af.get("Loyer min HT m2 an") or 0))
-                            _pm2_max2 = int(float(_af.get("Loyer max HT m2 an") or 0))
-                            _pm2_ret2 = int(float(_af.get("Loyer median HT m2 an") or 0))
+                            _pm2_min2 = int(float(_af.get("Loyer min HT m2 an") or _af.get("fldWCZtVnGPDZatRD") or 0))
+                            _pm2_max2 = int(float(_af.get("Loyer max HT m2 an") or _af.get("fldj9Fh1LzgAabMtV") or 0))
+                            _pm2_ret2 = int(float(_af.get("Loyer median HT m2 an") or _af.get("fldbykZt4LePoeCqS") or 0))
+                            _periode  = _af.get("Période") or _af.get("fldTk3fCIw1xfqjGk") or ""
                             if _pm2_ret2 > 0:
-                                _ws_source = f"Référentiel Barbier Immobilier ({_v_try}, 2025-Q4)"
+                                _ws_source = f"Référentiel Barbier Immobilier ({_v_try}{', ' + _periode if _periode else ''})"
                                 break
                 except Exception:
                     pass  # Airtable indisponible
