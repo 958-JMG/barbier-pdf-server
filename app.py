@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.49"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.50"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1438,7 +1438,19 @@ def _page2(c, d):
                 path_clip = c.beginPath()
                 path_clip.roundRect(px, py, pw3, ph3, 2*_mm)
                 c.clipPath(path_clip, stroke=0, fill=0)
-                c.drawImage(img, px, py, pw3, ph3, preserveAspectRatio=True, anchor='c', mask="auto")
+                # Crop centré fill : calculer le ratio pour couvrir toute la zone
+                iw, ih = img.getSize()
+                target_ratio = pw3 / ph3
+                img_ratio = iw / ih if ih > 0 else 1
+                if img_ratio > target_ratio:
+                    # Image plus large — ajuster sur la hauteur, crop horizontal
+                    dh = ph3; dw = ph3 * img_ratio
+                    dx = px - (dw - pw3) / 2; dy = py
+                else:
+                    # Image plus haute — ajuster sur la largeur, crop vertical
+                    dw = pw3; dh = pw3 / img_ratio if img_ratio > 0 else ph3
+                    dx = px; dy = py - (dh - ph3) / 2
+                c.drawImage(img, dx, dy, dw, dh, mask="auto")
                 c.restoreState()
             except Exception:
                 c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD"))
@@ -2196,25 +2208,30 @@ def _page5(c, d):
     dvf_para = _Para(dvf_txt, _PS("dvf", fontName="Helvetica", fontSize=8.5,
                      textColor=_GTEXTE, leading=13, alignment=4))
     _, dvf_h = dvf_para.wrap(_W-36*_mm, 9999)
-    box_h_v = dvf_h + 16*_mm
-    c.setFillColor(_colors.HexColor("#EEF4F8")); c.roundRect(14*_mm, dvf_y-box_h_v, _W-28*_mm, box_h_v, 2*_mm, fill=1, stroke=0)
-    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
-    c.drawString(18*_mm, dvf_y-7*_mm, "POURQUOI CET ÉCART AVEC LES DVF ?")
-    dvf_para.drawOn(c, 18*_mm, dvf_y - 11*_mm - dvf_h)
-    # Taxe foncière si disponible — positionnée sous le bloc DVF
+    # Taxe foncière — intégrée dans le même bloc
     taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
+    taxe_fmt = None
     if taxe:
         try:
             taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(","," ") + " €/an"
         except Exception:
             taxe_fmt = str(taxe)
-        c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#D1D8E8")); c.setLineWidth(0.5)
-        tf_y = dvf_y - box_h_v - 5*_mm
-        c.roundRect(14*_mm, tf_y, _W-28*_mm, 12*_mm, 2*_mm, fill=1, stroke=1)
-        c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 7)
-        c.drawString(18*_mm, tf_y+7.5*_mm, "TAXE FONCIÈRE ANNUELLE")
+    # Hauteur du bloc = titre + texte DVF + padding + taxe si présente
+    taxe_extra = 16*_mm if taxe_fmt else 0
+    box_h_v = dvf_h + 20*_mm + taxe_extra
+    c.setFillColor(_colors.HexColor("#EEF4F8")); c.roundRect(14*_mm, dvf_y-box_h_v, _W-28*_mm, box_h_v, 2*_mm, fill=1, stroke=0)
+    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
+    c.drawString(18*_mm, dvf_y-7*_mm, "POURQUOI CET ÉCART AVEC LES DVF ?")
+    dvf_para.drawOn(c, 18*_mm, dvf_y - 13*_mm - dvf_h)
+    if taxe_fmt:
+        # Séparateur léger puis taxe
+        sep_y = dvf_y - 14*_mm - dvf_h - 4*_mm
+        c.setStrokeColor(_colors.HexColor("#C8D8E8")); c.setLineWidth(0.4)
+        c.line(18*_mm, sep_y, _W-18*_mm, sep_y)
+        c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 7)
+        c.drawString(18*_mm, sep_y - 6*_mm, "TAXE FONCIÈRE ANNUELLE")
         c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 10)
-        c.drawString(18*_mm, tf_y+2.5*_mm, taxe_fmt)
+        c.drawString(18*_mm, sep_y - 13*_mm, taxe_fmt)
 
     _footer(c,5)
 
