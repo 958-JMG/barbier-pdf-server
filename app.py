@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.44"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.45"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -2423,25 +2423,32 @@ def dossier():
                         try: val_info = f"Prix : {int(float(str(data['prix'])))} €"
                         except: pass
                     prompt_desc = (
-                        f"Tu es négociateur senior chez Barbier Immobilier (Vannes, Morbihan).\n"
-                        f"Rédige une présentation commerciale pour ce bien {op}.\n\n"
-                        f"TYPE : {data.get('type_bien','')} — {data.get('surface','')} m²\n"
-                        f"ADRESSE : {data.get('adresse','')}, {data.get('ville','')}\n"
-                        f"{val_info}\n"
-                        f"INFORMATIONS DISPONIBLES : {notes_src[:800]}\n\n"
-                        f"EXIGENCES :\n"
-                        f"- 130-180 mots en texte continu\n"
-                        f"- Accroche commerciale forte (1 phrase)\n"
-                        f"- Description fonctionnelle : agencement, état, équipements (2-3 phrases)\n"
-                        f"- Atouts stratégiques : emplacement, accessibilité, potentiel (2 phrases)\n"
-                        f"- Chiffres précis (surface, prix/loyer au m²)\n"
-                        f"- Ton professionnel, vendeur, sans formule vague\n"
-                        f"- Pas de hashtags ni d'emojis"
+                        f"Tu es négociateur senior chez Barbier Immobilier (Vannes, Morbihan). "
+                        f"Rédige une présentation commerciale {op} pour le dossier client.\n\n"
+                        f"DONNÉES DU BIEN :\n"
+                        f"- Type : {data.get('type_bien','')} | Surface : {data.get('surface','')} m²\n"
+                        f"- Adresse : {data.get('adresse','')}, {data.get('ville','')} (Morbihan 56)\n"
+                        f"- {val_info}\n"
+                        f"- Informations disponibles : {notes_src[:1000]}\n\n"
+                        "STRUCTURE ATTENDUE EN TEXTE PUR (3 paragraphes séparés par \n\n) :\n"
+                        "§1 ACCROCHE — 1 phrase forte et spécifique. "
+                        "Chiffre ou fait concret. Jamais générique.\n"
+                        "§2 DESCRIPTION — 3-4 phrases. "
+                        "Surface exacte, agencement, état, équipements clés, configuration. "
+                        "Chiffres précis (m², capacité, CA si FDC, loyer/m²/an si locatif).\n"
+                        "§3 ATOUTS & OPPORTUNITÉ — 2-3 phrases. "
+                        "Emplacement concret (flux, visibilité, accès). "
+                        "Argument décisif pour l'acquéreur ou le locataire.\n\n"
+                        "RÈGLES ABSOLUES :\n"
+                        "- Texte pur uniquement, aucune balise HTML, aucun markdown\n"
+                        "- INTERDIT : 'idéalement situé', 'rare', 'opportunité unique', 'bel emplacement'\n"
+                        "- Français impeccable, phrases courtes et rythmées\n"
+                        "- 150-200 mots au total"
                     )
                     gpt_payload = _json.dumps({
                         "model": "gpt-4o",
                         "messages": [{"role": "user", "content": prompt_desc}],
-                        "max_tokens": 400, "temperature": 0.65
+                        "max_tokens": 500, "temperature": 0.68
                     }).encode()
                     gpt_req = _ur.Request("https://api.openai.com/v1/chat/completions",
                         data=gpt_payload, method="POST",
