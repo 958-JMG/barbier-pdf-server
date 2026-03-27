@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.41"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.42"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -2877,21 +2877,24 @@ def annonce():
 
         # ── Prompt GPT amélioré ───────────────────────────────────────────
         prompt = (
-            "Tu es directeur de la communication chez Barbier Immobilier, agence spécialiste "
-            "de l'immobilier commercial dans le Morbihan (Vannes, Bretagne Sud). "
-            "Tu rédiges les annonces qui paraissent sur les portails professionnels (BureauxLocaux, Loopnet, SeLoger Pro).\n\n"
-            "Rédige une annonce en 3 blocs bien séparés par un saut de ligne :\n\n"
-            "BLOC 1 — ACCROCHE (1 phrase max, 20 mots max) :\n"
-            "- Formule percutante, spécifique, qui donne envie de lire la suite\n"
-            "- Commencer par le type d'opération (\u00c0 VENDRE ou \u00c0 LOUER) et le type de bien\n"
-            "- Inclure la localisation et l'argument différenciant le plus fort\n\n"
-            "BLOC 2 — DESCRIPTION (3-4 phrases) :\n"
-            "- Surface exacte, agencement, état, équipements (climatisation, parking, etc.)\n"
-            "- Atouts commerciaux concrets : flux piétons, visibilité, accès\n"
-            "- Éléments financiers si pertinents (loyer/m²/an, rentabilité, charges)\n"
-            "- Contexte marché Morbihan si valorisant\n\n"
-            "BLOC 3 — CALL-TO-ACTION (1 phrase) :\n"
-            "- Invitation directe à contacter Barbier Immobilier au 02.97.47.11.11\n\n"
+            "Tu es directeur de la communication chez Barbier Immobilier, agence référente "
+            "de l'immobilier commercial et professionnel dans le Morbihan (Vannes, Bretagne Sud). "
+            "Tu rédiges des annonces pour les portails spécialisés : BureauxLocaux, Loopnet, SeLoger Pro.\n\n"
+            "MISSION : Rédige une annonce structurée, éditoriale et percutante en HTML simple.\n\n"
+            "FORMAT OBLIGATOIRE (respecte exactement cette structure) :\n"
+            "<h2>[ACCROCHE FORTE — 1 phrase, 15 mots max, argument clé du bien]</h2>\n"
+            "<p><strong>[Sous-titre : opération + type de bien + ville]</strong></p>\n"
+            "<p>[Description du bien : surface, agencement, état, équipements. 2-3 phrases concrètes et précises.]</p>\n"
+            "<p>[Atouts commerciaux : flux, visibilité, accès, environnement. 1-2 phrases. Aucune formule vague.]</p>\n"
+            "<p>[Éléments financiers si pertinents : loyer/m²/an, rentabilité, charges. Omettre si non disponible.]</p>\n"
+            "<p><strong>Contact : Barbier Immobilier — 02.97.47.11.11</strong></p>\n\n"
+            "RÈGLES ABSOLUES :\n"
+            "- Accroche h2 : percutante, jamais générique, chiffre ou fait concret si possible\n"
+            "- Chiffres précis partout : m², €/m²/an, CA, nombre de couverts, etc.\n"
+            "- INTERDIT : 'idéalement situé', 'rare sur le marché', 'bel emplacement', 'à saisir', 'opportunité unique'\n"
+            "- 180-250 mots au total, phrases courtes et rythmées\n"
+            "- Uniquement les balises <h2>, <p>, <strong> — rien d'autre\n"
+            "- Français impeccable, ton professionnel et vendeur\n\n"
             "DONNÉES DU BIEN :\n"
             f"- Opération : {operation}\n"
             f"- Type : {type_b}\n"
@@ -2921,8 +2924,8 @@ def annonce():
         gpt_payload = _json_an.dumps({
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 500,
-            "temperature": 0.72
+            "max_tokens": 650,
+            "temperature": 0.70
         }).encode()
         req_gpt = _ur_an.Request("https://api.openai.com/v1/chat/completions",
             data=gpt_payload, method="POST",
