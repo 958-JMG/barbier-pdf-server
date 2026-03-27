@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.48"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.49"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1382,11 +1382,12 @@ def _page2(c, d):
     _sec(c, titre_sec, 14*_mm, _H-32*_mm)
     desc = _safe(d.get("description"), "Description non disponible.")
     # Ligne d'accroche : première phrase isolée en teal bold
-    # Nettoyer les préfixes parasites type "À VENDRE — Fonds de commerce — Vannes"
+    # Nettoyer les suffixes parasites type "À VENDRE — Bureau — Carnac" dans la phrase
     import re as _re2
-    _desc_clean = _re2.sub(r'^[^\.:;!?]*\bVENDRE\b[^\.:;!?]*', '', desc.strip(), flags=_re2.IGNORECASE).strip()
-    _desc_clean = _re2.sub(r'^[^\.:;!?]*\bLOUER\b[^\.:;!?]*', '', _desc_clean.strip(), flags=_re2.IGNORECASE).strip()
-    # Si le nettoyage a tout effacé, utiliser la description originale
+    # Couper la 1ère phrase sur " À VENDRE" ou " À LOUER" s'ils apparaissent en milieu de phrase
+    _desc_clean = _re2.sub(r'\s+[ÀA]\s+VENDRE\b.*', '', desc.strip(), flags=_re2.IGNORECASE)
+    _desc_clean = _re2.sub(r'\s+[ÀA]\s+LOUER\b.*', '', _desc_clean.strip(), flags=_re2.IGNORECASE)
+    # Si le résultat est trop court, utiliser la description originale
     if len(_desc_clean) < 30:
         _desc_clean = desc.strip()
     _sentences = _re2.split(r'(?<=[.!?])\s+', _desc_clean)
@@ -1764,13 +1765,7 @@ def _page3(c, d):
     if str(etat).strip() not in ("", "nan", "None", "—"):
         carac_bien.append(("Etat", str(etat), "#1B5C3A"))
 
-    taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
-    if taxe and float(str(taxe).replace(" ","")) > 0:
-        try:
-            taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(","," ") + " EUR/an"
-        except Exception:
-            taxe_fmt = str(taxe)
-        carac_bien.append(("Taxe fonciere", taxe_fmt, "#5C1B3A"))
+    # Taxe foncière supprimée ici — affichée page 5 uniquement
 
     if carac_bien:
         carac_y = pt_y - 2*(card_h+3*_mm) - 10*_mm
@@ -2206,7 +2201,7 @@ def _page5(c, d):
     c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
     c.drawString(18*_mm, dvf_y-7*_mm, "POURQUOI CET ÉCART AVEC LES DVF ?")
     dvf_para.drawOn(c, 18*_mm, dvf_y - 11*_mm - dvf_h)
-    # Taxe foncière si disponible
+    # Taxe foncière si disponible — positionnée sous le bloc DVF
     taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
     if taxe:
         try:
@@ -2214,7 +2209,7 @@ def _page5(c, d):
         except Exception:
             taxe_fmt = str(taxe)
         c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#D1D8E8")); c.setLineWidth(0.5)
-        tf_y = ay - 58*_mm
+        tf_y = dvf_y - box_h_v - 5*_mm
         c.roundRect(14*_mm, tf_y, _W-28*_mm, 12*_mm, 2*_mm, fill=1, stroke=1)
         c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 7)
         c.drawString(18*_mm, tf_y+7.5*_mm, "TAXE FONCIÈRE ANNUELLE")
