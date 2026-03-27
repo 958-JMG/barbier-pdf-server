@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.40"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.41"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -4034,324 +4034,459 @@ def dossier_pptx():
 
 @app.route("/mandat", methods=["POST"])
 def generer_mandat():
-    import io as _io_m
+    import io as _io_m, re as _re_m
     from datetime import datetime as _dt_m
     from reportlab.pdfgen import canvas as _cv
     from reportlab.lib.pagesizes import A4 as _A4
     from reportlab.lib import colors as _rc
     from reportlab.lib.utils import ImageReader as _IR
-    from reportlab.platypus import Paragraph as _Para
+    from reportlab.platypus import Paragraph as _Para, Frame as _Frame
     from reportlab.lib.styles import ParagraphStyle as _PS
-    from reportlab.lib.enums import TA_LEFT as _TAL, TA_CENTER as _TAC, TA_JUSTIFY as _TAJ
+    from reportlab.lib.enums import TA_LEFT as _TAL, TA_CENTER as _TAC, TA_JUSTIFY as _TAJ, TA_RIGHT as _TAR
     from reportlab.lib.units import mm as _mm
 
     data = request.get_json(silent=True) or {}
 
-    # ── Constantes RESOLIMMO ──────────────────────────────────────────────
     MAND = {
         "societe": "RESOLIMMO", "forme": "SARL", "capital": "10 000",
         "adresse": "2 place Albert Einstein", "cp": "56000", "ville": "Vannes",
-        "tel": "+33297471111", "email": "contact@barbierimmobilier.com",
-        "rcs": "RCS VANNES n\u00b0 833871585", "tva": "FR93833871585",
-        "cpi": "CPI 5605 2018 000 027 030", "cpi_delivre": "MORBIHAN",
-        "rcpro": "MMA ENTREPRISE, 14 boulevard Albert Einstein Alexandre Oyon LE MANS",
-        "garantie": "GALIAN, 89 rue de la Bo\u00e9tie VANNES, n\u00b0 A11060563",
-        "sequestre": "00021578201 ouvert aupr\u00e8s CIC VANNES",
+        "tel": "+33 2 97 47 11 11", "email": "contact@barbierimmobilier.com",
+        "rcs": "RCS Vannes n\u00b0 833871585", "tva": "TVA FR93833871585",
+        "cpi": "CPI n\u00b0 5605 2018 000 027 030", "cpi_delivre": "Morbihan",
+        "rcpro": "MMA Entreprise \u2014 14 boulevard Albert Einstein Alexandre Oyon, Le Mans",
+        "garantie": "Galian \u2014 89 rue de la Bo\u00e9tie, Vannes \u2014 n\u00b0 A11060563",
+        "sequestre": "CIC Vannes \u2014 n\u00b0 00021578201",
     }
     NEGO_MAP = {
         "Marina": "Marina LE PALLEC", "Ma\u00efwen": "Ma\u00efwen LE GALL",
         "Am\u00e9lie": "Am\u00e9lie PATARD", "Sophie": "Sophie NICOL",
         "Marie": "Marie GAUTHERET", "Laurent": "Laurent BARADU",
     }
+    MOIS = ["janvier","f\u00e9vrier","mars","avril","mai","juin",
+            "juillet","ao\u00fbt","septembre","octobre","novembre","d\u00e9cembre"]
 
-    num_mandat   = data.get("num_mandat", "____")
-    date_sig     = data.get("date_signature", _dt_m.today().strftime("%d/%m/%Y"))
-    type_mandat  = data.get("type_mandat", "Simple")
-    duree_mois   = data.get("duree_mois", 12)
-    negociatrice = NEGO_MAP.get(data.get("negociatrice", ""), data.get("negociatrice", "Marina LE PALLEC"))
-    mandant_type    = data.get("mandant_type", "physique")
-    mandant_nom     = data.get("mandant_nom", "")
-    mandant_adresse = data.get("mandant_adresse", "")
-    mandant_cp      = data.get("mandant_cp", "")
-    mandant_ville   = data.get("mandant_ville", "")
-    mandant_societe = data.get("mandant_societe", "")
-    mandant_siren   = data.get("mandant_siren", "")
-    mandant_forme   = data.get("mandant_forme", "")
-    mandant_capital = data.get("mandant_capital", "")
-    mandant_repr    = data.get("mandant_representant", "")
-    bien_adresse    = data.get("bien_adresse", "")
-    bien_desc       = data.get("bien_description", "")
-    bien_occup      = data.get("bien_occupation", "Libre")
+    def fmt_date(s):
+        try:
+            dt = _dt_m.strptime(str(s).strip(), "%Y-%m-%d")
+            return f"{dt.day} {MOIS[dt.month-1]} {dt.year}"
+        except:
+            return str(s)
 
     def fmt_prix(v):
         try: return f"{int(float(str(v).replace(' ','').replace(',','.'))):,}".replace(",", " ") + " \u20ac"
         except: return str(v) if v else "\u2014"
 
-    prix_net   = fmt_prix(data.get("prix_net_vendeur", ""))
-    prix_vente = fmt_prix(data.get("prix_de_vente", ""))
-    honoraires = fmt_prix(data.get("honoraires", ""))
-    hon_charge = data.get("honoraires_charge", "Acqu\u00e9reur")
+    def clean_desc(s):
+        """Nettoie la description : retire les // et dupliqués de prix"""
+        if not s: return ""
+        s = _re_m.sub(r'\s*//\s*', '\n', s)
+        s = _re_m.sub(r'#\w[\w-]*', '', s)
+        s = _re_m.sub(r'&nbsp;', '', s)
+        s = _re_m.sub(r' +', ' ', s)
+        return s.strip()
 
-    # ── Couleurs charte Barbier ───────────────────────────────────────────
+    num_mandat   = data.get("num_mandat", "____")
+    date_sig_raw = data.get("date_signature", _dt_m.today().strftime("%Y-%m-%d"))
+    date_sig     = fmt_date(date_sig_raw)
+    type_mandat  = data.get("type_mandat", "Simple")
+    duree_mois   = data.get("duree_mois", 12)
+    negociatrice = NEGO_MAP.get(data.get("negociatrice", ""), data.get("negociatrice", "Marina LE PALLEC"))
+    mandant_type    = data.get("mandant_type", "physique")
+    mandant_nom     = data.get("mandant_nom", "").strip()
+    mandant_adresse = data.get("mandant_adresse", "").strip()
+    mandant_cp      = data.get("mandant_cp", "").strip()
+    mandant_ville   = data.get("mandant_ville", "").strip()
+    mandant_societe = data.get("mandant_societe", "").strip()
+    mandant_siren   = data.get("mandant_siren", "").strip()
+    mandant_forme   = data.get("mandant_forme", "").strip()
+    mandant_capital = data.get("mandant_capital", "").strip()
+    mandant_repr    = data.get("mandant_representant", "").strip()
+    bien_adresse    = data.get("bien_adresse", "").strip()
+    bien_desc       = clean_desc(data.get("bien_description", ""))[:600]
+    bien_occup      = data.get("bien_occupation", "Libre")
+    prix_net        = fmt_prix(data.get("prix_net_vendeur", ""))
+    prix_vente      = fmt_prix(data.get("prix_de_vente", ""))
+    honoraires      = fmt_prix(data.get("honoraires", ""))
+    hon_charge      = data.get("honoraires_charge", "Acqu\u00e9reur")
+
+    # ── Couleurs charte ───────────────────────────────────────────────────
     TEAL   = _rc.HexColor("#16708B")
     ORANGE = _rc.HexColor("#F0795B")
     DARK   = _rc.HexColor("#1A2E3B")
-    GRIS   = _rc.HexColor("#F4F5F7")
-    GRIS2  = _rc.HexColor("#E0E6EA")
+    GRIS   = _rc.HexColor("#F0F4F6")
+    GRIS2  = _rc.HexColor("#D8E2E8")
     WHITE  = _rc.white
-    BLACK  = _rc.black
 
     PW, PH = _A4
-    ML = 20 * _mm
-    MR = 20 * _mm
-    MT = 22 * _mm
-    MB = 20 * _mm
-    CW = PW - ML - MR
+    ML = 22*_mm; MR = 22*_mm; CW = PW - ML - MR
+    FOOTER_H = 12*_mm
+    HEADER_H = 14*_mm
 
     buf = _io_m.BytesIO()
     c = _cv.Canvas(buf, pagesize=_A4)
+    page_num = [1]
 
-    def new_page():
-        c.showPage()
-        # Header sur chaque page
-        _draw_header_mandat(c)
-
-    def _draw_header_mandat(cv):
-        # Bande bleue en haut
+    def draw_header(cv):
         cv.setFillColor(TEAL)
-        cv.rect(0, PH - 14*_mm, PW, 14*_mm, fill=1, stroke=0)
-        # Logo Barbier
+        cv.rect(0, PH - HEADER_H, PW, HEADER_H, fill=1, stroke=0)
         try:
-            logo_h = 10 * _mm
-            logo_w = logo_h * (488/662)
-            logo_buf = _io_m.BytesIO(base64.b64decode(LOGO_B64))
-            cv.drawImage(_IR(logo_buf), ML, PH - 12*_mm, width=logo_w, height=logo_h,
-                        mask='auto', preserveAspectRatio=True)
+            lh = 9*_mm; lw = lh*(488/662)
+            lb = _io_m.BytesIO(base64.b64decode(LOGO_B64))
+            cv.drawImage(_IR(lb), ML, PH - HEADER_H + 2.5*_mm, width=lw, height=lh, mask='auto')
         except: pass
-        # Texte droite dans la bande
         cv.setFillColor(WHITE)
-        cv.setFont("Helvetica-Bold", 9)
-        cv.drawRightString(PW - MR, PH - 7*_mm, f"MANDAT {type_mandat.upper()} DE VENTE N\u00b0 {num_mandat}")
-        cv.setFont("Helvetica", 7.5)
-        cv.drawRightString(PW - MR, PH - 11*_mm, f"barbierimmobilier.com  \u00b7  +33 2 97 47 11 11")
+        cv.setFont("Helvetica-Bold", 8.5)
+        cv.drawRightString(PW - MR, PH - 6*_mm, f"MANDAT {type_mandat.upper()} DE VENTE N\u00b0 {num_mandat}")
+        cv.setFont("Helvetica", 7)
+        cv.drawRightString(PW - MR, PH - 10*_mm, "barbierimmobilier.com  \u00b7  +33 2 97 47 11 11")
 
-    def hline(cv, x, y, w, color=TEAL, t=1):
-        cv.setStrokeColor(color)
-        cv.setLineWidth(t)
-        cv.line(x, y, x + w, y)
-
-    def sec_box(cv, x, y, w, txt, h=7*_mm):
+    def draw_footer(cv, pg):
         cv.setFillColor(TEAL)
-        cv.roundRect(x, y - h, w, h, 2, fill=1, stroke=0)
+        cv.rect(0, 0, PW, FOOTER_H, fill=1, stroke=0)
         cv.setFillColor(WHITE)
-        cv.setFont("Helvetica-Bold", 9)
-        cv.drawString(x + 6, y - h + 2.5*_mm, txt)
-        return y - h - 3*_mm
+        cv.setFont("Helvetica", 7)
+        cv.drawCentredString(PW/2, FOOTER_H - 5*_mm,
+            f"Paraphes — Page {pg}  \u00b7  Fait \u00e0 Vannes, le {date_sig}  \u00b7  1 exemplaire pour chaque partie")
+        cv.setFont("Helvetica", 6.5)
+        cv.drawCentredString(PW/2, FOOTER_H - 9*_mm, "barbier immobilier  \u00b7  2 place Albert Einstein, 56000 Vannes  \u00b7  barbierimmobilier.com")
 
-    def wrap_text(cv, txt, x, y, w, font="Helvetica", size=8.5, leading=13, color=BLACK):
+    def new_page(cv):
+        draw_footer(cv, page_num[0])
+        cv.showPage()
+        page_num[0] += 1
+        draw_header(cv)
+
+    def hline(cv, x, y, w, col=TEAL, t=0.5):
+        cv.setStrokeColor(col); cv.setLineWidth(t)
+        cv.line(x, y, x+w, y)
+
+    def sec_box(cv, x, y, w, txt):
+        """Boîte de section teal — retourne y après la boîte"""
+        bh = 7.5*_mm
+        cv.setFillColor(TEAL)
+        cv.roundRect(x, y - bh, w, bh, 2, fill=1, stroke=0)
+        cv.setFillColor(WHITE)
+        cv.setFont("Helvetica-Bold", 8.5)
+        cv.drawString(x + 6, y - bh + 2.5*_mm, txt)
+        return y - bh - 4*_mm
+
+    def draw_para(cv, txt, x, y, w, font="Helvetica", size=8.5, leading=13.5,
+                  color=DARK, align=_TAJ, bold_font="Helvetica-Bold"):
+        """Dessine un paragraphe et retourne le y après le texte."""
         if not txt: return y
-        style = _PS("t", fontName=font, fontSize=size, leading=leading,
-                    textColor=color, alignment=_TAJ)
+        style = _PS("p", fontName=font, fontSize=size, leading=leading,
+                    textColor=color, alignment=align)
         p = _Para(txt, style)
         aw, ah = p.wrap(w, 9999)
+        if y - ah < FOOTER_H + 15*_mm:
+            new_page(cv)
+            y = PH - HEADER_H - 12*_mm
         p.drawOn(cv, x, y - ah)
-        return y - ah - 3
+        return y - ah
 
-    def kv(cv, x, y, label, value, lw=55*_mm):
-        cv.setFont("Helvetica-Bold", 8)
+    def kv(cv, x, y, label, value):
+        cv.setFont("Helvetica-Bold", 8.5)
         cv.setFillColor(DARK)
         cv.drawString(x, y, label)
-        cv.setFont("Helvetica", 8)
-        cv.setFillColor(BLACK)
-        cv.drawString(x + lw, y, value)
-        return y - 5*_mm
+        cv.setFont("Helvetica", 8.5)
+        cv.setFillColor(_rc.HexColor("#3A3A4A"))
+        cv.drawString(x + 52*_mm, y, value)
+        return y - 6*_mm
+
+    def mandant_box(cv, x, y, w):
+        """Bloc mandant — retourne y après le bloc"""
+        lines = []
+        if mandant_type == "morale":
+            lines.append(("bold", mandant_societe))
+            sub = mandant_forme
+            if mandant_capital: sub += f" \u2014 Capital {mandant_capital} \u20ac"
+            if mandant_siren: sub += f" \u2014 SIREN {mandant_siren}"
+            lines.append(("normal", sub))
+            if mandant_repr: lines.append(("normal", f"Repr\u00e9sentant : {mandant_repr}"))
+            if mandant_adresse: lines.append(("normal", f"{mandant_adresse}, {mandant_cp} {mandant_ville}"))
+            if mandant_nom: lines.append(("normal", f"Contact : {mandant_nom}"))
+        else:
+            lines.append(("bold", mandant_nom))
+            if mandant_adresse: lines.append(("normal", f"{mandant_adresse}, {mandant_cp} {mandant_ville}"))
+
+        n_lines = len(lines)
+        bh = (n_lines * 6 + 16) * _mm / 3.78 + 14
+        bh = max(bh, 20*_mm)
+        cv.setFillColor(GRIS)
+        cv.roundRect(x, y - bh, w, bh, 3, fill=1, stroke=0)
+        cv.setFillColor(TEAL)
+        cv.setFont("Helvetica-Bold", 7.5)
+        cv.drawString(x + 5, y - 5*_mm, "LE MANDANT")
+        ty = y - 9.5*_mm
+        for style, txt in lines:
+            if style == "bold":
+                cv.setFont("Helvetica-Bold", 9.5)
+                cv.setFillColor(DARK)
+            else:
+                cv.setFont("Helvetica", 8.5)
+                cv.setFillColor(_rc.HexColor("#3A3A4A"))
+            cv.drawString(x + 5, ty, txt)
+            ty -= 5.5*_mm
+        cv.setFillColor(DARK)
+        cv.setFont("Helvetica-Oblique", 7.5)
+        cv.drawString(x + 5, y - bh + 3*_mm, "Ci-apr\u00e8s \u00ab le MANDANT \u00bb, D'UNE PART,")
+        return y - bh - 5*_mm
+
+    def mandataire_box(cv, x, y, w):
+        """Bloc mandataire — retourne y après le bloc"""
+        lines_m = [
+            ("bold", f"barbier immobilier \u2014 {MAND['societe']} ({MAND['forme']}, capital {MAND['capital']} \u20ac)"),
+            ("normal", f"{MAND['adresse']}, {MAND['cp']} {MAND['ville']}  \u00b7  {MAND['tel']}  \u00b7  {MAND['email']}"),
+            ("normal", f"{MAND['rcs']}  \u00b7  {MAND['tva']}"),
+            ("normal", f"Carte pro : {MAND['cpi']} d\u00e9livr\u00e9e par {MAND['cpi_delivre']}"),
+            ("normal", f"RC Pro : {MAND['rcpro']}"),
+            ("normal", f"Garantie : {MAND['garantie']}"),
+            ("normal", f"S\u00e9questre : {MAND['sequestre']}"),
+            ("bold_teal", f"Repr\u00e9sent\u00e9e par {negociatrice}, salari\u00e9(e) habilit\u00e9(e)"),
+        ]
+        bh = len(lines_m) * 5.2*_mm + 14*_mm
+        cv.setFillColor(_rc.HexColor("#EAF3F7"))
+        cv.roundRect(x, y - bh, w, bh, 3, fill=1, stroke=0)
+        cv.setFillColor(TEAL)
+        cv.setFont("Helvetica-Bold", 7.5)
+        cv.drawString(x + 5, y - 5*_mm, "LE MANDATAIRE \u2014 barbier immobilier")
+        ty = y - 9.5*_mm
+        for style, txt in lines_m:
+            if style == "bold":
+                cv.setFont("Helvetica-Bold", 8.5)
+                cv.setFillColor(DARK)
+            elif style == "bold_teal":
+                cv.setFont("Helvetica-Bold", 8.5)
+                cv.setFillColor(TEAL)
+            else:
+                cv.setFont("Helvetica", 8)
+                cv.setFillColor(_rc.HexColor("#3A3A4A"))
+            cv.drawString(x + 5, ty, txt)
+            ty -= 5.2*_mm
+        cv.setFillColor(DARK)
+        cv.setFont("Helvetica-Oblique", 7.5)
+        cv.drawString(x + 5, y - bh + 3*_mm, "Ci-apr\u00e8s \u00ab le MANDATAIRE \u00bb, D'AUTRE PART,")
+        return y - bh - 5*_mm
 
     # ── PAGE 1 ────────────────────────────────────────────────────────────
-    _draw_header_mandat(c)
-    y = PH - MT - 14*_mm
+    draw_header(c)
+    y = PH - HEADER_H - 10*_mm
 
-    # Titre principal
+    # Titre
     c.setFillColor(DARK)
-    c.setFont("Helvetica-Bold", 16)
+    c.setFont("Helvetica-Bold", 20)
     c.drawString(ML, y, f"MANDAT {type_mandat.upper()} DE VENTE")
-    c.setFont("Helvetica", 9)
+    y -= 7*_mm
     c.setFillColor(TEAL)
-    c.drawString(ML, y - 6*_mm, f"N\u00b0 {num_mandat}  \u00b7  Sign\u00e9 le {date_sig}  \u00b7  Dur\u00e9e : {duree_mois} mois")
-    hline(c, ML, y - 9*_mm, CW, ORANGE, 2)
-    y -= 16*_mm
+    c.setFont("Helvetica", 9)
+    c.drawString(ML, y, f"N\u00b0\u00a0{num_mandat}  \u00b7  Sign\u00e9 le {date_sig}  \u00b7  Dur\u00e9e\u00a0:\u00a0{duree_mois}\u00a0mois")
+    y -= 3*_mm
+    c.setStrokeColor(ORANGE); c.setLineWidth(2.5)
+    c.line(ML, y, ML + CW, y)
+    y -= 9*_mm
 
-    # ── ENTRE LES SOUSSIGNÉS ─────────────────────────────────────────────
+    # Entre les soussignés
     c.setFillColor(DARK)
-    c.setFont("Helvetica-Bold", 10)
+    c.setFont("Helvetica-Bold", 10.5)
     c.drawString(ML, y, "ENTRE LES SOUSSIGN\u00c9S")
-    hline(c, ML, y - 2*_mm, CW, TEAL, 0.5)
+    y -= 3*_mm
+    hline(c, ML, y, CW, TEAL, 0.5)
     y -= 7*_mm
 
-    # Bloc Mandant
-    box_h = 32*_mm if mandant_type == "morale" else 22*_mm
-    c.setFillColor(GRIS)
-    c.roundRect(ML, y - box_h, CW, box_h, 3, fill=1, stroke=0)
-    c.setFillColor(TEAL)
-    c.setFont("Helvetica-Bold", 8)
-    c.drawString(ML + 4, y - 5*_mm, "LE MANDANT")
-    c.setFillColor(BLACK)
-    c.setFont("Helvetica", 8.5)
-    ty = y - 10*_mm
-    if mandant_type == "morale":
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(ML + 4, ty, mandant_societe)
-        c.setFont("Helvetica", 8.5)
-        ty -= 5*_mm
-        line2 = mandant_forme + (f" \u2014 Capital {mandant_capital} \u20ac" if mandant_capital else "") + (f" \u2014 SIREN {mandant_siren}" if mandant_siren else "")
-        if line2: c.drawString(ML + 4, ty, line2); ty -= 5*_mm
-        if mandant_repr: c.drawString(ML + 4, ty, f"Repr\u00e9sentant : {mandant_repr}"); ty -= 5*_mm
-        if mandant_adresse: c.drawString(ML + 4, ty, f"{mandant_adresse}, {mandant_cp} {mandant_ville}")
-    else:
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(ML + 4, ty, mandant_nom)
-        c.setFont("Helvetica", 8.5)
-        if mandant_adresse:
-            ty -= 5*_mm
-            c.drawString(ML + 4, ty, f"Demeurant : {mandant_adresse}, {mandant_cp} {mandant_ville}")
-    c.setFillColor(DARK)
-    c.setFont("Helvetica-BoldOblique", 7.5)
-    c.drawString(ML + 4, y - box_h + 3*_mm, "Ci-apr\u00e8s \u00ab le MANDANT \u00bb, D'UNE PART,")
-    y -= box_h + 3*_mm
+    y = mandant_box(c, ML, y, CW)
+    y = mandataire_box(c, ML, y, CW)
+    y -= 2*_mm
 
-    # Bloc Mandataire
-    mand_txt = (f"{MAND['societe']} ({MAND['forme']}, capital {MAND['capital']} \u20ac) \u2014 {MAND['rcs']} \u2014 "
-                f"{MAND['adresse']}, {MAND['cp']} {MAND['ville']} \u2014 "
-                f"CPI n\u00b0 {MAND['cpi']} d\u00e9livr\u00e9 par {MAND['cpi_delivre']} \u2014 "
-                f"RC Pro : {MAND['rcpro']} \u2014 "
-                f"Garantie : {MAND['garantie']} \u2014 "
-                f"S\u00e9questre n\u00b0 {MAND['sequestre']} \u2014 "
-                f"Repr\u00e9sent\u00e9e par <b>{negociatrice}</b>, salari\u00e9(e) habilit\u00e9(e)")
-    box_h2 = 28*_mm
-    c.setFillColor(_rc.HexColor("#EAF3F7"))
-    c.roundRect(ML, y - box_h2, CW, box_h2, 3, fill=1, stroke=0)
-    c.setFillColor(TEAL)
-    c.setFont("Helvetica-Bold", 8)
-    c.drawString(ML + 4, y - 5*_mm, "LE MANDATAIRE \u2014 barbier immobilier")
-    style_box = _PS("mb", fontName="Helvetica", fontSize=7.5, leading=11,
-                    textColor=_rc.HexColor("#1A2E3B"), alignment=_TAJ)
-    p = _Para(mand_txt, style_box)
-    p.wrap(CW - 8, 9999)
-    p.drawOn(c, ML + 4, y - box_h2 + 4*_mm)
+    # Il a été convenu
     c.setFillColor(DARK)
-    c.setFont("Helvetica-BoldOblique", 7.5)
-    c.drawString(ML + 4, y - box_h2 + 1.5*_mm, "Ci-apr\u00e8s \u00ab le MANDATAIRE \u00bb, D'AUTRE PART,")
-    y -= box_h2 + 5*_mm
+    c.setFont("Helvetica-BoldOblique", 9)
+    c.drawString(ML, y, "Il a \u00e9t\u00e9 convenu et arr\u00eat\u00e9 ce qui suit")
+    hline(c, ML, y - 2*_mm, CW, ORANGE, 1)
+    y -= 8*_mm
+    y = draw_para(c,
+        f"Par les pr\u00e9sentes, <b>le MANDANT conf\u00e8re au MANDATAIRE, qui l'accepte, le mandat {type_mandat.lower()} "
+        f"de vendre le bien ci-apr\u00e8s d\u00e9sign\u00e9 aux prix, charges et conditions convenus ci-dessous.</b>",
+        ML, y, CW)
+    y -= 8*_mm
 
-    # ── BIEN DÉSIGNÉ ──────────────────────────────────────────────────────
+    # ── DÉSIGNATION DU BIEN ───────────────────────────────────────────────
     y = sec_box(c, ML, y, CW, "D\u00c9SIGNATION DU BIEN \u00c0 VENDRE")
     y = kv(c, ML, y, "Adresse :", bien_adresse)
+    y -= 2*_mm
     if bien_desc:
-        c.setFont("Helvetica-Bold", 8)
+        c.setFont("Helvetica-Bold", 8.5)
+        c.setFillColor(DARK)
         c.drawString(ML, y, "Description :")
-        y -= 4*_mm
-        y = wrap_text(c, bien_desc[:400], ML, y, CW)
+        y -= 5*_mm
+        y = draw_para(c, bien_desc, ML + 4, y, CW - 4, size=8.5)
+        y -= 2*_mm
     y = kv(c, ML, y, "\u00c9tat d'occupation :", bien_occup)
-    y -= 3*_mm
-
-    # ── PRIX & HONORAIRES ────────────────────────────────────────────────
-    y = sec_box(c, ML, y, CW, "PRIX DE VENTE & HONORAIRES")
-    y = kv(c, ML, y, "Prix net vendeur :", prix_net)
-    y = kv(c, ML, y, "Prix de vente TTC :", prix_vente)
-    y = kv(c, ML, y, "Honoraires HT :", honoraires + f"  (\u00e0 la charge de : {hon_charge})")
-    c.setFont("Helvetica-Bold", 7.5)
-    c.setFillColor(DARK)
-    c.drawString(ML, y, "Le prix sera r\u00e9gl\u00e9 comptant au plus tard le jour de la signature de l'acte d\u00e9finitif de vente.")
-    y -= 10*_mm
-
-    # ── DURÉE ─────────────────────────────────────────────────────────────
-    y = sec_box(c, ML, y, CW, "DUR\u00c9E DU MANDAT")
-    dur_txt = (f"Le pr\u00e9sent mandat est consenti pour une dur\u00e9e de <b>{duree_mois} mois</b> "
-               f"\u00e0 compter du <b>{date_sig}</b>. "
-               "Il se renouvelle par tacite reconduction par p\u00e9riodes d'un mois, "
-               "sauf d\u00e9nonciation par lettre recommand\u00e9e avec accus\u00e9 de r\u00e9ception "
-               "au moins 15 jours avant l'\u00e9ch\u00e9ance.")
-    y = wrap_text(c, dur_txt, ML, y, CW)
-    y -= 3*_mm
-
-    # PAGE 2 si besoin de place
-    if y < 80*_mm:
-        new_page()
-        y = PH - MT - 14*_mm - 5*_mm
-
-    # ── CONDITIONS GÉNÉRALES ─────────────────────────────────────────────
-    y = sec_box(c, ML, y, CW, "CONDITIONS G\u00c9N\u00c9RALES")
-    cg_txt = ("Le MANDANT d\u00e9clare avoir la capacit\u00e9 juridique de disposer desdits biens "
-              "et s'engage \u00e0 remettre au MANDATAIRE dans les 8 jours tous documents n\u00e9cessaires "
-              "(titre de propri\u00e9t\u00e9, diagnostics, certificats). "
-              "Le MANDANT s'interdit, pendant la dur\u00e9e du mandat et durant les 12 mois suivant "
-              "sa r\u00e9vocation ou son expiration, de traiter directement ou indirectement avec "
-              "une personne pr\u00e9sent\u00e9e par le MANDATAIRE. "
-              "EN CAS DE MANQUEMENT, le MANDANT s'oblige \u00e0 verser au MANDATAIRE une indemnit\u00e9 "
-              "\u00e9gale au montant total TTC de la r\u00e9mun\u00e9ration pr\u00e9vue.")
-    y = wrap_text(c, cg_txt, ML, y, CW)
-    y -= 3*_mm
-
-    # ── RGPD + NON-DISCRIMINATION ─────────────────────────────────────────
-    y = sec_box(c, ML, y, CW, "DONN\u00c9ES PERSONNELLES & NON-DISCRIMINATION")
-    rgpd_txt = ("Les donn\u00e9es collect\u00e9es sont trait\u00e9es pour l'ex\u00e9cution du contrat et conserv\u00e9es "
-                "pendant la dur\u00e9e l\u00e9gale applicable. "
-                "\u2610 <b>En cochant cette case, le MANDANT accepte express\u00e9ment le traitement de ses donn\u00e9es.</b> "
-                "Les parties s'engagent \u00e0 n'opposer aucun refus discriminatoire \u00e0 un candidat \u00e0 l'acquisition.")
-    y = wrap_text(c, rgpd_txt, ML, y, CW)
-    y -= 5*_mm
-
-    # ── SIGNATURES ────────────────────────────────────────────────────────
-    if y < 55*_mm:
-        new_page()
-        y = PH - MT - 14*_mm - 5*_mm
-
-    hline(c, ML, y, CW, GRIS2, 1)
     y -= 6*_mm
 
-    sig_w = (CW - 10*_mm) / 2
-    # Colonne gauche — Mandant
+    # ── PRIX & HONORAIRES ─────────────────────────────────────────────────
+    if y < FOOTER_H + 55*_mm:
+        new_page(c); y = PH - HEADER_H - 12*_mm
+
+    y = sec_box(c, ML, y, CW, "PRIX DE VENTE \u2014 HONORAIRES DU MANDATAIRE")
+
+    # Tableau prix
+    col_w = (CW - 4) / 3
+    rows = [
+        ("Prix net vendeur", prix_net),
+        ("Prix de vente TTC", prix_vente),
+        (f"Honoraires HT ({hon_charge})", honoraires),
+    ]
+    for label, val in rows:
+        c.setFillColor(GRIS)
+        c.roundRect(ML, y - 7*_mm, CW, 7*_mm, 2, fill=1, stroke=0)
+        c.setFillColor(DARK)
+        c.setFont("Helvetica-Bold", 8.5)
+        c.drawString(ML + 5, y - 4.5*_mm, label)
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(TEAL)
+        c.drawRightString(ML + CW - 5, y - 4.5*_mm, val)
+        y -= 8*_mm
+    y -= 2*_mm
+    y = draw_para(c,
+        "<b>Le prix sera r\u00e9gl\u00e9 comptant au plus tard le jour de la signature de l\u2019acte d\u00e9finitif de vente.</b> "
+        "Le MANDANT est inform\u00e9 qu\u2019il pourra le cas \u00e9ch\u00e9ant \u00eatre assujetti \u00e0 l\u2019imp\u00f4t sur les plus-values immobili\u00e8res.",
+        ML, y, CW, size=8.5)
+    y -= 8*_mm
+
+    # ── DURÉE ─────────────────────────────────────────────────────────────
+    if y < FOOTER_H + 40*_mm:
+        new_page(c); y = PH - HEADER_H - 12*_mm
+
+    y = sec_box(c, ML, y, CW, "DUR\u00c9E DU MANDAT")
+    y = draw_para(c,
+        f"Le pr\u00e9sent mandat est consenti pour une dur\u00e9e de <b>{duree_mois} mois</b> "
+        f"\u00e0 compter de sa signature, soit \u00e0 partir du <b>{date_sig}</b>. "
+        "Il se renouvelle par tacite reconduction par p\u00e9riodes d\u2019un mois, "
+        "sauf d\u00e9nonciation par l\u2019une des parties par lettre recommand\u00e9e avec accus\u00e9 de r\u00e9ception, "
+        "adress\u00e9e au moins 15 jours avant l\u2019expiration de la p\u00e9riode en cours.",
+        ML, y, CW, size=8.5)
+    y -= 8*_mm
+
+    # ── PAGE 2 — CONDITIONS GÉNÉRALES ─────────────────────────────────────
+    draw_footer(c, page_num[0])
+    c.showPage()
+    page_num[0] += 1
+    draw_header(c)
+    y = PH - HEADER_H - 12*_mm
+
+    y = sec_box(c, ML, y, CW, "CONDITIONS G\u00c9N\u00c9RALES DU MANDAT")
+    y = draw_para(c,
+        "Le MANDANT d\u00e9clare avoir la capacit\u00e9 juridique de disposer desdits biens et ne faire l\u2019objet "
+        "d\u2019aucune mesure restreignant sa capacit\u00e9 \u00e0 agir (tutelle, curatelle, etc.).",
+        ML, y, CW, size=8.5)
+    y -= 4*_mm
+    y = draw_para(c,
+        "Le MANDANT s\u2019engage \u00e0 remettre au MANDATAIRE dans les 8 jours suivant la signature du pr\u00e9sent mandat "
+        "tous les documents n\u00e9cessaires \u00e0 l\u2019ex\u00e9cution de son mandat : titre de propri\u00e9t\u00e9, diagnostics, "
+        "certificats et justificatifs rendus obligatoires.",
+        ML, y, CW, size=8.5)
+    y -= 4*_mm
+    y = draw_para(c,
+        "Le MANDANT s\u2019interdit, pendant la dur\u00e9e du mandat et durant les 12 mois suivant sa r\u00e9vocation ou son expiration, "
+        "de traiter directement ou indirectement avec une personne pr\u00e9sent\u00e9e par le MANDATAIRE. "
+        "<b>En cas de manquement, le MANDANT s\u2019oblige \u00e0 verser au MANDATAIRE une indemnit\u00e9 "
+        "\u00e9gale au montant total TTC de la r\u00e9mun\u00e9ration pr\u00e9vue, \u00e0 titre d\u2019indemnit\u00e9 forfaitaire et d\u00e9finitive.</b>",
+        ML, y, CW, size=8.5)
+    y -= 8*_mm
+
+    y = sec_box(c, ML, y, CW, "ACTIONS COMMERCIALES DU MANDATAIRE")
+    y = draw_para(c,
+        "Le MANDATAIRE s\u2019engage \u00e0 r\u00e9aliser \u00e0 ses frais les actions de communication suivantes : "
+        "diffusion sur les portails immobiliers professionnels sp\u00e9cialis\u00e9s, pr\u00e9sentation aux acquitteurs "
+        "du r\u00e9seau Barbier Immobilier, communication digitale et print adapt\u00e9e au bien.",
+        ML, y, CW, size=8.5)
+    y -= 8*_mm
+
+    y = sec_box(c, ML, y, CW, "INFORMATIONS TRACFIN")
+    y = draw_para(c,
+        "Le MANDATAIRE informe le MANDANT qu\u2019il est tenu de se conformer aux dispositions de l\u2019article L.\u00a0562-1 "
+        "du code mon\u00e9taire et financier, relatives au traitement du renseignement et \u00e0 l\u2019action contre "
+        "les circuits financiers clandestins d\u00e9di\u00e9es \u00e0 la lutte contre le blanchiment d\u2019argent.",
+        ML, y, CW, size=8.5)
+    y -= 8*_mm
+
+    y = sec_box(c, ML, y, CW, "ENGAGEMENT DE NON-DISCRIMINATION")
+    y = draw_para(c,
+        "Les parties prennent l\u2019engagement expr\u00e8s de n\u2019opposer \u00e0 aucun candidat \u00e0 l\u2019acquisition "
+        "des pr\u00e9sents biens un refus fond\u00e9 sur un motif discriminatoire au sens de la l\u00e9gislation en vigueur.",
+        ML, y, CW, size=8.5)
+    y -= 8*_mm
+
+    y = sec_box(c, ML, y, CW, "DONN\u00c9ES PERSONNELLES")
+    y = draw_para(c,
+        "Le MANDANT est inform\u00e9 que les donn\u00e9es \u00e0 caract\u00e8re personnel le concernant seront trait\u00e9es "
+        "pour l\u2019ex\u00e9cution du contrat et conserv\u00e9es pendant la dur\u00e9e l\u00e9gale applicable. "
+        "\u2610\u00a0<b>En cochant cette case, le MANDANT accepte express\u00e9ment le traitement de ses donn\u00e9es.</b>",
+        ML, y, CW, size=8.5)
+    y -= 8*_mm
+
+    y = sec_box(c, ML, y, CW, "\u00c9LECTION DE DOMICILE")
+    y = draw_para(c,
+        "Les parties soussign\u00e9es font \u00e9lection de domicile chacune \u00e0 leur adresse respective "
+        "stipul\u00e9e en t\u00eate du pr\u00e9sent mandat.",
+        ML, y, CW, size=8.5)
+    y -= 12*_mm
+
+    # ── SIGNATURES ─────────────────────────────────────────────────────────
+    # On les colle en bas de page 2, en les forçant à rester ensemble
+    SIG_H = 38*_mm
+    if y < FOOTER_H + SIG_H + 10*_mm:
+        draw_footer(c, page_num[0])
+        c.showPage()
+        page_num[0] += 1
+        draw_header(c)
+        y = PH - HEADER_H - 20*_mm
+
+    hline(c, ML, y, CW, GRIS2, 1)
+    y -= 8*_mm
+
+    sig_w = (CW - 8*_mm) / 2
+
+    # Bloc mandant
     c.setFillColor(GRIS)
-    c.roundRect(ML, y - 30*_mm, sig_w, 30*_mm, 3, fill=1, stroke=0)
-    c.setFont("Helvetica-Bold", 8)
+    c.roundRect(ML, y - SIG_H, sig_w, SIG_H, 3, fill=1, stroke=0)
     c.setFillColor(TEAL)
-    c.drawString(ML + 4, y - 5*_mm, "LE MANDANT")
-    c.setFont("Helvetica", 8)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(ML + 5, y - 6*_mm, "LE MANDANT")
+    c.setFont("Helvetica-Bold", 9.5)
     c.setFillColor(DARK)
-    c.drawString(ML + 4, y - 10*_mm, mandant_nom or mandant_societe)
+    c.drawString(ML + 5, y - 12*_mm, mandant_nom or mandant_societe)
+    if mandant_adresse:
+        c.setFont("Helvetica", 8)
+        c.setFillColor(_rc.HexColor("#3A3A4A"))
+        c.drawString(ML + 5, y - 17*_mm, f"{mandant_adresse}, {mandant_cp} {mandant_ville}")
+    c.setFillColor(_rc.HexColor("#888888"))
     c.setFont("Helvetica", 7.5)
-    c.setFillColor(_rc.HexColor("#666666"))
-    c.drawString(ML + 4, y - 28*_mm, "Signature :")
+    c.drawString(ML + 5, y - SIG_H + 6*_mm, "Lu et approuv\u00e9 \u2014 Signature :")
 
-    # Colonne droite — Mandataire
+    # Bloc mandataire
+    bx2 = ML + sig_w + 8*_mm
     c.setFillColor(_rc.HexColor("#EAF3F7"))
-    c.roundRect(ML + sig_w + 10*_mm, y - 30*_mm, sig_w, 30*_mm, 3, fill=1, stroke=0)
+    c.roundRect(bx2, y - SIG_H, sig_w, SIG_H, 3, fill=1, stroke=0)
+    c.setFillColor(TEAL)
     c.setFont("Helvetica-Bold", 8)
-    c.setFillColor(TEAL)
-    c.drawString(ML + sig_w + 10*_mm + 4, y - 5*_mm, "LE MANDATAIRE")
-    c.setFont("Helvetica", 8)
+    c.drawString(bx2 + 5, y - 6*_mm, "LE MANDATAIRE")
+    c.setFont("Helvetica-Bold", 9.5)
     c.setFillColor(DARK)
-    c.drawString(ML + sig_w + 10*_mm + 4, y - 10*_mm, "barbier immobilier")
-    c.setFont("Helvetica", 8)
-    c.drawString(ML + sig_w + 10*_mm + 4, y - 15*_mm, negociatrice)
-    c.setFont("Helvetica", 7.5)
-    c.setFillColor(_rc.HexColor("#666666"))
-    c.drawString(ML + sig_w + 10*_mm + 4, y - 28*_mm, "Signature :")
-
-    y -= 33*_mm
-
-    # Footer
+    c.drawString(bx2 + 5, y - 12*_mm, "barbier immobilier")
+    c.setFont("Helvetica", 8.5)
     c.setFillColor(TEAL)
-    c.rect(0, 0, PW, 8*_mm, fill=1, stroke=0)
-    c.setFillColor(WHITE)
-    c.setFont("Helvetica", 7)
-    c.drawCentredString(PW/2, 3*_mm, f"Fait \u00e0 Vannes, le {date_sig}  \u00b7  Paraphes requis sur chaque page  \u00b7  1 exemplaire pour chaque partie  \u00b7  barbierimmobilier.com")
+    c.drawString(bx2 + 5, y - 17*_mm, negociatrice)
+    c.setFillColor(_rc.HexColor("#888888"))
+    c.setFont("Helvetica", 7.5)
+    c.drawString(bx2 + 5, y - SIG_H + 6*_mm, "Signature :")
 
+    draw_footer(c, page_num[0])
     c.save()
     buf.seek(0)
     from flask import send_file as _sfm
     fname = f"Mandat_{type_mandat}_{num_mandat}.pdf"
     return _sfm(buf, mimetype="application/pdf", as_attachment=True, download_name=fname)
-
 
 @app.route("/test-websearch", methods=["GET"])
 def test_websearch():
