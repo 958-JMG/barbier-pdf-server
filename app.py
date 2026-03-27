@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.42"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.43"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -2842,6 +2842,7 @@ def annonce():
         import os as _os_an
         import io as _io_an
         import base64 as _b64_an
+        import re
         data = request.get_json(silent=True) or {}
         api_key = _os_an.environ.get("OPENAI_API_KEY", "")
         if not api_key:
@@ -2932,6 +2933,9 @@ def annonce():
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         with _ur_an.urlopen(req_gpt, timeout=30) as res_gpt:
             annonce_txt = _json_an.load(res_gpt)["choices"][0]["message"]["content"].strip()
+            # Nettoyer les backticks markdown si GPT en ajoute
+            annonce_txt = re.sub(r"^```html\s*", "", annonce_txt, flags=re.IGNORECASE)
+            annonce_txt = re.sub(r"```\s*$", "", annonce_txt).strip()
 
         # ── Génération PDF avec charte Barbier ───────────────────────────
         try:
