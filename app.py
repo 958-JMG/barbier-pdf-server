@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.45"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.46"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
