@@ -339,28 +339,33 @@ def page1(c, d, logo_buf=None):
     # ── HEADER ──────────────────────────────────────────────────────────────
     header_h = 36
 
-    # Logo réel (488×662 → ratio 0.738, on cible h=36pt → w≈26pt)
-    logo_h = 36
-    logo_w = 36 * (488/662)
+    # Bande teal full-width en haut
+    c.saveState()
+    c.setFillColor(TEAL)
+    c.rect(0, PAGE_H - header_h - 6, PAGE_W, header_h + 6, fill=1, stroke=0)
+    c.restoreState()
+
+    # Logo sur fond teal
+    logo_h = 30
+    logo_w = 30 * (488/662)
     try:
-        c.drawImage(_img_reader(LOGO_B64), ML, y - logo_h, width=logo_w, height=logo_h,
+        c.drawImage(_img_reader(LOGO_B64), ML, PAGE_H - header_h - 2, width=logo_w, height=logo_h,
                     mask='auto', preserveAspectRatio=True)
     except:
         pass
 
-    # Titre droite
+    # Titre et sous-titre à droite sur fond teal
     c.saveState()
-    c.setFillColor(TEAL)
-    c.setFont("Helvetica-Bold", 15)
-    c.drawRightString(PAGE_W - MR, y - 13, "AVIS DE VALEUR PROFESSIONNEL")
-    c.setFillColor(GRAY_MID)
+    c.setFillColor(WHITE)
+    c.setFont("Helvetica-Bold", 18)
+    c.drawRightString(PAGE_W - MR, PAGE_H - header_h + 12, "AVIS DE VALEUR PROFESSIONNEL")
     c.setFont("Helvetica", 8)
-    c.drawRightString(PAGE_W - MR, y - 25, f"Réf. {d['reference']}  ·  {d['ville']}  ·  {d['negociateur']}")
+    c.setFillColor(colors.HexColor("#FFFFFFBB"))
+    c.drawRightString(PAGE_W - MR, PAGE_H - header_h - 1, f"Réf. {d['reference']}  ·  {d['ville']}  ·  {d['negociateur']}")
     c.restoreState()
 
-    y -= header_h + 4
-    hline(c, ML, y, CW, TEAL, 1.5)
-    y -= 12
+    y -= header_h + 10
+    y -= 8
 
     # ── SECTION 01 — IDENTIFICATION ─────────────────────────────────────────
     y = sec_title(c, ML, y, "01 — Identification du bien")
@@ -575,7 +580,15 @@ def page2(c, d, logo_buf=None):
     rrect(c, ML, y - avis_box_h, CW, avis_box_h, r=4, fill=TEAL_LIGHT, stroke=TEAL, sw=0.5)
 
     cy = y - 12
-    for (pt, ht, pb, hb) in rendered:
+    for idx, (pt, ht, pb, hb) in enumerate(rendered):
+        # Séparateur orange entre sections (pas avant la première)
+        if idx > 0:
+            c.saveState()
+            c.setStrokeColor(ORANGE)
+            c.setLineWidth(0.8)
+            c.line(ML + 8, cy - 2, ML + CW - 8, cy - 2)
+            c.restoreState()
+            cy -= 6
         cy -= ht
         pt.drawOn(c, ML + 8, cy)
         cy -= hb + 4
@@ -1361,11 +1374,31 @@ def _page1(c, d):
 
 def _page2(c, d):
     _header(c, f"{_safe(d.get('type_bien'))} — {_safe(d.get('adresse'))}, {_safe(d.get('ville'))}")
-    _sec(c, "Présentation du bien", 14*_mm, _H-32*_mm)
+    # Titre de section dynamique
+    type_bien = _safe(d.get("type_bien"), "Bien")
+    adresse   = _safe(d.get("adresse"), "")
+    ville     = _safe(d.get("ville"), "")
+    titre_sec = f"{type_bien} — {adresse}, {ville}" if adresse and ville else type_bien
+    _sec(c, titre_sec, 14*_mm, _H-32*_mm)
     desc = _safe(d.get("description"), "Description non disponible.")
-    p = _Para(desc, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15, alignment=4))
-    _, ph = p.wrap(_W-28*_mm, 9999); p.drawOn(c, 14*_mm, _H-38*_mm-ph)
-    bot = _H-38*_mm-ph-14*_mm
+    # Ligne d'accroche : première phrase isolée en teal bold
+    import re as _re2
+    _sentences = _re2.split(r'(?<=[.!?])\s+', desc.strip())
+    accroche = _sentences[0] if _sentences else ""
+    corps    = " ".join(_sentences[1:]) if len(_sentences) > 1 else ""
+    text_y   = _H-38*_mm
+    if accroche:
+        p_acc = _Para(accroche, _PS("ba", fontName="Helvetica-Bold", fontSize=10,
+                                    textColor=_BLEU_F, leading=15, alignment=4))
+        _, ph_acc = p_acc.wrap(_W-28*_mm, 9999)
+        p_acc.drawOn(c, 14*_mm, text_y - ph_acc)
+        text_y -= ph_acc + 4*_mm
+    if corps:
+        p = _Para(corps, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15, alignment=4))
+        _, ph = p.wrap(_W-28*_mm, 9999); p.drawOn(c, 14*_mm, text_y - ph)
+        bot = text_y - ph - 14*_mm
+    else:
+        bot = text_y - 14*_mm
     _sec(c, "Caractéristiques", 14*_mm, bot-2*_mm)
     pills = [
         (PICTO_SURFACE_B64, "Surface habitable", f"{_safe(d.get('surface'))} m²"),
@@ -1526,6 +1559,12 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
 def _page3(c, d):
     _header(c, "Quartier & environnement")
     _sec(c, "Le quartier", 14*_mm, _H-32*_mm)
+    # Ligne d'accroche teal sous le titre
+    ville = _safe(d.get("ville", "Vannes"))
+    type_b = _safe(d.get("type_bien", "bien")).lower()
+    _chapeau = f"Un emplacement stratégique pour votre {type_b} au cœur de {ville}."
+    c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold", 9)
+    c.drawString(14*_mm, _H-42*_mm, _chapeau)
     texte = d.get("texte_quartier") or (
         f"Situe a {_safe(d.get('ville','Vannes'))}, ce bien beneficie d'une localisation strategique "
         "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
@@ -1536,7 +1575,8 @@ def _page3(c, d):
     p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15, alignment=4))
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
-    max_text_h = _H - 38*_mm - 80*_mm
+    # +7mm réservé pour la ligne d'accroche chapeau
+    max_text_h = _H - 45*_mm - 80*_mm
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite
         for fsz in [9, 8, 7.5, 7]:
@@ -1564,8 +1604,8 @@ def _page3(c, d):
                     p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5, alignment=4))
                     _, ph = p.wrap(_W-28*_mm, 9999)
                     break
-    p.drawOn(c, 14*_mm, _H-38*_mm-ph)
-    qbot = _H-38*_mm-ph-10*_mm
+    p.drawOn(c, 14*_mm, _H-45*_mm-ph)
+    qbot = _H-45*_mm-ph-10*_mm
 
     _sec(c, "Localisation", 14*_mm, qbot-2*_mm)
     mh = 72*_mm; mx = 14*_mm; mw = _W-28*_mm; my = qbot-8*_mm-mh
@@ -1991,7 +2031,7 @@ def _draw_atouts_cards(c, d, x, y, total_w):
                 {"titre": "ZONE EN ESSOR", "texte": "Secteur à forte dynamique économique. Vos clients vous trouvent facilement, vos équipes s'y installent durablement."},
                 {"titre": "DISPONIBILITÉ IMMÉDIATE", "texte": "Bien disponible rapidement. Les opportunités de cette qualité se louent vite — prenez de l'avance sur vos concurrents."},
             ]
-    # Mise en page : 2 colonnes × 2 lignes
+    # Mise en page : 2 colonnes × 2 lignes — alternance teal plein / blanc bordé
     gap = 3 * _mm
     card_w = (total_w - gap) / 2
     card_h = 26 * _mm
@@ -2001,17 +2041,35 @@ def _draw_atouts_cards(c, d, x, y, total_w):
         row = i // 2
         cx = x + col * (card_w + gap)
         cy = y - card_h - row * (card_h + row_gap)
-        c.setFillColor(_BLEU)
-        c.roundRect(cx, cy, card_w, card_h, 2 * _mm, fill=1, stroke=0)
-        c.setFillColor(_ORANGE)
-        c.roundRect(cx, cy + card_h - 2.5 * _mm, card_w, 2.5 * _mm, 2 * _mm, fill=1, stroke=0)
-        titre = atout.get("titre", "").upper()
-        c.setFillColor(_ORANGE)
-        c.setFont("Helvetica-Bold", 8)
-        c.drawString(cx + 3 * _mm, cy + card_h - 7 * _mm, titre[:28])
-        texte = atout.get("texte", "")
-        para = _Para(texte, _PS("ac", fontName="Helvetica", fontSize=8.5,
-                                textColor=_BLANC, leading=12, alignment=4))
+        style_plein = (i % 2 == 0)  # cards 0 et 2 = teal plein, 1 et 3 = blanc bordé
+        if style_plein:
+            # Style teal plein (original)
+            c.setFillColor(_BLEU)
+            c.roundRect(cx, cy, card_w, card_h, 2 * _mm, fill=1, stroke=0)
+            c.setFillColor(_ORANGE)
+            c.roundRect(cx, cy + card_h - 2.5 * _mm, card_w, 2.5 * _mm, 2 * _mm, fill=1, stroke=0)
+            titre = atout.get("titre", "").upper()
+            c.setFillColor(_ORANGE)
+            c.setFont("Helvetica-Bold", 8)
+            c.drawString(cx + 3 * _mm, cy + card_h - 7 * _mm, titre[:28])
+            texte = atout.get("texte", "")
+            para = _Para(texte, _PS("ac", fontName="Helvetica", fontSize=8.5,
+                                    textColor=_BLANC, leading=12, alignment=4))
+        else:
+            # Style blanc avec bordure teal et texte foncé
+            c.setFillColor(_BLANC)
+            c.setStrokeColor(_BLEU)
+            c.setLineWidth(1.2)
+            c.roundRect(cx, cy, card_w, card_h, 2 * _mm, fill=1, stroke=1)
+            c.setFillColor(_ORANGE)
+            c.roundRect(cx, cy + card_h - 2.5 * _mm, card_w, 2.5 * _mm, 2 * _mm, fill=1, stroke=0)
+            titre = atout.get("titre", "").upper()
+            c.setFillColor(_BLEU_F)
+            c.setFont("Helvetica-Bold", 8)
+            c.drawString(cx + 3 * _mm, cy + card_h - 7 * _mm, titre[:28])
+            texte = atout.get("texte", "")
+            para = _Para(texte, _PS("acw", fontName="Helvetica", fontSize=8.5,
+                                    textColor=_GTEXTE, leading=12, alignment=4))
         tw = card_w - 6 * _mm
         _, ph = para.wrap(tw, 9999)
         para.drawOn(c, cx + 3 * _mm, cy + card_h - 10 * _mm - ph)
@@ -2063,7 +2121,7 @@ def _page5(c, d):
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
             c.drawCentredString(_W/2,by2-42*_mm,
                 f"{_lbl_loyer} : {int(loyer_m_use):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
-        ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
+        ay=by2-54*_mm; _sec(c,"Pourquoi investir ici ?",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
         # Atouts 2x2 pleine largeur
         atouts_h = 2*(26*_mm + 3*_mm)
         _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
@@ -2113,7 +2171,7 @@ def _page5(c, d):
         if pv and surf:
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",8.5)
             c.drawCentredString(_W/2,by2-42*_mm,f"Valeur estimée au m² : {_pm2(pv,surf)}  ·  Surface : {_safe(surf)} m²")
-    ay=by2-54*_mm; _sec(c,"Analyse & positionnement",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
+    ay=by2-54*_mm; _sec(c,"Pourquoi investir ici ?",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
     # Atouts 2x2 pleine largeur
     atouts_h_v = 2*(26*_mm + 3*_mm)
     _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
