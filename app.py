@@ -745,7 +745,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.43"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.44"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -2768,47 +2768,41 @@ def generer_avis():
                 f"  Fourchette haute : {fmt(pm_max)}\n"
             )
 
-        prompt = f"""Tu es expert en évaluation immobilière commerciale chez Barbier Immobilier (Vannes, Morbihan).
-Rédige un avis de valeur professionnel et structuré pour ce bien.
-
-DONNÉES DU BIEN :
-Type : {type_b}
-Adresse : {adresse}, {ville} (Morbihan, 56)
-Surface : {surface} m²
-{f"Activité : {activite}" if activite else ""}
-{valeur_bien}
-{loyer_m2}
-{estim_bloc}
-{f"Données de marché DVF : {dvf[:600]}" if dvf else ""}
-{f"Notes : {notes[:400]}" if notes else ""}
-
-STRUCTURE ATTENDUE (utilise exactement ces marqueurs) :
-
----SYNTHÈSE---
-En 4-5 phrases : présentation du bien, contexte du marché local Morbihan, adéquation offre/demande.
-Mentionner obligatoirement le loyer ou prix au m² et le comparer aux moyennes du secteur.
-
----MÉTHODOLOGIE---
-En 3-4 phrases : expliquer la méthode d'évaluation utilisée (comparables DVF, méthode par capitalisation si locatif, méthode par comparaison si vente).
-Citer les sources de données utilisées (DVF data.gouv.fr, base transactions Barbier, connaissance terrain).
-
----ÉVALUATION DÉTAILLÉE---
-En 5-6 phrases : analyse détaillée de la valeur.
-Facteurs positifs (emplacement, visibilité, état, surface, accessibilité).
-Facteurs de vigilance éventuels (concurrence, travaux, marché sectoriel).
-Comparaison avec les transactions DVF récentes si disponibles.
-Conclusion sur le positionnement prix recommandé.
-
----RECOMMANDATIONS---
-En 3-4 phrases : conseils opérationnels pour la mise en marché.
-Stratégie de prix recommandée, délai de commercialisation estimé, axes de valorisation possibles.
-
-RÈGLES :
-- Ton professionnel et expert, pas commercial
-- Chiffres précis obligatoires (€/m², rentabilité brute si locatif, ratio prix/marché)
-- Pas de formules vagues
-- Langue française impeccable
-- Longueur totale : 300-400 mots"""
+        prompt = (
+            "Tu es expert en évaluation immobilière commerciale chez Barbier Immobilier (Vannes, Morbihan). "
+            "Rédige un avis de valeur professionnel en HTML structuré.\n\n"
+            "FORMAT OBLIGATOIRE :\n"
+            "<h2>Avis de valeur — [type de bien], [ville]</h2>\n"
+            "<h3>Synthèse</h3>\n"
+            "<p>[4-5 phrases : présentation du bien, contexte marché Morbihan, adéquation offre/demande. "
+            "Mentionner loyer ou prix au m² et comparer aux moyennes du secteur.]</p>\n"
+            "<h3>Méthodologie</h3>\n"
+            "<p>[3-4 phrases : méthode d'évaluation utilisée (comparables DVF, capitalisation si locatif, "
+            "comparaison si vente). Sources : DVF data.gouv.fr, base transactions Barbier, connaissance terrain.]</p>\n"
+            "<h3>Évaluation détaillée</h3>\n"
+            "<p>[5-6 phrases : analyse de la valeur, facteurs positifs (emplacement, état, surface), "
+            "facteurs de vigilance éventuels, comparaison DVF récentes si disponibles, "
+            "conclusion sur le positionnement prix recommandé.]</p>\n"
+            "<h3>Recommandations</h3>\n"
+            "<p>[3-4 phrases : stratégie de prix, délai de commercialisation estimé, "
+            "axes de valorisation. Ton expert, pas commercial.]</p>\n"
+            "<p><strong>Barbier Immobilier — Expert immobilier commercial Morbihan — 02.97.47.11.11</strong></p>\n\n"
+            "RÈGLES ABSOLUES :\n"
+            "- Chiffres précis partout : €/m², rentabilité brute si locatif, ratio prix/marché\n"
+            "- Ton professionnel et expert, jamais commercial ou vague\n"
+            "- Uniquement les balises <h2>, <h3>, <p>, <strong>\n"
+            "- Français impeccable, 300-400 mots au total\n\n"
+            "DONNÉES DU BIEN :\n"
+            f"Type : {type_b}\n"
+            f"Adresse : {adresse}, {ville} (Morbihan, 56)\n"
+            f"Surface : {surface} m²\n"
+            + (f"Activité : {activite}\n" if activite else "")
+            + f"{valeur_bien}\n"
+            + (f"{loyer_m2}\n" if loyer_m2 else "")
+            + (estim_bloc if estim_bloc else "")
+            + (f"Données DVF : {dvf[:600]}\n" if dvf else "")
+            + (f"Notes : {notes[:400]}\n" if notes else "")
+        )
 
         payload_gpt = _json_av.dumps({
             "model": "gpt-4o",
@@ -2821,6 +2815,9 @@ RÈGLES :
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         with _ur_av.urlopen(req, timeout=60) as res:
             avis_txt = _json_av.load(res)["choices"][0]["message"]["content"].strip()
+            import re as _re_av
+            avis_txt = _re_av.sub(r"^```html\s*", "", avis_txt, flags=_re_av.IGNORECASE)
+            avis_txt = _re_av.sub(r"```\s*$", "", avis_txt).strip()
 
         return jsonify({"avis": avis_txt})
 
