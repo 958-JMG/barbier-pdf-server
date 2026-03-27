@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.46"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.47"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1559,10 +1559,13 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
 def _page3(c, d):
     _header(c, "Quartier & environnement")
     _sec(c, "Le quartier", 14*_mm, _H-32*_mm)
-    # Ligne d'accroche teal sous le titre
+    # Ligne d'accroche orange sous le titre
     ville = _safe(d.get("ville", "Vannes"))
-    type_b = _safe(d.get("type_bien", "bien")).lower()
-    _chapeau = f"Un emplacement stratégique pour votre {type_b} au cœur de {ville}."
+    type_b_raw = d.get("type_bien") or ""
+    if type_b_raw and type_b_raw != "—":
+        _chapeau = f"Un emplacement stratégique pour votre {type_b_raw.lower()} au cœur de {ville}."
+    else:
+        _chapeau = f"Un emplacement stratégique au cœur de {ville}."
     c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold", 9)
     c.drawString(14*_mm, _H-42*_mm, _chapeau)
     texte = d.get("texte_quartier") or (
