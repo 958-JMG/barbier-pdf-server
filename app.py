@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.47"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.48"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1382,8 +1382,14 @@ def _page2(c, d):
     _sec(c, titre_sec, 14*_mm, _H-32*_mm)
     desc = _safe(d.get("description"), "Description non disponible.")
     # Ligne d'accroche : première phrase isolée en teal bold
+    # Nettoyer les préfixes parasites type "À VENDRE — Fonds de commerce — Vannes"
     import re as _re2
-    _sentences = _re2.split(r'(?<=[.!?])\s+', desc.strip())
+    _desc_clean = _re2.sub(r'^[^\.:;!?]*\bVENDRE\b[^\.:;!?]*', '', desc.strip(), flags=_re2.IGNORECASE).strip()
+    _desc_clean = _re2.sub(r'^[^\.:;!?]*\bLOUER\b[^\.:;!?]*', '', _desc_clean.strip(), flags=_re2.IGNORECASE).strip()
+    # Si le nettoyage a tout effacé, utiliser la description originale
+    if len(_desc_clean) < 30:
+        _desc_clean = desc.strip()
+    _sentences = _re2.split(r'(?<=[.!?])\s+', _desc_clean)
     accroche = _sentences[0] if _sentences else ""
     corps    = " ".join(_sentences[1:]) if len(_sentences) > 1 else ""
     text_y   = _H-38*_mm
@@ -1575,15 +1581,24 @@ def _page3(c, d):
         "services et equipements a proximite immediate, offrant un environnement favorable a "
         "l'exploitation d'une activite commerciale ou professionnelle."
     )
-    p = _Para(texte, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15, alignment=4))
+    # Première phrase en gras, reste en regular — ReportLab XML inline
+    import re as _re3
+    _parts3 = _re3.split(r'(?<=[.!?])\s+', texte.strip(), maxsplit=1)
+    if len(_parts3) == 2:
+        _p1 = _parts3[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        _p2 = _parts3[1].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        texte_xml = f"<b>{_p1}</b><br/><br/>{_p2}"
+    else:
+        texte_xml = texte.replace("&", "&amp;")
+    p = _Para(texte_xml, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=16, alignment=4))
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
     # +7mm réservé pour la ligne d'accroche chapeau
     max_text_h = _H - 45*_mm - 80*_mm
     if ph > max_text_h and max_text_h > 0:
-        # Recalculer avec taille réduite
+        # Recalculer avec taille réduite — fallback texte brut sans XML
         for fsz in [9, 8, 7.5, 7]:
-            p2 = _Para(texte, _PS("b2", fontName="Helvetica", fontSize=fsz, textColor=_GTEXTE, leading=fsz*1.5, alignment=4))
+            p2 = _Para(texte_xml, _PS("b2", fontName="Helvetica", fontSize=fsz, textColor=_GTEXTE, leading=fsz*1.6, alignment=4))
             _, ph2 = p2.wrap(_W-28*_mm, 9999)
             if ph2 <= max_text_h:
                 p = p2; ph = ph2
@@ -1596,7 +1611,7 @@ def _page3(c, d):
                 _kept = []
                 for _s in _sentences:
                     _candidate = " ".join(_kept + [_s])
-                    _pt = _Para(_candidate, _PS("bt", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5, alignment=4))
+                    _pt = _Para(_candidate, _PS("bt", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
                     _, _ph = _pt.wrap(_W-28*_mm, 9999)
                     if _ph <= max_text_h:
                         _kept.append(_s)
@@ -1604,7 +1619,7 @@ def _page3(c, d):
                         break
                 if _kept:
                     _texte_final = " ".join(_kept)
-                    p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.5, alignment=4))
+                    p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
                     _, ph = p.wrap(_W-28*_mm, 9999)
                     break
     p.drawOn(c, 14*_mm, _H-45*_mm-ph)
@@ -1971,10 +1986,7 @@ def _page4(c, comparables, d):
             c.drawString(cx2+3*_mm,cy2+ch-32*_mm,_pfmt(pc))
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",7.5)
             c.drawString(cx2+3*_mm,cy2+ch-38.5*_mm,_pm2(pc,sc2))
-            # Ligne séparatrice à -41mm (9mm au-dessus du bas)
-            c.setStrokeColor(_colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
-            c.line(cx2+3*_mm,cy2+ch-42*_mm,cx2+cw-3*_mm,cy2+ch-42*_mm)
-            # Infos bas : 2 lignes sous la séparatrice
+            # Infos bas : surface et source sans trait séparateur
             src_short = src.replace(" (vendu)","").replace("DVF ","DVF ").strip()[:10]
             c.setFillColor(_GTEXTE); c.setFont("Helvetica",6.5)
             c.drawString(cx2+3*_mm,cy2+7*_mm,f"{_safe(sc2)} m²")
@@ -2035,10 +2047,10 @@ def _draw_atouts_cards(c, d, x, y, total_w):
                 {"titre": "DISPONIBILITÉ IMMÉDIATE", "texte": "Bien disponible rapidement. Les opportunités de cette qualité se louent vite — prenez de l'avance sur vos concurrents."},
             ]
     # Mise en page : 2 colonnes × 2 lignes — alternance teal plein / blanc bordé
-    gap = 3 * _mm
+    gap = 4 * _mm
     card_w = (total_w - gap) / 2
-    card_h = 26 * _mm
-    row_gap = 3 * _mm
+    card_h = 30 * _mm
+    row_gap = 5 * _mm
     for i, atout in enumerate(atouts[:4]):
         col = i % 2
         row = i // 2
@@ -2126,7 +2138,7 @@ def _page5(c, d):
                 f"{_lbl_loyer} : {int(loyer_m_use):,} € HT/mois  ·  soit {int(loyer_m2_actuel):,} €/m²/an  ·  Surface : {_safe(surf)} m²".replace(","," "))
         ay=by2-54*_mm; _sec(c,"Pourquoi investir ici ?",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
         # Atouts 2x2 pleine largeur
-        atouts_h = 2*(26*_mm + 3*_mm)
+        atouts_h = 2*(30*_mm + 5*_mm)
         _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
         # Bloc positionnement loyer — en dessous
         loyer_y = ay - 3*_mm - atouts_h - 8*_mm
@@ -2176,7 +2188,7 @@ def _page5(c, d):
             c.drawCentredString(_W/2,by2-42*_mm,f"Valeur estimée au m² : {_pm2(pv,surf)}  ·  Surface : {_safe(surf)} m²")
     ay=by2-54*_mm; _sec(c,"Pourquoi investir ici ?",14*_mm,ay); cw2=(_W-28*_mm-6*_mm)/2
     # Atouts 2x2 pleine largeur
-    atouts_h_v = 2*(26*_mm + 3*_mm)
+    atouts_h_v = 2*(30*_mm + 5*_mm)
     _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
     # Bloc DVF en dessous
     dvf_y = ay - 3*_mm - atouts_h_v - 8*_mm
