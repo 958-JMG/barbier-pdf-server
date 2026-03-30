@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.70"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.71"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -2020,13 +2020,17 @@ def _page3(c, d, agence_brief=False):
     # Cards POI en 1 colonne pleine largeur dans la colonne droite
     poi_x     = 14*_mm + col_w + col_gap
     poi_cw    = col_w   # pleine largeur de la colonne droite
-    poi_ch    = 16*_mm
     poi_gap   = 3*_mm
-    # Calculer combien de rangées rentrent (max 5)
-    for i, item in enumerate(poi_blocks[:5]):
+    _n_poi    = min(len(poi_blocks), 5)
+    # Hauteur adaptée pour que les cartes remplissent exactement zone_h
+    if _n_poi > 0:
+        poi_ch = (zone_h - (_n_poi - 1) * poi_gap) / _n_poi
+    else:
+        poi_ch = 16*_mm
+    for i, item in enumerate(poi_blocks[:_n_poi]):
         lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#16708B")
         bx = poi_x
-        by = zone_top - (i + 1) * (poi_ch + poi_gap)
+        by = zone_top - (i + 1) * poi_ch - i * poi_gap
         _draw_poi_card(c, bx, by, poi_cw, poi_ch, lbl, val, col_hex)
 
     # (bloc carac_bien supprimé — déplacé dans _page2)
