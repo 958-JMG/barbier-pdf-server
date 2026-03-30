@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.58"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.59"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1482,8 +1482,8 @@ def _page2(c, d):
             c.roundRect(px, py, pw3, ph3, 2*_mm, fill=1, stroke=1)
             c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 8)
             c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
-    # ── Nouveau bloc Prix (Prix de vente FAI / Honoraires / Prix NV) ────────
-    mode_doc = d.get("_mode", "commercial")
+    # ── Bloc Prix — positionné sous les photos ────────────────────────────────
+    photo_bottom = pb - 12*_mm - ph3  # bas des photos
     prix_brut = d.get("prix") or 0
     taux_h    = float(d.get("taux_hono") or 0.05)
     if prix_brut:
@@ -1498,9 +1498,13 @@ def _page2(c, d):
                 hono_v    = int(prix_fai_v * taux_h)
                 prix_nv_v = prix_fai_v - hono_v
             bloc_h = 22*_mm
-            bloc_y = 22*_mm
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
+            # Titre de section "PRIX" ancré sous les photos
+            titre_y = photo_bottom - 8*_mm
+            _sec(c, "Prix", 14*_mm, titre_y)
+            # Cartes prix sous le titre
+            bloc_y = titre_y - 3*_mm - bloc_h
             items_prix = [
                 ("PRIX DE VENTE FAI", str(prix_fai_v) + " €", _BLEU_F),
                 ("HONORAIRES (" + hono_charge[:10] + ")", str(hono_v) + " €", _ORANGE),
@@ -1512,10 +1516,9 @@ def _page2(c, d):
                 c.roundRect(bx_p, bloc_y, bw3, bloc_h, 2*_mm, fill=1, stroke=0)
                 c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
                 c.drawString(bx_p + 3*_mm, bloc_y + bloc_h - 7*_mm, lbl_p)
-                # Formater le montant
                 try:
                     v_int = int(float(str(val_p).replace(" €","")))
-                    val_fmt = f"{v_int:,}".replace(",", " ") + " €"
+                    val_fmt = str(v_int) + " €"
                 except Exception:
                     val_fmt = val_p
                 c.setFont("Helvetica-Bold", 10)
