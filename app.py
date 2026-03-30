@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.60"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.61"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1375,15 +1375,22 @@ def _page1(c, d):
     if img0:
         try:
             from reportlab.lib.utils import ImageReader as _IR
-            pil_img = img0._image if hasattr(img0, '_image') else None
             iw = img0.getSize()[0]; ih = img0.getSize()[1]
-            scale = min(pw0/iw, ph/ih)
-            dw, dh = iw*scale, ih*scale
-            dx = px0 + (pw0-dw)/2; dy = py0 + (ph-dh)/2
+            # Fill crop centré : couvrir toute la zone sans bande blanche
+            target_ratio = pw0 / ph
+            img_ratio    = iw / ih if ih > 0 else 1
+            if img_ratio > target_ratio:
+                # Image plus large → ajuster sur la hauteur, crop horizontal
+                dh = ph;  dw = ph * img_ratio
+                dx = px0 - (dw - pw0) / 2; dy = py0
+            else:
+                # Image plus haute → ajuster sur la largeur, crop vertical
+                dw = pw0; dh = pw0 / img_ratio if img_ratio > 0 else ph
+                dx = px0; dy = py0 - (dh - ph) / 2
             c.saveState()
-            p = c._doc.pdfDocument if hasattr(c,'_doc') else None
-            c.roundRect(px0, py0, pw0, ph, 3*_mm, fill=0, stroke=0)
-            c.clipPath(c.beginPath(), stroke=0, fill=0)
+            _clip_p1 = c.beginPath()
+            _clip_p1.roundRect(px0, py0, pw0, ph, 3*_mm)
+            c.clipPath(_clip_p1, stroke=0, fill=0)
             c.drawImage(img0, dx, dy, dw, dh, mask="auto")
             c.restoreState()
         except Exception:
@@ -1456,14 +1463,14 @@ def _page2(c, d):
     for i, (b64, lbl, val) in enumerate(pills):
         col = i%cols; row2 = i//cols
         _pill_picto(c, 14*_mm+col*(pw+pgx), sy-row2*(ph2+pgy), b64, lbl, val, pw, ph2)
-    pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-14*_mm
+    pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-10*_mm
     _sec(c, "Photos du bien", 14*_mm, pb)
     pw3 = (_W-28*_mm-6*_mm)/3; ph3 = 36*_mm
     photos = d.get("photos") or []
     # photos[0] = photo principale déjà affichée page 1 → on commence à l'index 1
     photos_p2 = photos[1:] if len(photos) > 1 else []
     for i in range(3):
-        px = 14*_mm+i*(pw3+3*_mm); py = pb-12*_mm-ph3
+        px = 14*_mm+i*(pw3+3*_mm); py = pb-6*_mm-ph3
         img = _fetch_photo_image(photos_p2[i]) if i < len(photos_p2) else None
         if img:
             try:
@@ -1496,7 +1503,7 @@ def _page2(c, d):
             c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 8)
             c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
     # ── Bloc Prix — positionné sous les photos ────────────────────────────────
-    photo_bottom = pb - 12*_mm - ph3  # bas des photos
+    photo_bottom = pb - 6*_mm - ph3  # bas des photos (cohérent avec py ci-dessus)
     prix_brut = d.get("prix") or 0
     taux_h    = float(d.get("taux_hono") or 0.05)
     if prix_brut:
@@ -1513,8 +1520,8 @@ def _page2(c, d):
             bloc_h = 22*_mm
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
-            # Titre de section "PRIX" ancré sous les photos
-            titre_y = photo_bottom - 8*_mm
+            # Titre de section "PRIX" ancré sous les photos — 4mm de respiration
+            titre_y = photo_bottom - 4*_mm
             _sec(c, "Prix", 14*_mm, titre_y)
             # Cartes prix sous le titre
             bloc_y = titre_y - 3*_mm - bloc_h
@@ -1655,49 +1662,20 @@ def _page3(c, d, agence_brief=False):
     _header(c, "Quartier & environnement")
     # ── Brève présentation agence (si demandé) ──────────────────────────────
     if agence_brief:
-        # ── Bloc agence : charte Barbier, chiffres clés + présentation ─────────
+        # ── Bloc agence redesign : plus grand, texte haut + KPIs bas ─────────
         bloc_top = _H - 14*_mm
-        bloc_h   = 34*_mm
+        bloc_h   = 44*_mm   # plus grand pour être lisible
 
-        # Fond teal Barbier (#16708B)
+        # Fond teal Barbier
         c.setFillColor(_BLEU)
         c.roundRect(14*_mm, bloc_top - bloc_h, _W-28*_mm, bloc_h, 2*_mm, fill=1, stroke=0)
 
-        # Titre + trait orange
-        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10)
-        c.drawString(20*_mm, bloc_top - 8*_mm, "Barbier Immobilier")
+        # ── Ligne 1 : Titre + texte de présentation (haut du bloc) ─────────────
+        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 12)
+        c.drawString(20*_mm, bloc_top - 9*_mm, "Barbier Immobilier")
         c.setFillColor(_ORANGE)
-        c.rect(20*_mm, bloc_top - 10*_mm, 24*_mm, 1.5*_mm, fill=1, stroke=0)
+        c.rect(20*_mm, bloc_top - 11*_mm, 28*_mm, 1.5*_mm, fill=1, stroke=0)
 
-        # Chiffres clés (colonne droite) en orange gras
-        _kpis = [
-            ("36 ans", "d'expertise locale"),
-            ("+5 000", "clients accompagnés"),
-            ("3 métiers", "vente · location · cession"),
-        ]
-        # Largeur texte brief
-        _brief_col_w2 = kpi_x_start2 = 0  # calculé dynamiquement ci-dessous
-        _kpi_total_w = 60*_mm
-        kpi_x_start = _W - 14*_mm - _kpi_total_w
-        kpi_col_w   = _kpi_total_w / 3
-        for i, (num, lbl) in enumerate(_kpis):
-            kx = kpi_x_start + i * kpi_col_w
-            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 13)
-            c.drawCentredString(kx + kpi_col_w/2, bloc_top - 20*_mm, num)
-            c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 6)
-            # Label KPI sur 2 lignes si trop long
-            _kw = c.stringWidth(lbl, "Helvetica", 6)
-            if _kw <= kpi_col_w - 2*_mm:
-                c.drawCentredString(kx + kpi_col_w/2, bloc_top - 25*_mm, lbl)
-            else:
-                # Couper en 2 lignes au premier espace
-                _parts = lbl.split(" · ") if " · " in lbl else lbl.rsplit(" ", 1)
-                _l1 = _parts[0]; _l2 = " · ".join(_parts[1:]) if len(_parts) > 1 else ""
-                c.drawCentredString(kx + kpi_col_w/2, bloc_top - 24*_mm, _l1)
-                if _l2:
-                    c.drawCentredString(kx + kpi_col_w/2, bloc_top - 27.5*_mm, _l2)
-
-        # Texte de présentation (colonne gauche)
         _brief_txt = (
             "Spécialiste de l'immobilier commercial dans le Morbihan, "
             "Barbier Immobilier accompagne ses clients en vente, location "
@@ -1706,41 +1684,48 @@ def _page3(c, d, agence_brief=False):
         )
         _para_brief = _Para(
             _brief_txt,
-            _PS("ab", fontName="Helvetica", fontSize=7.5,
-                textColor=_colors.HexColor("#FFFFFFDD"), leading=11, alignment=0)
+            _PS("ab", fontName="Helvetica", fontSize=8.5,
+                textColor=_colors.HexColor("#FFFFFFDD"), leading=13, alignment=0)
         )
-        _kpi_total_w2 = 60*_mm
-        txt_w = (_W - 14*_mm - _kpi_total_w2) - 20*_mm - 8*_mm
-        _, _pbh = _para_brief.wrap(txt_w, 9999)
-        _para_brief.drawOn(c, 20*_mm, bloc_top - 13*_mm - _pbh)
+        _txt_w = _W - 28*_mm - 8*_mm   # pleine largeur
+        _, _pbh = _para_brief.wrap(_txt_w, 9999)
+        _para_brief.drawOn(c, 20*_mm, bloc_top - 15*_mm - _pbh)
 
-        # Services en mini ligne de séparation orange
+        # ── Séparateur orange ──────────────────────────────────────────────────
+        _sep_y = bloc_top - bloc_h + 18*_mm
         c.setFillColor(_ORANGE)
-        c.rect(20*_mm, bloc_top - 30*_mm, _W-34*_mm, 0.8*_mm, fill=1, stroke=0)
-        c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 6.5)
-        c.drawString(20*_mm, bloc_top - 33*_mm,
-            "Estimation & Valorisation  ·  Vente & Transaction  ·  Location Commerciale  ·  Cession d'Entreprise")
+        c.rect(20*_mm, _sep_y, _W - 34*_mm, 1*_mm, fill=1, stroke=0)
+
+        # ── Ligne 2 : 3 chiffres clés (bas du bloc, répartis sur toute la largeur) ─
+        _kpis = [
+            ("36 ans",   "d'expertise locale"),
+            ("+5 000",   "clients accompagnés"),
+            ("3 métiers", "vente · location · cession"),
+        ]
+        _kpi_total_w = _W - 34*_mm
+        _kpi_col_w   = _kpi_total_w / 3
+        _kpi_x0      = 20*_mm
+        _kpi_num_y   = _sep_y - 7*_mm
+        _kpi_lbl_y   = _sep_y - 14*_mm
+        for i, (num, lbl) in enumerate(_kpis):
+            kx = _kpi_x0 + i * _kpi_col_w
+            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 15)
+            c.drawCentredString(kx + _kpi_col_w/2, _kpi_num_y, num)
+            c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 7.5)
+            # 2 lignes si contient " · "
+            if " · " in lbl:
+                _parts = lbl.split(" · ", 1)
+                c.drawCentredString(kx + _kpi_col_w/2, _kpi_lbl_y + 2*_mm, _parts[0])
+                c.drawCentredString(kx + _kpi_col_w/2, _kpi_lbl_y - 1.5*_mm,
+                                    " · ".join(_parts[1:]))
+            else:
+                c.drawCentredString(kx + _kpi_col_w/2, _kpi_lbl_y, lbl)
 
         _header_top_offset = bloc_h + 5*_mm
     else:
         _header_top_offset = 0
     _sec(c, "Le quartier", 14*_mm, _H-32*_mm - _header_top_offset)
-    # ── Annonce du bien (Version portail / description) ──────────────────────
-    _annonce_p3 = (d.get("description") or "").strip()
-    _annonce_top_offset = 0
-    if _annonce_p3:
-        _ann_para = _Para(
-            _annonce_p3[:400].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"),
-            _PS("ann3", fontName="Helvetica-Oblique", fontSize=8.5,
-                textColor=_colors.HexColor("#444444"), leading=13, alignment=4)
-        )
-        _, _ann_h = _ann_para.wrap(_W-28*_mm, 9999)
-        _ann_y = _H - 32*_mm - 10*_mm - _ann_h - _header_top_offset
-        # Fond léger
-        c.setFillColor(_colors.HexColor("#F5F8FC"))
-        c.roundRect(14*_mm, _ann_y - 2*_mm, _W-28*_mm, _ann_h + 4*_mm, 1.5*_mm, fill=1, stroke=0)
-        _ann_para.drawOn(c, 14*_mm, _ann_y)
-        _annonce_top_offset = _ann_h + 8*_mm
+    _annonce_top_offset = 0  # plus de bloc annonce ici
     # Ligne d'accroche orange sous le titre
     ville = _safe(d.get("ville", "Vannes"))
     type_b_raw = d.get("type_bien") or ""
