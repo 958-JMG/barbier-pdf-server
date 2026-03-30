@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.51"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.52"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1478,6 +1478,39 @@ def _page2(c, d):
             c.roundRect(px, py, pw3, ph3, 2*_mm, fill=1, stroke=1)
             c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 8)
             c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
+    # ── Nouveau bloc Prix (Prix de vente FAI / Honoraires / Prix NV) ────────
+    mode_doc = d.get("_mode", "commercial")
+    prix_brut = d.get("prix") or 0
+    taux_h    = float(d.get("taux_hono") or 0.05)
+    if prix_brut:
+        try:
+            prix_brut_v = int(float(str(prix_brut)))
+            hono_v      = int(prix_brut_v * taux_h)
+            prix_fai_v  = prix_brut_v + hono_v
+            bloc_h = 22*_mm
+            bloc_y = 22*_mm
+            bw3 = (_W - 28*_mm) / 3 - 2*_mm
+            items_prix = [
+                ("PRIX DE VENTE (FAI)", str(prix_fai_v) + " €", _BLEU_F),
+                ("HONORAIRES AGENCE (~5%)", str(hono_v) + " €", _ORANGE),
+                ("PRIX NET VENDEUR", str(prix_brut_v) + " €", _colors.HexColor("#0D5570")),
+            ]
+            for ip, (lbl_p, val_p, col_p) in enumerate(items_prix):
+                bx_p = 14*_mm + ip * (bw3 + 3*_mm)
+                c.setFillColor(col_p)
+                c.roundRect(bx_p, bloc_y, bw3, bloc_h, 2*_mm, fill=1, stroke=0)
+                c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
+                c.drawString(bx_p + 3*_mm, bloc_y + bloc_h - 7*_mm, lbl_p)
+                # Formater le montant
+                try:
+                    v_int = int(float(str(val_p).replace(" €","")))
+                    val_fmt = f"{v_int:,}".replace(",", " ") + " €"
+                except Exception:
+                    val_fmt = val_p
+                c.setFont("Helvetica-Bold", 10)
+                c.drawString(bx_p + 3*_mm, bloc_y + 6*_mm, val_fmt)
+        except Exception:
+            pass
     _footer(c, 2)
 
 def _get_poi_blocks_osm(lat_c, lon_c, radius=500):
@@ -1591,9 +1624,24 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
     _pill_picto(c, bx, by, picto, _safe_str(label), _safe_str(valeur), w=bw, h=bh)
 
 
-def _page3(c, d):
+def _page3(c, d, agence_brief=False):
     _header(c, "Quartier & environnement")
-    _sec(c, "Le quartier", 14*_mm, _H-32*_mm)
+    # ── Brève présentation agence (si demandé) ──────────────────────────────
+    if agence_brief:
+        brief_y = _H - 20*_mm
+        c.setFillColor(_BLEU_F)
+        c.roundRect(14*_mm, brief_y - 14*_mm, _W-28*_mm, 14*_mm, 2*_mm, fill=1, stroke=0)
+        c.setFillColor(_BLANC)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(20*_mm, brief_y - 6*_mm, "Barbier Immobilier — Votre partenaire en immobilier commercial depuis 36 ans")
+        c.setFont("Helvetica", 8)
+        c.setFillColor(_colors.HexColor("#FFFFFFCC"))
+        c.drawString(20*_mm, brief_y - 11*_mm,
+            "Spécialiste Morbihan · Vente · Location · Cession  ·  02.97.47.11.11  ·  barbierimmobilier.com")
+        _header_top_offset = 20*_mm
+    else:
+        _header_top_offset = 0
+    _sec(c, "Le quartier", 14*_mm, _H-32*_mm - _header_top_offset)
     # Ligne d'accroche orange sous le titre
     ville = _safe(d.get("ville", "Vannes"))
     type_b_raw = d.get("type_bien") or ""
@@ -1602,7 +1650,7 @@ def _page3(c, d):
     else:
         _chapeau = f"Un emplacement stratégique au cœur de {ville}."
     c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold", 9)
-    c.drawString(14*_mm, _H-42*_mm, _chapeau)
+    c.drawString(14*_mm, _H-42*_mm - _header_top_offset, _chapeau)
     texte = d.get("texte_quartier") or (
         f"Situe a {_safe(d.get('ville','Vannes'))}, ce bien beneficie d'une localisation strategique "
         "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
@@ -1651,8 +1699,8 @@ def _page3(c, d):
                     p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
                     _, ph = p.wrap(_W-28*_mm, 9999)
                     break
-    p.drawOn(c, 14*_mm, _H-45*_mm-ph)
-    qbot = _H-45*_mm-ph-10*_mm
+    p.drawOn(c, 14*_mm, _H-45*_mm-ph-_header_top_offset)
+    qbot = _H-45*_mm-ph-10*_mm-_header_top_offset
 
     _sec(c, "Localisation", 14*_mm, qbot-2*_mm)
     mh = 72*_mm; mx = 14*_mm; mw = _W-28*_mm; my = qbot-8*_mm-mh
@@ -2213,42 +2261,20 @@ def _page5(c, d):
     # Atouts 2x2 pleine largeur
     atouts_h_v = 2*(30*_mm + 5*_mm)
     _draw_atouts_cards(c, d, 14*_mm, ay-3*_mm, (_W-28*_mm))
-    # Bloc DVF en dessous
-    dvf_y = ay - 3*_mm - atouts_h_v - 8*_mm
-    dvf_txt = (
-        "Les DVF (données officielles) recensent toutes les ventes de locaux "
-        "commerciaux dans la commune, quelle que soit leur localisation ou configuration. "
-        "Notre estimation intègre les spécificités de ce bien : visibilité, état, "
-        "emplacement précis et potentiel locatif réel."
-    )
-    dvf_para = _Para(dvf_txt, _PS("dvf", fontName="Helvetica", fontSize=8.5,
-                     textColor=_GTEXTE, leading=13, alignment=4))
-    _, dvf_h = dvf_para.wrap(_W-36*_mm, 9999)
-    # Taxe foncière — intégrée dans le même bloc
+    # ── Taxe foncière (estimation uniquement, sans l'encart DVF) ─────────────
     taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
-    taxe_fmt = None
     if taxe:
         try:
             taxe_fmt = f"{int(float(str(taxe).replace(' ',''))) :,}".replace(","," ") + " €/an"
+            taxe_y = ay - 3*_mm - atouts_h_v - 8*_mm
+            c.setFillColor(_colors.HexColor("#EEF4F8"))
+            c.roundRect(14*_mm, taxe_y - 18*_mm, _W-28*_mm, 18*_mm, 2*_mm, fill=1, stroke=0)
+            c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 7)
+            c.drawString(18*_mm, taxe_y - 7*_mm, "TAXE FONCIÈRE ANNUELLE")
+            c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 10)
+            c.drawString(18*_mm, taxe_y - 14*_mm, taxe_fmt)
         except Exception:
-            taxe_fmt = str(taxe)
-    # Hauteur du bloc = titre + texte DVF + padding + taxe si présente
-    taxe_extra = 16*_mm if taxe_fmt else 0
-    box_h_v = dvf_h + 20*_mm + taxe_extra
-    c.setFillColor(_colors.HexColor("#EEF4F8")); c.roundRect(14*_mm, dvf_y-box_h_v, _W-28*_mm, box_h_v, 2*_mm, fill=1, stroke=0)
-    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
-    c.drawString(18*_mm, dvf_y-7*_mm, "POURQUOI CET ÉCART AVEC LES DVF ?")
-    dvf_para.drawOn(c, 18*_mm, dvf_y - 13*_mm - dvf_h)
-    if taxe_fmt:
-        # Séparateur léger puis taxe
-        sep_y = dvf_y - 14*_mm - dvf_h - 4*_mm
-        c.setStrokeColor(_colors.HexColor("#C8D8E8")); c.setLineWidth(0.4)
-        c.line(18*_mm, sep_y, _W-18*_mm, sep_y)
-        c.setFillColor(_colors.HexColor("#888888")); c.setFont("Helvetica", 7)
-        c.drawString(18*_mm, sep_y - 6*_mm, "TAXE FONCIÈRE ANNUELLE")
-        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 10)
-        c.drawString(18*_mm, sep_y - 13*_mm, taxe_fmt)
-
+            pass
     _footer(c,5)
 
 def _page6(c):
@@ -2259,7 +2285,7 @@ def _page6(c):
     c.setFont("Helvetica-Bold",28); c.drawString(14*_mm,_H-38*_mm,"Barbier Immobilier")
     c.setFont("Helvetica",14); c.setFillColor(_colors.HexColor("#FFFFFFCC")); c.drawString(14*_mm,_H-50*_mm,"Votre projet devient le nôtre")
     c.setFillColor(_ORANGE); c.rect(14*_mm,_H-54*_mm,50*_mm,2.5*_mm,fill=1,stroke=0)
-    for i,(num,lbl) in enumerate([("33 ans","d'expertise locale"),("+5 000","clients accompagnés"),("3 métiers","vente · location · cession")]):
+    for i,(num,lbl) in enumerate([("36 ans","d'expertise locale"),("+5 000","clients accompagnés"),("3 métiers","vente · location · cession")]):
         sx=14*_mm+i*(_W-28*_mm)/3
         c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",20); c.drawString(sx+3*_mm,_H*0.52+14*_mm,num)
         c.setFont("Helvetica",9); c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.drawString(sx+3*_mm,_H*0.52+8*_mm,lbl)
@@ -2295,8 +2321,8 @@ def generate_dossier_pdf(d, comparables=[], mode="commercial"):
     cv  = _canvas.Canvas(buf, pagesize=_A4)
     cv.setTitle(f"Dossier — {d.get('reference','')}")
     _page1(cv, d);              cv.showPage()
-    _page2(cv, d);              cv.showPage()
-    _page3(cv, d);              cv.showPage()
+    _page3(cv, d, agence_brief=True); cv.showPage()  # Quartier — avec brève agence en tête
+    _page2(cv, d);              cv.showPage()  # Description + caractéristiques + photos + prix
     if mode == "estimation":
         _page4(cv, comparables, d); cv.showPage()
         _page5(cv, d);              cv.showPage()
