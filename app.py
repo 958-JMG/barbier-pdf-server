@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.61"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.62"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1320,33 +1320,35 @@ def _page1(c, d):
         show_pm2     = bool(val_affiche and surf)
     # (badge EXCLUSIVITÉ déplacé en tête de page avant le titre)
 
-    c.setFillColor(_BLANC); c.setFont("Helvetica", 9)
-    c.drawString(14*_mm, _H-74*_mm, label_prix)
-    c.setFont("Helvetica-Bold", 34)
+    # ── Grand prix en premier, label en dessous ────────────────────────────
     prix_str = _pfmt(val_affiche) if val_affiche else "—"
+    c.setFillColor(_BLANC)
     if suffix_val:
-        # Afficher valeur + suffix sur même ligne
         c.setFont("Helvetica-Bold", 28)
-        c.drawString(14*_mm, _H-91*_mm, prix_str)
+        c.drawString(14*_mm, _H-84*_mm, prix_str)
         c.setFont("Helvetica", 13); c.setFillColor(_colors.HexColor("#FFFFFFCC"))
         vw = c.stringWidth(prix_str, "Helvetica-Bold", 28)
-        c.drawString(14*_mm + vw + 3*_mm, _H-91*_mm, suffix_val)
+        c.drawString(14*_mm + vw + 3*_mm, _H-84*_mm, suffix_val)
         c.setFillColor(_BLANC)
     else:
         c.setFont("Helvetica-Bold", 34)
-        c.drawString(14*_mm, _H-91*_mm, prix_str)
+        c.drawString(14*_mm, _H-84*_mm, prix_str)
+    # Ligne pm2 juste sous le prix
     if show_pm2:
         c.setFont("Helvetica", 10); c.setFillColor(_colors.HexColor("#FFFFFFBB"))
         if is_location and surf:
-            # Loyer annuel / surface
             try:
                 loyer_an = float(str(val_affiche).replace(" ","")) * 12
                 pm2_an   = loyer_an / float(str(surf).replace(" ",""))
-                c.drawString(14*_mm, _H-98*_mm, f"soit {int(pm2_an):,} € HT/m²/an".replace(",", " "))
+                c.drawString(14*_mm, _H-91*_mm, f"soit {int(pm2_an):,} € HT/m²/an".replace(",", " "))
             except Exception:
-                c.drawString(14*_mm, _H-98*_mm, f"soit {_pm2(val_affiche, surf)}")
+                c.drawString(14*_mm, _H-91*_mm, f"soit {_pm2(val_affiche, surf)}")
         else:
-            c.drawString(14*_mm, _H-98*_mm, f"soit {_pm2(val_affiche, surf)}")
+            c.drawString(14*_mm, _H-91*_mm, f"soit {_pm2(val_affiche, surf)}")
+    # Label (PRIX FAI / PRIX NET VENDEUR / LOYER) sous le pm2
+    c.setFillColor(_BLANC); c.setFont("Helvetica", 9)
+    _label_y = _H-95*_mm if show_pm2 else _H-91*_mm
+    c.drawString(14*_mm, _label_y, label_prix)
     # Blocs caractéristiques blancs
     carac = [("SURFACE", f"{_safe(surf)} m²"), ("TYPE", _safe(d.get("type_bien","—")))]
     if d.get("surface_terrain"): carac.append(("TERRAIN", f"{_safe(d.get('surface_terrain'))} m²"))
@@ -1428,24 +1430,114 @@ def _page2(c, d):
     titre_sec = f"{type_bien} — {adresse}, {ville}" if adresse and ville else type_bien
     _sec(c, titre_sec, 14*_mm, _H-32*_mm)
     desc = _safe(d.get("description"), "Description non disponible.")
-    # Accroche : première phrase en teal bold, reste en corps normal
     import re as _re2
-    _sentences = _re2.split(r'(?<=[.!?])\s+', desc.strip())
-    accroche = _sentences[0] if _sentences else ""
-    corps    = " ".join(_sentences[1:]) if len(_sentences) > 1 else ""
-    text_y   = _H-38*_mm
-    if accroche:
-        p_acc = _Para(accroche, _PS("ba", fontName="Helvetica-Bold", fontSize=10,
-                                    textColor=_BLEU_F, leading=15, alignment=4))
-        _, ph_acc = p_acc.wrap(_W-28*_mm, 9999)
-        p_acc.drawOn(c, 14*_mm, text_y - ph_acc)
-        text_y -= ph_acc + 4*_mm
-    if corps:
-        p = _Para(corps, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=15, alignment=4))
-        _, ph = p.wrap(_W-28*_mm, 9999); p.drawOn(c, 14*_mm, text_y - ph)
-        bot = text_y - ph - 14*_mm
-    else:
-        bot = text_y - 14*_mm
+
+    def _render_desc_structured(c, desc_txt, start_y, max_h):
+        """
+        Rend la description structurée (annonce GPT) dans la zone donnée.
+        Retourne le y du bas du rendu.
+        Logique :
+          - 1er paragraphe = titre accroche → bold teal 10pt
+          - Paragraphe TOUT EN MAJUSCULES → label section teal bold 8.5pt avec fond léger
+          - Paragraphe avec lignes courtes multiples (items) → bullets •
+          - Paragraphe normal → corps 9pt justifié
+        """
+        _col_w = _W - 28*_mm
+        _x     = 14*_mm
+        _y     = start_y
+        _GAP   = 3*_mm   # espace inter-paragraphe
+
+        # Nettoyer : retirer  , normaliser espaces
+        clean = desc_txt.replace(' ', ' ').strip()
+        # Découper en blocs 
+
+
+        blocs = [b.strip() for b in _re2.split(r'\n{2,}', clean) if b.strip()]
+
+        for idx, bloc in enumerate(blocs):
+            if _y < 20*_mm:  # sécurité bas de page
+                break
+            lines = [l.strip() for l in bloc.split('\n') if l.strip()]
+            first_line = lines[0]
+
+            # ── Détection type de bloc ──────────────────────────────────────
+            is_section_title = (
+                first_line == first_line.upper()
+                and len(first_line) > 4
+                and not first_line[0].isdigit()
+                and len(lines) == 1
+            )
+            is_bullet_list = (
+                len(lines) > 1
+                and all(len(l) < 90 for l in lines)
+                and not is_section_title
+            )
+
+            if idx == 0:
+                # ── Titre accroche (1er bloc) — bold teal 10pt ───────────────
+                # Nettoyer marqueurs HTML résiduels
+                _t = _re2.sub(r'<[^>]+>', '', first_line).strip()
+                _p = _Para(_t, _PS("da0", fontName="Helvetica-Bold", fontSize=10,
+                                   textColor=_BLEU_F, leading=15, alignment=0))
+                _, _ph = _p.wrap(_col_w, 9999)
+                if _y - _ph < 20*_mm: break
+                _p.drawOn(c, _x, _y - _ph)
+                _y -= _ph + _GAP + 1*_mm
+
+            elif is_section_title:
+                # ── Titre de section (MAJUSCULES) — fond léger + texte teal ──
+                _t = _re2.sub(r'<[^>]+>', '', first_line).strip()
+                _p = _Para(_t, _PS("das", fontName="Helvetica-Bold", fontSize=8.5,
+                                   textColor=_BLEU_F, leading=13, alignment=0))
+                _, _ph = _p.wrap(_col_w - 6*_mm, 9999)
+                _bh = _ph + 4*_mm
+                if _y - _bh < 20*_mm: break
+                c.setFillColor(_colors.HexColor("#EBF0F8"))
+                c.roundRect(_x, _y - _bh, _col_w, _bh, 1*_mm, fill=1, stroke=0)
+                c.setFillColor(_ORANGE)
+                c.rect(_x, _y - _bh, 3*_mm, _bh, fill=1, stroke=0)
+                _p.drawOn(c, _x + 6*_mm, _y - _bh + 2*_mm)
+                _y -= _bh + _GAP
+
+            elif is_bullet_list:
+                # ── Liste à bullets ──────────────────────────────────────────
+                for li in lines:
+                    _raw = _re2.sub(r'<[^>]+>', '', li).strip()
+                    # Convertir **gras** → <b>gras</b>
+                    _raw_xml = _re2.sub(r'\*\*(.+?)\*\*', r'<b></b>',
+                                       _raw.replace('&','&amp;').replace('<b>','<b>').replace('</b>','</b>'))
+                    # Remettre les balises b après échappement
+                    _raw_xml = _raw_xml.replace('&lt;b&gt;','<b>').replace('&lt;/b&gt;','</b>')
+                    _bullet_txt = f"• {_raw_xml}"
+                    _p = _Para(_bullet_txt, _PS("dab", fontName="Helvetica", fontSize=8.5,
+                                               textColor=_GTEXTE, leading=13, alignment=0,
+                                               leftIndent=4*_mm, firstLineIndent=-4*_mm))
+                    _, _ph = _p.wrap(_col_w, 9999)
+                    if _y - _ph < 20*_mm: break
+                    _p.drawOn(c, _x, _y - _ph)
+                    _y -= _ph + 1*_mm
+                _y -= _GAP - 1*_mm
+
+            else:
+                # ── Paragraphe normal ─────────────────────────────────────────
+                _raw = ' '.join(lines)
+                # Convertir **gras** → <b>gras</b>
+                _raw_xml = _re2.sub(r'\*\*(.+?)\*\*', r'<b></b>',
+                                   _raw.replace('&','&amp;'))
+                _raw_xml = _re2.sub(r'<[^>]*(?:strong|em|h[1-6])[^>]*>', '', _raw_xml)
+                _p = _Para(_raw_xml, _PS("dap", fontName="Helvetica", fontSize=9,
+                                         textColor=_GTEXTE, leading=14, alignment=4))
+                _, _ph = _p.wrap(_col_w, 9999)
+                if _y - _ph < 20*_mm: break
+                _p.drawOn(c, _x, _y - _ph)
+                _y -= _ph + _GAP
+
+        return _y
+
+    text_y = _H-38*_mm
+    # Hauteur max disponible avant les caractéristiques (estimation : 60mm)
+    _desc_bot = _render_desc_structured(c, desc, text_y, 60*_mm)
+    bot = _desc_bot - 8*_mm
     _sec(c, "Caractéristiques", 14*_mm, bot-2*_mm)
     pills = [
         (PICTO_SURFACE_B64, "Surface habitable", f"{_safe(d.get('surface'))} m²"),
@@ -1784,7 +1876,7 @@ def _page3(c, d, agence_brief=False):
                     _, ph = p.wrap(_W-28*_mm, 9999)
                     break
     p.drawOn(c, 14*_mm, _H-45*_mm-ph-_header_top_offset-_annonce_top_offset)
-    qbot = _H-45*_mm-ph-10*_mm-_header_top_offset-_annonce_top_offset
+    qbot = _H-45*_mm-ph-4*_mm-_header_top_offset-_annonce_top_offset
 
     # ── Layout 50/50 : carte gauche + environnement droite ────────────────
     zone_h   = 75*_mm          # hauteur commune carte & POI
