@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.55"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.56"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1244,14 +1244,29 @@ def _gpt_atouts(type_bien, ville, surface, adresse, activite):
 # ══════════════════════════════════════════════════════════════
 def _page1(c, d):
     c.setFillColor(_BLEU); c.rect(0, _H*0.50, _W, _H*0.50, fill=1, stroke=0)
-    # Logo dessiné en overlay APRÈS la photo (voir fin de fonction)
-    # Titre
+    # ── Badge EXCLUSIVITÉ en tout premier, avant le titre ─────────────────────
+    statut_mandat_p1 = str(d.get("statut_mandat") or "").lower()
+    is_exclu_p1 = "exclusi" in statut_mandat_p1 or "exclusi" in str(d.get("type_mandat","")).lower()
+    y_offset_exclu = 0  # décalage vertical si badge présent
+    if is_exclu_p1:
+        badge_txt = "EXCLUSIVITÉ"
+        bh_b = 8*_mm
+        bw_b = c.stringWidth(badge_txt, "Helvetica-Bold", 11) + 12*_mm
+        c.setFillColor(_ORANGE)
+        c.roundRect(14*_mm, _H-28*_mm, bw_b, bh_b, 2*_mm, fill=1, stroke=0)
+        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 11)
+        c.drawCentredString(14*_mm + bw_b/2, _H-23.5*_mm, badge_txt)
+        y_offset_exclu = 12*_mm  # espace badge + marge
+    # Titre type de bien
     c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 30)
-    c.drawString(14*_mm, _H-42*_mm, _safe(d.get("type_bien"), "Bien immobilier"))
-    c.setFont("Helvetica", 15)
-    c.drawString(14*_mm, _H-53*_mm, _safe(d.get("adresse")))
-    c.drawString(14*_mm, _H-62*_mm, f"{_safe(d.get('code_postal'))} {_safe(d.get('ville'))}")
-    # (trait orange supprimé — remplacé par le badge EXCLUSIVITÉ si applicable)
+    c.drawString(14*_mm, _H-38*_mm - y_offset_exclu, _safe(d.get("type_bien"), "Bien immobilier"))
+    # Trait orange sous le titre
+    c.setFillColor(_ORANGE)
+    c.rect(14*_mm, _H-41.5*_mm - y_offset_exclu, 40*_mm, 2*_mm, fill=1, stroke=0)
+    c.setFont("Helvetica", 14)
+    c.setFillColor(_BLANC)
+    c.drawString(14*_mm, _H-50*_mm - y_offset_exclu, _safe(d.get("adresse")))
+    c.drawString(14*_mm, _H-58*_mm - y_offset_exclu, f"{_safe(d.get('code_postal'))} {_safe(d.get('ville'))}")
     # Prix ou Loyer — détecter si c'est une location
     prix     = d.get("prix") or d.get("prix_retenu") or 0
     loyer_m  = d.get("loyer_mensuel") or 0
@@ -1290,16 +1305,7 @@ def _page1(c, d):
             label_prix  = "PRIX NET VENDEUR"
         suffix_val   = ""
         show_pm2     = bool(val_affiche and surf)
-    # Badge EXCLUSIVITÉ — cartouche orange grand, texte centré
-    is_exclu = "exclusi" in statut_mandat or "exclusi" in str(d.get("type_mandat","")).lower()
-    if is_exclu:
-        badge_txt = "EXCLUSIVITÉ"
-        bh_exclu = 9*_mm
-        bw_exclu = c.stringWidth(badge_txt, "Helvetica-Bold", 12) + 14*_mm
-        c.setFillColor(_ORANGE)
-        c.roundRect(14*_mm, _H-72*_mm, bw_exclu, bh_exclu, 2*_mm, fill=1, stroke=0)
-        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 12)
-        c.drawCentredString(14*_mm + bw_exclu/2, _H-67*_mm, badge_txt)
+    # (badge EXCLUSIVITÉ déplacé en tête de page avant le titre)
 
     c.setFillColor(_BLANC); c.setFont("Helvetica", 9)
     c.drawString(14*_mm, _H-74*_mm, label_prix)
@@ -1640,37 +1646,59 @@ def _page3(c, d, agence_brief=False):
     _header(c, "Quartier & environnement")
     # ── Brève présentation agence (si demandé) ──────────────────────────────
     if agence_brief:
-        # ── Présentation agence : 1 paragraphe de texte fluide, compact ───────
+        # ── Bloc agence : charte Barbier, chiffres clés + présentation ─────────
         bloc_top = _H - 14*_mm
-        bloc_h   = 28*_mm   # Réduit pour ne pas couper l'environnement
+        bloc_h   = 34*_mm
 
-        # Fond bleu foncé
+        # Fond teal Barbier
         c.setFillColor(_BLEU_F)
         c.roundRect(14*_mm, bloc_top - bloc_h, _W-28*_mm, bloc_h, 2*_mm, fill=1, stroke=0)
 
-        # Titre inline
+        # Titre + trait orange
         c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10)
         c.drawString(20*_mm, bloc_top - 8*_mm, "Barbier Immobilier")
-        c.setFillColor(_ORANGE); c.rect(20*_mm, bloc_top - 10.5*_mm, 28*_mm, 1.5*_mm, fill=1, stroke=0)
+        c.setFillColor(_ORANGE)
+        c.rect(20*_mm, bloc_top - 10*_mm, 24*_mm, 1.5*_mm, fill=1, stroke=0)
 
-        # Paragraphe de présentation
+        # Chiffres clés (colonne droite) en orange gras
+        _kpis = [
+            ("36 ans", "d'expertise locale"),
+            ("+5 000", "clients accompagnés"),
+            ("3 métiers", "vente · location · cession"),
+        ]
+        kpi_x_start = _W - 14*_mm - 55*_mm
+        kpi_col_w   = 55*_mm / 3
+        for i, (num, lbl) in enumerate(_kpis):
+            kx = kpi_x_start + i * kpi_col_w
+            c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold", 11)
+            c.drawCentredString(kx + kpi_col_w/2, bloc_top - 19*_mm, num)
+            c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 6)
+            c.drawCentredString(kx + kpi_col_w/2, bloc_top - 23*_mm, lbl)
+
+        # Texte de présentation (colonne gauche)
         _brief_txt = (
-            "Spécialiste de l'immobilier commercial dans le Morbihan depuis 36 ans, "
-            "Barbier Immobilier accompagne plus de 5 000 clients dans leurs projets de vente, "
-            "location et cession d'entreprise. Notre expertise terrain, notre réseau local "
-            "et notre maîtrise des données de marché garantissent une estimation juste "
-            "et une commercialisation efficace. Vente & Transaction · Location Commerciale · "
-            "Cession d'Entreprise · Estimation & Valorisation."
+            "Spécialiste de l'immobilier commercial dans le Morbihan, "
+            "Barbier Immobilier accompagne ses clients en vente, location "
+            "et cession d'entreprise. Expertise terrain et données de marché "
+            "au service d'une estimation juste et d'une commercialisation efficace."
         )
         _para_brief = _Para(
             _brief_txt,
-            _PS("ab", fontName="Helvetica", fontSize=8, textColor=_colors.HexColor("#FFFFFFDD"),
-                leading=12, alignment=4)
+            _PS("ab", fontName="Helvetica", fontSize=7.5,
+                textColor=_colors.HexColor("#FFFFFFDD"), leading=11, alignment=0)
         )
-        _, _pbh = _para_brief.wrap(_W - 36*_mm, 9999)
-        _para_brief.drawOn(c, 20*_mm, bloc_top - 12*_mm - _pbh)
+        txt_w = kpi_x_start - 20*_mm - 4*_mm
+        _, _pbh = _para_brief.wrap(txt_w, 9999)
+        _para_brief.drawOn(c, 20*_mm, bloc_top - 13*_mm - _pbh)
 
-        _header_top_offset = bloc_h + 4*_mm
+        # Services en mini ligne de séparation orange
+        c.setFillColor(_ORANGE)
+        c.rect(20*_mm, bloc_top - 30*_mm, _W-34*_mm, 0.8*_mm, fill=1, stroke=0)
+        c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 6.5)
+        c.drawString(20*_mm, bloc_top - 33*_mm,
+            "Estimation & Valorisation  ·  Vente & Transaction  ·  Location Commerciale  ·  Cession d'Entreprise")
+
+        _header_top_offset = bloc_h + 5*_mm
     else:
         _header_top_offset = 0
     _sec(c, "Le quartier", 14*_mm, _H-32*_mm - _header_top_offset)
@@ -1703,7 +1731,7 @@ def _page3(c, d, agence_brief=False):
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
     # +7mm réservé pour la ligne d'accroche chapeau
-    max_text_h = _H - 45*_mm - 80*_mm
+    max_text_h = _H - 45*_mm - 80*_mm - _header_top_offset
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite — fallback texte brut sans XML
         for fsz in [9, 8, 7.5, 7]:
