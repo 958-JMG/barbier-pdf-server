@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.63"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.64"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1433,104 +1433,108 @@ def _page2(c, d):
     import re as _re2
 
     def _render_desc_structured(c, desc_txt, start_y, max_h):
-        """
-        Rend la description structurée (annonce GPT) dans la zone donnée.
-        Retourne le y du bas du rendu.
-        Logique :
-          - 1er paragraphe = titre accroche → bold teal 10pt
-          - Paragraphe TOUT EN MAJUSCULES → label section teal bold 8.5pt avec fond léger
-          - Paragraphe avec lignes courtes multiples (items) → bullets •
-          - Paragraphe normal → corps 9pt justifié
-        """
+        """Parser hybride HTML + texte brut. Retourne le y du bas du rendu."""
+        import re as _re_d
         _col_w = _W - 28*_mm
         _x     = 14*_mm
         _y     = start_y
-        _GAP   = 3*_mm   # espace inter-paragraphe
+        _GAP   = 2.5*_mm
 
-        # Nettoyer : retirer  , normaliser espaces
-        clean = desc_txt.replace(' ', ' ').strip()
-        # Découper en blocs 
+        def _xs(t):
+            return t.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
+        def _sb(t):
+            import re as _r2
+            return _r2.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', t)
+        def _strip(t):
+            return _re_d.sub(r'<[^>]+>', '', t)
 
+        def _draw_acc(txt):
+            nonlocal _y
+            _t = _sb(_xs(_strip(txt).strip()))
+            if not _t: return
+            _p = _Para(_t, _PS("da0", fontName="Helvetica-Bold", fontSize=10,
+                               textColor=_BLEU_F, leading=15, alignment=0))
+            _, _ph = _p.wrap(_col_w, 9999)
+            if _y - _ph < 18*_mm: return
+            _p.drawOn(c, _x, _y - _ph); _y -= _ph + _GAP + 1*_mm
 
-        blocs = [b.strip() for b in clean.split('\n\n') if b.strip()]
+        def _draw_sec(txt):
+            nonlocal _y
+            _t = _xs(_strip(txt).strip())
+            if not _t: return
+            _p = _Para(_t, _PS("das", fontName="Helvetica-Bold", fontSize=8.5,
+                               textColor=_BLEU_F, leading=13, alignment=0))
+            _, _ph = _p.wrap(_col_w - 6*_mm, 9999)
+            _bh = _ph + 4*_mm
+            if _y - _bh < 18*_mm: return
+            c.setFillColor(_colors.HexColor("#EBF0F8"))
+            c.roundRect(_x, _y - _bh, _col_w, _bh, 1*_mm, fill=1, stroke=0)
+            c.setFillColor(_ORANGE); c.rect(_x, _y - _bh, 3*_mm, _bh, fill=1, stroke=0)
+            _p.drawOn(c, _x + 6*_mm, _y - _bh + 2*_mm); _y -= _bh + _GAP
 
-        for idx, bloc in enumerate(blocs):
-            if _y < 20*_mm:  # sécurité bas de page
-                break
-            lines = [l.strip() for l in bloc.splitlines() if l.strip()]
-            first_line = lines[0]
+        def _draw_li(txt):
+            nonlocal _y
+            _t = _sb(_xs(_strip(txt).strip()))
+            if not _t: return
+            _p = _Para("\u2022 " + _t, _PS("dab", fontName="Helvetica", fontSize=8.5,
+                                      textColor=_GTEXTE, leading=12, alignment=0,
+                                      leftIndent=4*_mm, firstLineIndent=-4*_mm))
+            _, _ph = _p.wrap(_col_w, 9999)
+            if _y - _ph < 18*_mm: return
+            _p.drawOn(c, _x, _y - _ph); _y -= _ph + 0.8*_mm
 
-            # ── Détection type de bloc ──────────────────────────────────────
-            is_section_title = (
-                first_line == first_line.upper()
-                and len(first_line) > 4
-                and not first_line[0].isdigit()
-                and len(lines) == 1
-            )
-            is_bullet_list = (
-                len(lines) > 1
-                and all(len(l) < 90 for l in lines)
-                and not is_section_title
-            )
+        def _draw_p(txt):
+            nonlocal _y
+            _t = _sb(_xs(_strip(txt).strip()))
+            if not _t: return
+            _p = _Para(_t, _PS("dap", fontName="Helvetica", fontSize=9,
+                               textColor=_GTEXTE, leading=13, alignment=4))
+            _, _ph = _p.wrap(_col_w, 9999)
+            if _y - _ph < 18*_mm: return
+            _p.drawOn(c, _x, _y - _ph); _y -= _ph + _GAP
 
-            if idx == 0:
-                # ── Titre accroche (1er bloc) — bold teal 10pt ───────────────
-                # Nettoyer marqueurs HTML résiduels
-                _t = _re2.sub(r'<[^>]+>', '', first_line).strip()
-                _p = _Para(_t, _PS("da0", fontName="Helvetica-Bold", fontSize=10,
-                                   textColor=_BLEU_F, leading=15, alignment=0))
-                _, _ph = _p.wrap(_col_w, 9999)
-                if _y - _ph < 20*_mm: break
-                _p.drawOn(c, _x, _y - _ph)
-                _y -= _ph + _GAP + 1*_mm
+        clean = desc_txt.replace('\xa0', ' ').strip()
+        is_html = bool(_re_d.search(r'<(p|h[1-6]|ul|li|strong|em|br)\b', clean, _re_d.I))
 
-            elif is_section_title:
-                # ── Titre de section (MAJUSCULES) — fond léger + texte teal ──
-                _t = _re2.sub(r'<[^>]+>', '', first_line).strip()
-                _p = _Para(_t, _PS("das", fontName="Helvetica-Bold", fontSize=8.5,
-                                   textColor=_BLEU_F, leading=13, alignment=0))
-                _, _ph = _p.wrap(_col_w - 6*_mm, 9999)
-                _bh = _ph + 4*_mm
-                if _y - _bh < 20*_mm: break
-                c.setFillColor(_colors.HexColor("#EBF0F8"))
-                c.roundRect(_x, _y - _bh, _col_w, _bh, 1*_mm, fill=1, stroke=0)
-                c.setFillColor(_ORANGE)
-                c.rect(_x, _y - _bh, 3*_mm, _bh, fill=1, stroke=0)
-                _p.drawOn(c, _x + 6*_mm, _y - _bh + 2*_mm)
-                _y -= _bh + _GAP
-
-            elif is_bullet_list:
-                # ── Liste à bullets ──────────────────────────────────────────
-                for li in lines:
-                    _raw = _re2.sub(r'<[^>]+>', '', li).strip()
-                    # Convertir **gras** → <b>gras</b>
-                    _raw_xml = _re2.sub(r'\*\*(.+?)\*\*', r'<b></b>',
-                                       _raw.replace('&','&amp;').replace('<b>','<b>').replace('</b>','</b>'))
-                    # Remettre les balises b après échappement
-                    _raw_xml = _raw_xml.replace('&lt;b&gt;','<b>').replace('&lt;/b&gt;','</b>')
-                    _bullet_txt = f"• {_raw_xml}"
-                    _p = _Para(_bullet_txt, _PS("dab", fontName="Helvetica", fontSize=8.5,
-                                               textColor=_GTEXTE, leading=13, alignment=0,
-                                               leftIndent=4*_mm, firstLineIndent=-4*_mm))
-                    _, _ph = _p.wrap(_col_w, 9999)
-                    if _y - _ph < 20*_mm: break
-                    _p.drawOn(c, _x, _y - _ph)
-                    _y -= _ph + 1*_mm
-                _y -= _GAP - 1*_mm
-
-            else:
-                # ── Paragraphe normal ─────────────────────────────────────────
-                _raw = ' '.join(lines)
-                # Convertir **gras** → <b>gras</b>
-                _raw_xml = _re2.sub(r'\*\*(.+?)\*\*', r'<b></b>',
-                                   _raw.replace('&','&amp;'))
-                _raw_xml = _re2.sub(r'<[^>]*(?:strong|em|h[1-6])[^>]*>', '', _raw_xml)
-                _p = _Para(_raw_xml, _PS("dap", fontName="Helvetica", fontSize=9,
-                                         textColor=_GTEXTE, leading=14, alignment=4))
-                _, _ph = _p.wrap(_col_w, 9999)
-                if _y - _ph < 20*_mm: break
-                _p.drawOn(c, _x, _y - _ph)
-                _y -= _ph + _GAP
+        if is_html:
+            tokens = _re_d.split(
+                r'(<h[1-6][^>]*>.*?</h[1-6]>|<p[^>]*>.*?</p>|<li[^>]*>.*?</li>)',
+                clean, flags=_re_d.I | _re_d.DOTALL)
+            first = True
+            for tok in tokens:
+                tok = tok.strip()
+                if not tok: continue
+                mh = _re_d.match(r'<h[1-6][^>]*>(.*?)</h[1-6]>', tok, _re_d.I | _re_d.DOTALL)
+                mp = _re_d.match(r'<p[^>]*>(.*?)</p>', tok, _re_d.I | _re_d.DOTALL)
+                ml = _re_d.match(r'<li[^>]*>(.*?)</li>', tok, _re_d.I | _re_d.DOTALL)
+                if mh:
+                    if first: _draw_acc(mh.group(1)); first = False
+                    else: _draw_sec(mh.group(1))
+                elif ml:
+                    _draw_li(ml.group(1)); first = False
+                elif mp:
+                    if first: _draw_acc(mp.group(1)); first = False
+                    else: _draw_p(mp.group(1))
+        else:
+            blocs = [b.strip() for b in clean.split('\n\n') if b.strip()]
+            for idx, bloc in enumerate(blocs):
+                if _y < 18*_mm: break
+                lines = [l.strip() for l in bloc.splitlines() if l.strip()]
+                if not lines: continue
+                fl = lines[0]
+                is_sec = (fl == fl.upper() and len(fl) > 4
+                          and not any(cc.isdigit() for cc in fl[:2]) and len(lines) == 1)
+                is_bul = len(lines) > 1 and all(len(l) < 100 for l in lines)
+                if idx == 0:
+                    _draw_acc(fl)
+                    if len(lines) > 1: _draw_p(' '.join(lines[1:]))
+                elif is_sec:
+                    _draw_sec(fl)
+                elif is_bul:
+                    for li in lines: _draw_li(li)
+                    _y -= _GAP
+                else:
+                    _draw_p(' '.join(lines))
 
         return _y
 
@@ -1613,7 +1617,7 @@ def _page2(c, d):
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
             # Titre de section "PRIX" ancré sous les photos — 4mm de respiration
-            titre_y = photo_bottom - 4*_mm
+            titre_y = photo_bottom - 5*_mm
             _sec(c, "Prix", 14*_mm, titre_y)
             # Cartes prix sous le titre
             bloc_y = titre_y - 3*_mm - bloc_h
@@ -1847,7 +1851,7 @@ def _page3(c, d, agence_brief=False):
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
     # +7mm réservé pour la ligne d'accroche chapeau
-    max_text_h = _H - 45*_mm - 80*_mm - _header_top_offset - _annonce_top_offset
+    max_text_h = _H - 45*_mm - 95*_mm - _header_top_offset - _annonce_top_offset
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite — fallback texte brut sans XML
         for fsz in [9, 8, 7.5, 7]:
