@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.56"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.57"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1408,16 +1408,9 @@ def _page2(c, d):
     titre_sec = f"{type_bien} — {adresse}, {ville}" if adresse and ville else type_bien
     _sec(c, titre_sec, 14*_mm, _H-32*_mm)
     desc = _safe(d.get("description"), "Description non disponible.")
-    # Ligne d'accroche : première phrase isolée en teal bold
-    # Nettoyer les suffixes parasites type "À VENDRE — Bureau — Carnac" dans la phrase
+    # Accroche : première phrase en teal bold, reste en corps normal
     import re as _re2
-    # Couper la 1ère phrase sur " À VENDRE" ou " À LOUER" s'ils apparaissent en milieu de phrase
-    _desc_clean = _re2.sub(r'\s+[ÀA]\s+VENDRE\b.*', '', desc.strip(), flags=_re2.IGNORECASE)
-    _desc_clean = _re2.sub(r'\s+[ÀA]\s+LOUER\b.*', '', _desc_clean.strip(), flags=_re2.IGNORECASE)
-    # Si le résultat est trop court, utiliser la description originale
-    if len(_desc_clean) < 30:
-        _desc_clean = desc.strip()
-    _sentences = _re2.split(r'(?<=[.!?])\s+', _desc_clean)
+    _sentences = _re2.split(r'(?<=[.!?])\s+', desc.strip())
     accroche = _sentences[0] if _sentences else ""
     corps    = " ".join(_sentences[1:]) if len(_sentences) > 1 else ""
     text_y   = _H-38*_mm
@@ -1650,8 +1643,8 @@ def _page3(c, d, agence_brief=False):
         bloc_top = _H - 14*_mm
         bloc_h   = 34*_mm
 
-        # Fond teal Barbier
-        c.setFillColor(_BLEU_F)
+        # Fond teal Barbier (#16708B)
+        c.setFillColor(_BLEU)
         c.roundRect(14*_mm, bloc_top - bloc_h, _W-28*_mm, bloc_h, 2*_mm, fill=1, stroke=0)
 
         # Titre + trait orange
@@ -1670,10 +1663,10 @@ def _page3(c, d, agence_brief=False):
         kpi_col_w   = 55*_mm / 3
         for i, (num, lbl) in enumerate(_kpis):
             kx = kpi_x_start + i * kpi_col_w
-            c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold", 11)
-            c.drawCentredString(kx + kpi_col_w/2, bloc_top - 19*_mm, num)
-            c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 6)
-            c.drawCentredString(kx + kpi_col_w/2, bloc_top - 23*_mm, lbl)
+            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 15)
+            c.drawCentredString(kx + kpi_col_w/2, bloc_top - 20*_mm, num)
+            c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 6.5)
+            c.drawCentredString(kx + kpi_col_w/2, bloc_top - 25*_mm, lbl)
 
         # Texte de présentation (colonne gauche)
         _brief_txt = (
@@ -1762,10 +1755,20 @@ def _page3(c, d, agence_brief=False):
     p.drawOn(c, 14*_mm, _H-45*_mm-ph-_header_top_offset)
     qbot = _H-45*_mm-ph-10*_mm-_header_top_offset
 
-    _sec(c, "Localisation", 14*_mm, qbot-2*_mm)
-    mh = 72*_mm; mx = 14*_mm; mw = _W-28*_mm; my = qbot-8*_mm-mh
+    # ── Layout 50/50 : carte gauche + environnement droite ────────────────
+    zone_h   = 75*_mm          # hauteur commune carte & POI
+    col_gap  = 5*_mm
+    col_w    = (_W - 28*_mm - col_gap) / 2
 
-    # ── Carte OSM ──────────────────────────────────────────────────────────
+    # Titres des deux colonnes
+    _sec(c, "Localisation", 14*_mm, qbot - 2*_mm)
+    _sec(c, "Environnement du quartier", 14*_mm + col_w + col_gap, qbot - 2*_mm)
+
+    zone_top = qbot - 10*_mm
+    zone_bot = zone_top - zone_h
+
+    # ── Colonne gauche : carte OSM ────────────────────────────────────────
+    mx = 14*_mm; mw = col_w; mh = zone_h; my = zone_bot
     lat = lon = None
     try:
         osm, lat, lon = _osm_map(_safe(d.get("adresse"),""), _safe(d.get("ville"),"Vannes"))
@@ -1776,32 +1779,35 @@ def _page3(c, d, agence_brief=False):
             nh = int(iw/tr); osm = osm.crop((0,(ih-nh)//2,iw,(ih-nh)//2+nh))
         buf2 = _BytesIO(); osm.save(buf2, format="PNG"); buf2.seek(0)
         from reportlab.lib.utils import ImageReader as _IR2
+        c.saveState()
+        p_map = c.beginPath(); p_map.roundRect(mx, my, mw, mh, 3*_mm)
+        c.clipPath(p_map, stroke=0, fill=0)
         c.drawImage(_IR2(buf2), mx, my, width=mw, height=mh)
-        # Marqueur orange centré
+        c.restoreState()
+        # Marqueur
         px2 = mx+mw/2; py2 = my+mh/2
-        c.setFillColor(_ORANGE); c.circle(px2, py2, 4.5*_mm, fill=1, stroke=0)
-        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 10)
-        c.drawCentredString(px2, py2-3.5*_mm, "+")
+        c.setFillColor(_ORANGE); c.circle(px2, py2, 3.5*_mm, fill=1, stroke=0)
+        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 8)
+        c.drawCentredString(px2, py2-2.5*_mm, "+")
         # Bulle adresse
         adr = f"{_safe(d.get('adresse'))}, {_safe(d.get('ville'))}"
-        bwb = min(c.stringWidth(adr,"Helvetica-Bold",7)+16, mw-20)
-        c.setFillColor(_BLANC); c.setStrokeColor(_colors.HexColor("#AAAAAA")); c.setLineWidth(0.5)
-        c.roundRect(px2-bwb/2, py2+7*_mm, bwb, 9*_mm, 1.5*_mm, fill=1, stroke=1)
-        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 7)
-        c.drawCentredString(px2, py2+11*_mm, adr)
-        # Bordure carte
-        c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.8)
+        bwb = min(c.stringWidth(adr,"Helvetica-Bold",6.5)+12, mw-8*_mm)
+        c.setFillColor(_BLANC); c.setStrokeColor(_colors.HexColor("#AAAAAA")); c.setLineWidth(0.4)
+        c.roundRect(px2-bwb/2, py2+5*_mm, bwb, 8*_mm, 1*_mm, fill=1, stroke=1)
+        c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 6.5)
+        c.drawCentredString(px2, py2+8.5*_mm, adr)
+        # Bordure + copyright
+        c.setStrokeColor(_colors.HexColor("#CCCCCC")); c.setLineWidth(0.6)
         c.roundRect(mx, my, mw, mh, 3*_mm, fill=0, stroke=1)
-        # Copyright OSM
         c.setFillColor(_colors.HexColor("#FFFFFF88")); c.rect(mx, my, mw, 5*_mm, fill=1, stroke=0)
-        c.setFillColor(_colors.HexColor("#666666")); c.setFont("Helvetica", 5.5)
+        c.setFillColor(_colors.HexColor("#666666")); c.setFont("Helvetica", 5)
         c.drawRightString(mx+mw-2*_mm, my+1.5*_mm, "© OpenStreetMap contributors")
-    except Exception as e:
+    except Exception:
         c.setFillColor(_colors.HexColor("#E8F0F4")); c.roundRect(mx,my,mw,mh,3*_mm,fill=1,stroke=0)
         c.setFillColor(_colors.HexColor("#AAAAAA")); c.setFont("Helvetica",8)
-        c.drawCentredString(_W/2, my+mh/2, "Carte indisponible")
+        c.drawCentredString(mx+mw/2, my+mh/2, "Carte indisponible")
 
-    # ── POI réels via Overpass (utilise lat/lon de la carte) ───────────────
+    # ── Colonne droite : POI ──────────────────────────────────────────────
     POI_CATS_PRO = {"parking", "transport", "restauration", "commerce", "banque", "sante"}
     poi_blocks = []
     if lat and lon:
@@ -1811,107 +1817,61 @@ def _page3(c, d, agence_brief=False):
         except Exception:
             pass
 
-    # Si Overpass insuffisant, enrichir avec GPT (POI certains uniquement)
     if len(poi_blocks) < 3:
         try:
             import os as _os_poi, json as _j_poi, urllib.request as _ur_poi
             api_key = _os_poi.environ.get("OPENAI_API_KEY", "")
             if api_key:
-                adresse_poi = d.get("adresse","")
-                ville_poi = d.get("ville","")
-                type_bien_poi = d.get("type_bien","local commercial")
                 prompt_poi = (
                     "Tu es expert en immobilier commercial dans le Morbihan."
-                    f" Pour : {type_bien_poi} au {adresse_poi}, {ville_poi},"
+                    f" Pour : {d.get('type_bien','')} au {d.get('adresse','')}, {d.get('ville','')},"
                     " liste les points d'interet REELS certains dans un rayon de 500m."
                     " Reponds UNIQUEMENT en JSON (sans backticks ni markdown) :"
-                    ' [{"categorie":"Parking","nom":"Nom exact ou description"}]'
+                    ' [{"categorie":"Parking","nom":"Nom exact"}]'
                     " Categories : Parking, Transport, Restauration, Commerce, Banque, Sante."
-                    " N'inclus QUE ce dont tu es certain. Si incertain = ne pas inclure."
-                    " Maximum 6 elements."
+                    " Maximum 6 elements. N'inclus QUE ce dont tu es certain."
                 )
                 gpt_payload = _j_poi.dumps({
                     "model": "gpt-4o-mini",
                     "messages": [{"role": "user", "content": prompt_poi}],
-                    "max_tokens": 400, "temperature": 0.1
+                    "max_tokens": 300, "temperature": 0.1
                 }).encode()
                 req_poi = _ur_poi.Request(
-                    "https://api.openai.com/v1/chat/completions",
-                    data=gpt_payload, method="POST",
+                    "https://api.openai.com/v1/chat/completions", data=gpt_payload, method="POST",
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
                 )
                 with _ur_poi.urlopen(req_poi, timeout=20) as rp:
                     resp_poi = _j_poi.load(rp)
-                raw_poi = resp_poi["choices"][0]["message"]["content"].strip()
-                raw_poi = raw_poi.strip("`").strip()
-                if raw_poi.startswith("json"):
-                    raw_poi = raw_poi[4:].strip()
-                pois_gpt = _j_poi.loads(raw_poi)
-                cat_colors = {
-                    "Parking":"#1B3A5C","Transport":"#0D5570","Restauration":"#E8472A",
-                    "Commerce":"#3A1B5C","Formation":"#5C3A1B","Banque":"#1B5C3A",
-                    "Sante":"#5C1B3A","Dynamisme":"#1B5C5C"
-                }
+                raw_poi = resp_poi["choices"][0]["message"]["content"].strip().strip("`").strip()
+                if raw_poi.startswith("json"): raw_poi = raw_poi[4:].strip()
+                cat_colors = {"Parking":"#16708B","Transport":"#0D5570","Restauration":"#E8472A",
+                              "Commerce":"#16708B","Banque":"#0D5570","Sante":"#16708B"}
                 existing_cats = {r[0] for r in poi_blocks}
-                for poi_item in pois_gpt:
-                    cat = poi_item.get("categorie","")
-                    nom = poi_item.get("nom","")
+                for poi_item in _j_poi.loads(raw_poi):
+                    cat = poi_item.get("categorie",""); nom = poi_item.get("nom","")
                     if cat and nom and cat not in existing_cats and len(poi_blocks) < 6:
-                        poi_blocks.append((cat, nom[:28], cat_colors.get(cat,"#1B3A5C")))
+                        poi_blocks.append((cat, nom[:28], cat_colors.get(cat,"#16708B")))
                         existing_cats.add(cat)
         except Exception:
-            pass  # GPT indisponible ou JSON invalide : on garde ce qu'Overpass a trouvé
+            pass
 
-    # ── Zone 1 : POI quartier (Overpass — ce qui existe autour) ────────────
-    # Filtrer catégories non pertinentes pour l'immobilier pro
     _CATS_PRO = {"parking", "transport", "restauration", "commerce", "banque", "sante", "santé"}
     poi_blocks = [b for b in poi_blocks if b[0].lower() in _CATS_PRO]
 
-    _sec(c, "Environnement du quartier", 14*_mm, my - 14*_mm)
-    pt_y = my - 24*_mm
-    ncols = 3; card_w = (_W-28*_mm - (ncols-1)*4*_mm)/ncols; card_h = 16*_mm
+    # Cards POI en 2 colonnes dans la colonne droite
+    poi_x     = 14*_mm + col_w + col_gap
+    poi_cw    = (col_w - 3*_mm) / 2   # 2 sous-colonnes
+    poi_ch    = 16*_mm
+    poi_gap   = 3*_mm
+    # Calculer combien de rangées rentrent
     for i, item in enumerate(poi_blocks[:6]):
-        lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#1B3A5C")
-        col_idx = i % ncols; row_idx = i // ncols
-        bx = 14*_mm + col_idx*(card_w+4*_mm)
-        by = pt_y - row_idx*(card_h+3*_mm) - card_h
-        _draw_poi_card(c, bx, by, card_w, card_h, lbl, val, col_hex)
+        lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#16708B")
+        sub_col = i % 2; sub_row = i // 2
+        bx = poi_x + sub_col * (poi_cw + poi_gap)
+        by = zone_top - (sub_row + 1) * (poi_ch + poi_gap)
+        _draw_poi_card(c, bx, by, poi_cw, poi_ch, lbl, val, col_hex)
 
-    # ── Zone 2 : Caractéristiques du bien (données Airtable uniquement) ────
-    # N'affiche QUE ce qui est explicitement renseigné dans les données
-    carac_bien = []
-
-    parking_val = d.get("parking") or ""
-    if parking_val and str(parking_val).strip() not in ("", "0", "False", "Non", "nan"):
-        carac_bien.append(("Parking", str(parking_val), "#1B3A5C"))
-
-    pmr = d.get("pmr") or d.get("PMR") or ""
-    if str(pmr).strip() in ("Oui", "oui", "True", "1", "true"):
-        carac_bien.append(("Accessibilite PMR", "Acces PMR", "#0D5570"))
-
-    dpe = d.get("dpe_classe") or d.get("DPE") or ""
-    if str(dpe).strip() not in ("", "nan", "None"):
-        carac_bien.append(("DPE", f"Classe {dpe}", "#5C3A1B"))
-
-    bail = d.get("type_bail") or d.get("bail") or ""
-    if str(bail).strip() not in ("", "nan", "None"):
-        carac_bien.append(("Type de bail", str(bail), "#3A1B5C"))
-
-    etat = d.get("etat_bien") or d.get("etat") or ""
-    if str(etat).strip() not in ("", "nan", "None", "—"):
-        carac_bien.append(("Etat", str(etat), "#1B5C3A"))
-
-    # Taxe foncière supprimée ici — affichée page 5 uniquement
-
-    if carac_bien:
-        carac_y = pt_y - 2*(card_h+3*_mm) - 10*_mm
-        _sec(c, "Caracteristiques du bien", 14*_mm, carac_y + 4*_mm)
-        carac_y2 = carac_y - 4*_mm
-        for i, (lbl, val, col_hex) in enumerate(carac_bien[:6]):
-            col_idx = i % ncols; row_idx = i // ncols
-            bx = 14*_mm + col_idx*(card_w+4*_mm)
-            by = carac_y2 - row_idx*(card_h+3*_mm) - card_h
-            _draw_poi_card(c, bx, by, card_w, card_h, lbl, val, col_hex)
+    # (bloc carac_bien supprimé — déplacé dans _page2)
 
     # ── Plan cadastral + Zone PLU ────────────────────────────────────────────
     ref_cad  = d.get("ref_cadastrale","")
