@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.57"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.58"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1879,9 +1879,8 @@ def _page3(c, d, agence_brief=False):
     res_plu  = d.get("resume_plu","") or d.get("Résumé PLU","") or ""
     url_regl = d.get("url_reglement","") or d.get("URL Règlement PLU","") or ""
 
-    # Calculer la position de départ (sous les 2 rangées de POI + section carac)
-    nb_carac_rows = (len(carac_bien) + 2) // 3 if carac_bien else 0
-    cad_start_y = pt_y - 2*(card_h+3*_mm) - (nb_carac_rows*(card_h+3*_mm) if carac_bien else 0) - 16*_mm
+    # Position cadastre : juste sous la zone carte/POI
+    cad_start_y = zone_bot - 16*_mm
 
     if ref_cad and len(ref_cad) >= 6:
         _sec(c, "Urbanisme & Cadastre", 14*_mm, cad_start_y + 6*_mm)
