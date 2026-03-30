@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.74"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.75"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1870,6 +1870,24 @@ def _page3(c, d, agence_brief=False):
         "services et equipements a proximite immediate, offrant un environnement favorable a "
         "l'exploitation d'une activite commerciale ou professionnelle."
     )
+
+    # ── Layout inversé : zone carte+POI ancrée en bas, texte prend l'espace dispo ──
+    zone_h   = 75*_mm          # hauteur commune carte & POI
+    col_gap  = 5*_mm
+    col_w    = (_W - 28*_mm - col_gap) / 2
+
+    # Ancrage bas de page : footer(9) + zone(75) + titre_col(10) + gap(2) = 96mm
+    _footer_h = 9*_mm
+    zone_bot  = _footer_h + 0          # bas de la zone carte/POI
+    zone_top  = zone_bot + zone_h       # haut de la zone carte/POI
+    qbot      = zone_top + 12*_mm      # bas disponible pour le texte (inclut titres colonnes)
+
+    # Espace disponible pour le texte (du bas du chapeau au dessus de qbot)
+    _text_top   = _H - 45*_mm - _header_top_offset - _annonce_top_offset
+    max_text_h  = _text_top - qbot
+    if max_text_h < 10*_mm:
+        max_text_h = 10*_mm  # garde-fou minimum
+
     # Première phrase en gras, reste en regular — ReportLab XML inline
     import re as _re3
     _parts3 = _re3.split(r'(?<=[.!?])\s+', texte.strip(), maxsplit=1)
@@ -1879,28 +1897,25 @@ def _page3(c, d, agence_brief=False):
         texte_xml = f"<b>{_p1}</b><br/><br/>{_p2}"
     else:
         texte_xml = texte.replace("&", "&amp;")
+
+    # Choisir la taille de fonte pour que le texte tienne dans max_text_h
     p = _Para(texte_xml, _PS("b", fontName="Helvetica", fontSize=9, textColor=_GTEXTE, leading=14, alignment=4))
     _, ph = p.wrap(_W-28*_mm, 9999)
-    # max_text_h : ph <= _H - 45mm - 4mm - offset - 96mm = _H - 145mm - offset
-    # qbot = _H-45mm-ph-4mm-offset doit être >= footer(9)+zone(75)+titre(10)+gap(2) = 96mm
-    max_text_h = _H - 149*_mm - _header_top_offset
-    if ph > max_text_h and max_text_h > 0:
-        # Recalculer avec taille réduite — fallback texte brut sans XML
+    if ph > max_text_h:
         for fsz in [9, 8, 7.5, 7]:
-            p2 = _Para(texte_xml, _PS("b2", fontName="Helvetica", fontSize=fsz, textColor=_GTEXTE, leading=fsz*1.6, alignment=4))
+            p2 = _Para(texte_xml, _PS("bq%s" % fsz, fontName="Helvetica", fontSize=fsz, textColor=_GTEXTE, leading=fsz*1.6, alignment=4))
             _, ph2 = p2.wrap(_W-28*_mm, 9999)
             if ph2 <= max_text_h:
                 p = p2; ph = ph2
                 break
         else:
-            # Même à 7pt ça déborde : tronquer le texte par les phrases
+            # Tronquer par phrases si même 7pt dépasse
             _sentences = texte.replace(". ", ".|").split("|")
-            _kept = []
             for _fsz_final in [7.5, 7]:
                 _kept = []
                 for _s in _sentences:
                     _candidate = " ".join(_kept + [_s])
-                    _pt = _Para(_candidate, _PS("bt", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
+                    _pt = _Para(_candidate, _PS("bt%s" % _fsz_final, fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
                     _, _ph = _pt.wrap(_W-28*_mm, 9999)
                     if _ph <= max_text_h:
                         _kept.append(_s)
@@ -1908,23 +1923,15 @@ def _page3(c, d, agence_brief=False):
                         break
                 if _kept:
                     _texte_final = " ".join(_kept)
-                    p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
+                    p = _Para(_texte_final, _PS("bf%s" % _fsz_final, fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
                     _, ph = p.wrap(_W-28*_mm, 9999)
                     break
-    p.drawOn(c, 14*_mm, _H-45*_mm-ph-_header_top_offset-_annonce_top_offset)
-    qbot = _H-45*_mm-ph-4*_mm-_header_top_offset-_annonce_top_offset
-
-    # ── Layout 50/50 : carte gauche + environnement droite ────────────────
-    zone_h   = 75*_mm          # hauteur commune carte & POI
-    col_gap  = 5*_mm
-    col_w    = (_W - 28*_mm - col_gap) / 2
+    # Dessiner le texte juste au-dessus de qbot (aligné par le bas)
+    p.drawOn(c, 14*_mm, qbot)
 
     # Titres des deux colonnes — largeur limitée à la colonne
-    _sec(c, "Localisation", 14*_mm, qbot - 2*_mm, w=col_w)
-    _sec(c, "Environnement du quartier", 14*_mm + col_w + col_gap, qbot - 2*_mm, w=col_w)
-
-    zone_top = qbot - 10*_mm
-    zone_bot = zone_top - zone_h
+    _sec(c, "Localisation", 14*_mm, zone_top + 2*_mm, w=col_w)
+    _sec(c, "Environnement du quartier", 14*_mm + col_w + col_gap, zone_top + 2*_mm, w=col_w)
 
     # ── Colonne gauche : carte OSM ────────────────────────────────────────
     mx = 14*_mm; mw = col_w; mh = zone_h; my = zone_bot
