@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.65"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.66"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1452,7 +1452,7 @@ def _page2(c, d):
             nonlocal _y
             _t = _sb(_xs(_strip(txt).strip()))
             if not _t: return
-            _p = _Para(_t, _PS("da0", fontName="Helvetica-Bold", fontSize=10,
+            _p = _Para(_t, _PS("_da0_acc", parent=None, fontName="Helvetica-Bold", fontSize=10,
                                textColor=_BLEU_F, leading=15, alignment=0))
             _, _ph = _p.wrap(_col_w, 9999)
             if _y - _ph < 18*_mm: return
@@ -1462,7 +1462,7 @@ def _page2(c, d):
             nonlocal _y
             _t = _xs(_strip(txt).strip())
             if not _t: return
-            _p = _Para(_t, _PS("das", fontName="Helvetica-Bold", fontSize=8.5,
+            _p = _Para(_t, _PS("_das_sec", parent=None, fontName="Helvetica-Bold", fontSize=8.5,
                                textColor=_BLEU_F, leading=13, alignment=0))
             _, _ph = _p.wrap(_col_w - 6*_mm, 9999)
             _bh = _ph + 4*_mm
@@ -1476,7 +1476,7 @@ def _page2(c, d):
             nonlocal _y
             _t = _sb(_xs(_strip(txt).strip()))
             if not _t: return
-            _p = _Para("\u2022 " + _t, _PS("dab", fontName="Helvetica", fontSize=8.5,
+            _p = _Para("\u2022 " + _t, _PS("_dab_li", parent=None, fontName="Helvetica", fontSize=8.5,
                                       textColor=_GTEXTE, leading=12, alignment=0,
                                       leftIndent=4*_mm, firstLineIndent=-4*_mm))
             _, _ph = _p.wrap(_col_w, 9999)
@@ -1487,7 +1487,7 @@ def _page2(c, d):
             nonlocal _y
             _t = _sb(_xs(_strip(txt).strip()))
             if not _t: return
-            _p = _Para(_t, _PS("dap", fontName="Helvetica", fontSize=9,
+            _p = _Para(_t, _PS("_dap_body", parent=None, fontName="Helvetica", fontSize=9,
                                textColor=_GTEXTE, leading=13, alignment=4))
             _, _ph = _p.wrap(_col_w, 9999)
             if _y - _ph < 18*_mm: return
