@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.67"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.68"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1651,7 +1651,7 @@ def _page2(c, d):
                 c.drawString(bx_p + 3*_mm, bloc_y + 6*_mm, val_fmt)
         except Exception:
             pass
-    _footer(c, 2)
+    _footer(c, 3)
 
 def _get_poi_blocks_osm(lat_c, lon_c, radius=500):
     """Interroge Overpass pour les POI à proximité. Retourne liste de (categorie, nom_poi, couleur_hex)."""
@@ -1761,7 +1761,11 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
         "SANTE":        PICTO_BANQUE_B64,
     }
     picto = next((v for k, v in PICTO_MAP.items() if k in cat), PICTO_LIEU_B64)
-    _pill_picto(c, bx, by, picto, _safe_str(label), _safe_str(valeur), w=bw, h=bh)
+    # Tronquer le nom POI si trop long
+    _val_str = _safe_str(valeur)
+    if len(_val_str) > 20:
+        _val_str = _val_str[:19] + "…"
+    _pill_picto(c, bx, by, picto, _safe_str(label), _val_str, w=bw, h=bh)
 
 
 def _page3(c, d, agence_brief=False):
@@ -1857,7 +1861,7 @@ def _page3(c, d, agence_brief=False):
         texte_xml = f"<b>{_p1}</b><br/><br/>{_p2}"
     else:
         texte_xml = texte.replace("&", "&amp;")
-    p = _Para(texte_xml, _PS("b", fontName="Helvetica", fontSize=9.5, textColor=_GTEXTE, leading=16, alignment=4))
+    p = _Para(texte_xml, _PS("b", fontName="Helvetica", fontSize=9, textColor=_GTEXTE, leading=14, alignment=4))
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
     # +7mm réservé pour la ligne d'accroche chapeau
@@ -2085,7 +2089,7 @@ def _page3(c, d, agence_brief=False):
         except Exception:
             pass
 
-    _footer(c, 3)
+    _footer(c, 2)
 
 def _page4(c, comparables, d):
     # Détecter si c'est une location
@@ -2464,18 +2468,17 @@ def _page6(c):
 
 
 def _clean_desc(text):
-    """Nettoie variables n8n + balises HTML du texte descriptif."""
+    """Nettoie variables n8n. Préserve la structure \n\n pour le parser."""
     import re as _re
     if not text: return ""
-    # Strip HTML tags
-    text = _re.sub(r'<[^>]+>', ' ', text)
-    # Nettoyer entités HTML courantes
-    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ').replace('&#39;', "'")
     # Supprimer variables n8n
     text = _re.sub(r'\{\{[^}]+\}\}', '', text)
-    # Nettoyer espaces multiples
-    text = _re.sub(r'\s+', ' ', text).strip()
-    return text
+    # Nettoyer entités HTML courantes (sans toucher aux balises HTML elles-mêmes)
+    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ').replace('&#39;', "'")
+    # Nettoyer espaces multiples SUR CHAQUE LIGNE mais préserver les \n
+    lines = text.split('\n')
+    lines = [' '.join(l.split()) for l in lines]
+    return '\n'.join(lines).strip()
 
 def generate_dossier_pdf(d, comparables=[], mode="commercial"):
     # mode = "commercial" (acquéreur, FAI, sans comparables/estimation)
