@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.66"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.67"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -935,11 +935,11 @@ def _pm2(p, s):
     try: return f"{int(float(str(p).replace(' ',''))/float(str(s).replace(' ',''))) :,}".replace(",", " ") + " €/m²"
     except: return "—"
 
-def _footer(c, n):
+def _footer(c, n, total=3):
     c.setFillColor(_BLEU); c.rect(0, 0, _W, 9*_mm, fill=1, stroke=0)
     c.setFillColor(_BLANC); c.setFont("Helvetica", 6.5)
     c.drawString(14*_mm, 3.5*_mm, "Barbier Immobilier — 2 place Albert Einstein, 56000 Vannes — 02.97.47.11.11 — barbierimmobilier.com")
-    c.drawRightString(_W-14*_mm, 3.5*_mm, f"{n} / 6")
+    c.drawRightString(_W-14*_mm, 3.5*_mm, f"{n} / {total}")
 
 def _header(c, sub=""):
     c.setFillColor(_BLEU); c.rect(0, _H-11*_mm, _W, 11*_mm, fill=1, stroke=0)
@@ -1529,8 +1529,12 @@ def _page2(c, d):
                 is_bul = (len(lines) > 1 and all(len(l) < 120 for l in lines)) or \
                          (_in_bullet_zone and len(lines) == 1 and len(fl) < 80)
                 if idx == 0:
-                    _draw_acc(fl)
-                    if len(lines) > 1: _draw_p(' '.join(lines[1:]))
+                    # 1er bloc = titre seul si court (<= 100 chars), sinon paragraphe normal
+                    if len(fl) <= 100 and len(lines) == 1:
+                        _draw_acc(fl)
+                    else:
+                        _draw_p(fl)
+                        if len(lines) > 1: _draw_p(' '.join(lines[1:]))
                     _in_bullet_zone = False
                 elif is_sec:
                     _draw_sec(fl)
@@ -1623,7 +1627,7 @@ def _page2(c, d):
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
             # Titre de section "PRIX" ancré sous les photos — 4mm de respiration
-            titre_y = photo_bottom - 5*_mm
+            titre_y = photo_bottom - 14*_mm
             _sec(c, "Prix", 14*_mm, titre_y)
             # Cartes prix sous le titre
             bloc_y = titre_y - 3*_mm - bloc_h
@@ -1857,7 +1861,7 @@ def _page3(c, d, agence_brief=False):
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
     # +7mm réservé pour la ligne d'accroche chapeau
-    max_text_h = _H - 45*_mm - 95*_mm - _header_top_offset - _annonce_top_offset
+    max_text_h = _H - 45*_mm - 88*_mm - _header_top_offset - _annonce_top_offset
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite — fallback texte brut sans XML
         for fsz in [9, 8, 7.5, 7]:
@@ -2486,7 +2490,7 @@ def generate_dossier_pdf(d, comparables=[], mode="commercial"):
     if mode == "estimation":
         _page4(cv, comparables, d); cv.showPage()
         _page5(cv, d);              cv.showPage()
-    _page6(cv);                 cv.showPage()
+        _page6(cv);                 cv.showPage()  # page Barbier seulement en mode estimation
     cv.save(); buf.seek(0)
     return buf.read()
 
