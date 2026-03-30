@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.72"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.73"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1881,11 +1881,10 @@ def _page3(c, d, agence_brief=False):
         texte_xml = texte.replace("&", "&amp;")
     p = _Para(texte_xml, _PS("b", fontName="Helvetica", fontSize=9, textColor=_GTEXTE, leading=14, alignment=4))
     _, ph = p.wrap(_W-28*_mm, 9999)
-    # Espace disponible pour le texte : du bas du chapeau jusqu'au haut de la zone carte
-    # Footer(9) + zone_h(75) + titre colonnes(10) + gap(4) + chapeau(6) + titre_sec(10) = 114mm fixes
-    # + header(11) + _header_top_offset (bloc agence éventuel)
-    _zone_reservee = 9*_mm + 75*_mm + 10*_mm + 4*_mm  # footer + zone + titre colonnes + gap
-    max_text_h = _H - 11*_mm - _header_top_offset - 10*_mm - 6*_mm - _zone_reservee
+    # max_text_h : espace disponible entre le début du texte et qbot minimum
+    # qbot doit être >= footer(9) + zone_h(75) + titre_col(10) + gap(2) = 96mm
+    # qbot = _H - 45mm - ph - 4mm - offset  =>  ph <= _H - 45mm - 4mm - offset - 96mm
+    max_text_h = _H - 145*_mm - _header_top_offset
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite — fallback texte brut sans XML
         for fsz in [9, 8, 7.5, 7]:
