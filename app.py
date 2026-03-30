@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.69"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.70"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1781,8 +1781,8 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
     picto = next((v for k, v in PICTO_MAP.items() if k in cat), PICTO_LIEU_B64)
     # Tronquer le nom POI si trop long
     _val_str = _safe_str(valeur)
-    if len(_val_str) > 20:
-        _val_str = _val_str[:19] + "…"
+    if len(_val_str) > 28:
+        _val_str = _val_str[:27] + "…"
     _pill_picto(c, bx, by, picto, _safe_str(label), _val_str, w=bw, h=bh)
 
 
@@ -2017,17 +2017,16 @@ def _page3(c, d, agence_brief=False):
     _CATS_PRO = {"parking", "transport", "restauration", "commerce", "banque", "sante", "santé"}
     poi_blocks = [b for b in poi_blocks if b[0].lower() in _CATS_PRO]
 
-    # Cards POI en 2 colonnes dans la colonne droite
+    # Cards POI en 1 colonne pleine largeur dans la colonne droite
     poi_x     = 14*_mm + col_w + col_gap
-    poi_cw    = (col_w - 3*_mm) / 2   # 2 sous-colonnes
+    poi_cw    = col_w   # pleine largeur de la colonne droite
     poi_ch    = 16*_mm
     poi_gap   = 3*_mm
-    # Calculer combien de rangées rentrent
-    for i, item in enumerate(poi_blocks[:6]):
+    # Calculer combien de rangées rentrent (max 5)
+    for i, item in enumerate(poi_blocks[:5]):
         lbl, val, col_hex = item if len(item) == 3 else (item[0], item[1], "#16708B")
-        sub_col = i % 2; sub_row = i // 2
-        bx = poi_x + sub_col * (poi_cw + poi_gap)
-        by = zone_top - (sub_row + 1) * (poi_ch + poi_gap)
+        bx = poi_x
+        by = zone_top - (i + 1) * (poi_ch + poi_gap)
         _draw_poi_card(c, bx, by, poi_cw, poi_ch, lbl, val, col_hex)
 
     # (bloc carac_bien supprimé — déplacé dans _page2)
