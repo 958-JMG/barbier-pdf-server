@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.52"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.53"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1275,14 +1275,18 @@ def _page1(c, d):
         suffix_val   = " HT/mois"
         show_pm2     = False
     else:
-        # Vente : FAI (commercial) ou Net Vendeur (estimation)
-        mode_doc = d.get("_mode", "commercial")
-        taux_hono = float(d.get("taux_hono") or 0.05)
-        if mode_doc == "commercial" and prix:
-            val_affiche = int(float(str(prix)) * (1 + taux_hono))
+        # Vente : prix Airtable = FAI. Estimation = Prix net vendeur
+        mode_doc  = d.get("_mode", "commercial")
+        prix_nv   = d.get("prix_net_vendeur") or 0
+        if mode_doc == "commercial":
+            val_affiche = prix
             label_prix  = "PRIX FAI (honoraires inclus)"
         else:
-            val_affiche = prix
+            if prix_nv:
+                val_affiche = int(float(str(prix_nv)))
+            else:
+                taux_h2 = float(d.get("taux_hono") or 0.05)
+                val_affiche = int(float(str(prix)) / (1 + taux_h2)) if prix else 0
             label_prix  = "PRIX NET VENDEUR"
         suffix_val   = ""
         show_pm2     = bool(val_affiche and surf)
@@ -1484,16 +1488,23 @@ def _page2(c, d):
     taux_h    = float(d.get("taux_hono") or 0.05)
     if prix_brut:
         try:
-            prix_brut_v = int(float(str(prix_brut)))
-            hono_v      = int(prix_brut_v * taux_h)
-            prix_fai_v  = prix_brut_v + hono_v
+            prix_fai_v  = int(float(str(prix_brut)))
+            prix_nv_v   = d.get("prix_net_vendeur") or 0
+            hono_raw    = d.get("honoraires") or 0
+            if prix_nv_v:
+                prix_nv_v = int(float(str(prix_nv_v)))
+                hono_v    = int(float(str(hono_raw))) if hono_raw else (prix_fai_v - prix_nv_v)
+            else:
+                hono_v    = int(prix_fai_v * taux_h)
+                prix_nv_v = prix_fai_v - hono_v
             bloc_h = 22*_mm
             bloc_y = 22*_mm
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
+            hono_charge = d.get("honoraires_charge") or "Acquéreur"
             items_prix = [
-                ("PRIX DE VENTE (FAI)", str(prix_fai_v) + " €", _BLEU_F),
-                ("HONORAIRES AGENCE (~5%)", str(hono_v) + " €", _ORANGE),
-                ("PRIX NET VENDEUR", str(prix_brut_v) + " €", _colors.HexColor("#0D5570")),
+                ("PRIX DE VENTE FAI", str(prix_fai_v) + " €", _BLEU_F),
+                ("HONORAIRES (" + hono_charge[:10] + ")", str(hono_v) + " €", _ORANGE),
+                ("PRIX NET VENDEUR", str(prix_nv_v) + " €", _colors.HexColor("#0D5570")),
             ]
             for ip, (lbl_p, val_p, col_p) in enumerate(items_prix):
                 bx_p = 14*_mm + ip * (bw3 + 3*_mm)
