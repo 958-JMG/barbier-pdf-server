@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.62"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.63"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1452,12 +1452,12 @@ def _page2(c, d):
         # Découper en blocs 
 
 
-        blocs = [b.strip() for b in _re2.split(r'\n{2,}', clean) if b.strip()]
+        blocs = [b.strip() for b in clean.split('\n\n') if b.strip()]
 
         for idx, bloc in enumerate(blocs):
             if _y < 20*_mm:  # sécurité bas de page
                 break
-            lines = [l.strip() for l in bloc.split('\n') if l.strip()]
+            lines = [l.strip() for l in bloc.splitlines() if l.strip()]
             first_line = lines[0]
 
             # ── Détection type de bloc ──────────────────────────────────────
@@ -1555,14 +1555,14 @@ def _page2(c, d):
     for i, (b64, lbl, val) in enumerate(pills):
         col = i%cols; row2 = i//cols
         _pill_picto(c, 14*_mm+col*(pw+pgx), sy-row2*(ph2+pgy), b64, lbl, val, pw, ph2)
-    pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-10*_mm
+    pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-6*_mm
     _sec(c, "Photos du bien", 14*_mm, pb)
     pw3 = (_W-28*_mm-6*_mm)/3; ph3 = 36*_mm
     photos = d.get("photos") or []
     # photos[0] = photo principale déjà affichée page 1 → on commence à l'index 1
     photos_p2 = photos[1:] if len(photos) > 1 else []
     for i in range(3):
-        px = 14*_mm+i*(pw3+3*_mm); py = pb-6*_mm-ph3
+        px = 14*_mm+i*(pw3+3*_mm); py = pb-4*_mm-ph3
         img = _fetch_photo_image(photos_p2[i]) if i < len(photos_p2) else None
         if img:
             try:
@@ -1595,7 +1595,7 @@ def _page2(c, d):
             c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 8)
             c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
     # ── Bloc Prix — positionné sous les photos ────────────────────────────────
-    photo_bottom = pb - 6*_mm - ph3  # bas des photos (cohérent avec py ci-dessus)
+    photo_bottom = pb - 4*_mm - ph3  # bas des photos (cohérent avec py ci-dessus)
     prix_brut = d.get("prix") or 0
     taux_h    = float(d.get("taux_hono") or 0.05)
     if prix_brut:
