@@ -1287,7 +1287,7 @@ def _page1(c, d):
         suffix_val   = ""
         show_pm2     = bool(val_affiche and surf)
     # Badge EXCLUSIVITÉ
-    is_exclu = "exclusiv" in statut_mandat or "exclusiv" in str(d.get("type_mandat","")).lower()
+    is_exclu = "exclusi" in statut_mandat or "exclusi" in str(d.get("type_mandat","")).lower()
     if is_exclu:
         badge_txt = "EXCLUSIVITÉ"
         bw_exclu = c.stringWidth(badge_txt, "Helvetica-Bold", 9) + 10*_mm
