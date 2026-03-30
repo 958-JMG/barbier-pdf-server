@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.68"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.69"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -947,10 +947,11 @@ def _header(c, sub=""):
     c.drawString(14*_mm, _H-7.5*_mm, f"DOSSIER DE PRÉSENTATION  ›  {sub.upper()}")
     _logo_small(c)
 
-def _sec(c, text, x, y):
-    # Fond léger toute largeur
+def _sec(c, text, x, y, w=None):
+    # Fond léger — largeur explicite ou pleine largeur par défaut
+    _sw = w if w is not None else (_W - 28*_mm)
     c.setFillColor(_colors.HexColor("#EBF0F8"))
-    c.rect(x, y+2.5*_mm, _W-28*_mm, 8*_mm, fill=1, stroke=0)
+    c.rect(x, y+2.5*_mm, _sw, 8*_mm, fill=1, stroke=0)
     # Barre orange gauche
     c.setFillColor(_ORANGE); c.rect(x, y+2.5*_mm, 3.5*_mm, 8*_mm, fill=1, stroke=0)
     c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 12)
@@ -1423,12 +1424,17 @@ def _page1(c, d):
 
 def _page2(c, d):
     _header(c, f"{_safe(d.get('type_bien'))} — {_safe(d.get('adresse'))}, {_safe(d.get('ville'))}")
-    # Titre de section dynamique
-    type_bien = _safe(d.get("type_bien"), "Bien")
-    adresse   = _safe(d.get("adresse"), "")
-    ville     = _safe(d.get("ville"), "")
-    titre_sec = f"{type_bien} — {adresse}, {ville}" if adresse and ville else type_bien
-    _sec(c, titre_sec, 14*_mm, _H-32*_mm)
+    # Titre de section fixe
+    _sec(c, "Présentation du bien", 14*_mm, _H-32*_mm)
+    # ── Titre éditorialisé : type bien gras teal + adresse dessous ────────────
+    _type_titre = _safe(d.get("type_bien"), "Bien immobilier").upper()
+    _adr_titre  = _safe(d.get("adresse"), "")
+    _vl_titre   = _safe(d.get("ville"), "")
+    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 13)
+    c.drawString(14*_mm, _H-37*_mm, _type_titre)
+    c.setFillColor(_GTEXTE); c.setFont("Helvetica", 9)
+    _adr_line = f"{_adr_titre}, {_vl_titre}" if _adr_titre and _vl_titre else (_adr_titre or _vl_titre)
+    c.drawString(14*_mm, _H-40.5*_mm, _adr_line)
     desc = _safe(d.get("description"), "Description non disponible.")
     import re as _re2
 
@@ -1548,7 +1554,7 @@ def _page2(c, d):
 
         return _y
 
-    text_y = _H-38*_mm
+    text_y = _H-43*_mm
     # Hauteur max disponible avant les caractéristiques (estimation : 60mm)
     _desc_bot = _render_desc_structured(c, desc, text_y, 60*_mm)
     bot = _desc_bot - 8*_mm
@@ -1570,46 +1576,7 @@ def _page2(c, d):
         col = i%cols; row2 = i//cols
         _pill_picto(c, 14*_mm+col*(pw+pgx), sy-row2*(ph2+pgy), b64, lbl, val, pw, ph2)
     pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-6*_mm
-    _sec(c, "Photos du bien", 14*_mm, pb)
-    pw3 = (_W-28*_mm-6*_mm)/3; ph3 = 36*_mm
-    photos = d.get("photos") or []
-    # photos[0] = photo principale déjà affichée page 1 → on commence à l'index 1
-    photos_p2 = photos[1:] if len(photos) > 1 else []
-    for i in range(3):
-        px = 14*_mm+i*(pw3+3*_mm); py = pb-4*_mm-ph3
-        img = _fetch_photo_image(photos_p2[i]) if i < len(photos_p2) else None
-        if img:
-            try:
-                c.saveState()
-                path_clip = c.beginPath()
-                path_clip.roundRect(px, py, pw3, ph3, 2*_mm)
-                c.clipPath(path_clip, stroke=0, fill=0)
-                # Crop centré fill : calculer le ratio pour couvrir toute la zone
-                iw, ih = img.getSize()
-                target_ratio = pw3 / ph3
-                img_ratio = iw / ih if ih > 0 else 1
-                if img_ratio > target_ratio:
-                    # Image plus large — ajuster sur la hauteur, crop horizontal
-                    dh = ph3; dw = ph3 * img_ratio
-                    dx = px - (dw - pw3) / 2; dy = py
-                else:
-                    # Image plus haute — ajuster sur la largeur, crop vertical
-                    dw = pw3; dh = pw3 / img_ratio if img_ratio > 0 else ph3
-                    dx = px; dy = py - (dh - ph3) / 2
-                c.drawImage(img, dx, dy, dw, dh, mask="auto")
-                c.restoreState()
-            except Exception:
-                c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD"))
-                c.roundRect(px, py, pw3, ph3, 2*_mm, fill=1, stroke=1)
-                try: c.drawImage(img, px, py, pw3, ph3, preserveAspectRatio=True, anchor='c', mask="auto")
-                except: pass
-        else:
-            c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD"))
-            c.roundRect(px, py, pw3, ph3, 2*_mm, fill=1, stroke=1)
-            c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 8)
-            c.drawCentredString(px+pw3/2, py+ph3/2, f"Photo {i+2}")
-    # ── Bloc Prix — positionné sous les photos ────────────────────────────────
-    photo_bottom = pb - 4*_mm - ph3  # bas des photos (cohérent avec py ci-dessus)
+    # ── Bloc Prix — ancré sur le bas de page (au-dessus du footer) ───────────
     prix_brut = d.get("prix") or 0
     taux_h    = float(d.get("taux_hono") or 0.05)
     if prix_brut:
@@ -1626,11 +1593,10 @@ def _page2(c, d):
             bloc_h = 22*_mm
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
-            # Titre de section "PRIX" ancré sous les photos — 4mm de respiration
-            titre_y = photo_bottom - 14*_mm
+            # Ancrage fixe : juste au-dessus du footer (18mm depuis le bas)
+            bloc_y  = 18*_mm
+            titre_y = bloc_y + bloc_h + 3*_mm
             _sec(c, "Prix", 14*_mm, titre_y)
-            # Cartes prix sous le titre
-            bloc_y = titre_y - 3*_mm - bloc_h
             items_prix = [
                 ("PRIX DE VENTE FAI", str(prix_fai_v) + " €", _BLEU_F),
                 ("HONORAIRES (" + hono_charge[:10] + ")", str(hono_v) + " €", _ORANGE),
@@ -1653,7 +1619,59 @@ def _page2(c, d):
             pass
     _footer(c, 3)
 
-def _get_poi_blocks_osm(lat_c, lon_c, radius=500):
+def _page_photos(c, d):
+    """Page dédiée aux photos du bien — 2 grandes photos pleine largeur empilées."""
+    _header(c, f"{_safe(d.get('type_bien'))} — {_safe(d.get('adresse'))}, {_safe(d.get('ville'))}")
+    _sec(c, "Photos du bien", 14*_mm, _H-32*_mm)
+
+    photos = d.get("photos") or []
+    # Index 1+ : la photo principale (index 0) reste sur la page de couverture
+    photos_p = photos[1:] if len(photos) > 1 else []
+
+    # Zone utile entre le titre de section et le footer
+    zone_top = _H - 42*_mm
+    zone_bot = 12*_mm
+    zone_h   = zone_top - zone_bot
+    gap      = 5*_mm
+    ph_each  = (zone_h - gap) / 2
+    pw       = _W - 28*_mm
+
+    def _draw_photo_fill(c, idx, px, py, pw, ph):
+        img = _fetch_photo_image(photos_p[idx]) if idx < len(photos_p) else None
+        if img:
+            try:
+                c.saveState()
+                path_clip = c.beginPath()
+                path_clip.roundRect(px, py, pw, ph, 3*_mm)
+                c.clipPath(path_clip, stroke=0, fill=0)
+                iw, ih = img.getSize()
+                tr = pw / ph
+                ir = iw / ih if ih > 0 else 1
+                if ir > tr:
+                    dh = ph; dw = ph * ir
+                    dx = px - (dw - pw) / 2; dy = py
+                else:
+                    dw = pw; dh = pw / ir if ir > 0 else ph
+                    dx = px; dy = py - (dh - ph) / 2
+                c.drawImage(img, dx, dy, dw, dh, mask="auto")
+                c.restoreState()
+            except Exception:
+                c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD"))
+                c.roundRect(px, py, pw, ph, 3*_mm, fill=1, stroke=1)
+        else:
+            c.setFillColor(_GRIS); c.setStrokeColor(_colors.HexColor("#DDDDDD"))
+            c.roundRect(px, py, pw, ph, 3*_mm, fill=1, stroke=1)
+            c.setFillColor(_colors.HexColor("#BBBBBB")); c.setFont("Helvetica", 9)
+            c.drawCentredString(px + pw/2, py + ph/2, f"Photo {idx + 2}")
+
+    # Photo 1 (index 1) — en haut
+    _draw_photo_fill(c, 0, 14*_mm, zone_bot + ph_each + gap, pw, ph_each)
+    # Photo 2 (index 2) — en bas
+    _draw_photo_fill(c, 1, 14*_mm, zone_bot, pw, ph_each)
+
+    _footer(c, 4)
+
+
     """Interroge Overpass pour les POI à proximité. Retourne liste de (categorie, nom_poi, couleur_hex)."""
     import urllib.request as _ur3, json as _j3, urllib.parse as _up3
     # Catégories pro pertinentes avec couleur associée
@@ -1865,7 +1883,7 @@ def _page3(c, d, agence_brief=False):
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
     # +7mm réservé pour la ligne d'accroche chapeau
-    max_text_h = _H - 45*_mm - 88*_mm - _header_top_offset - _annonce_top_offset
+    max_text_h = _H - 45*_mm - 72*_mm - _header_top_offset - _annonce_top_offset
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite — fallback texte brut sans XML
         for fsz in [9, 8, 7.5, 7]:
@@ -1901,9 +1919,9 @@ def _page3(c, d, agence_brief=False):
     col_gap  = 5*_mm
     col_w    = (_W - 28*_mm - col_gap) / 2
 
-    # Titres des deux colonnes
-    _sec(c, "Localisation", 14*_mm, qbot - 2*_mm)
-    _sec(c, "Environnement du quartier", 14*_mm + col_w + col_gap, qbot - 2*_mm)
+    # Titres des deux colonnes — largeur limitée à la colonne
+    _sec(c, "Localisation", 14*_mm, qbot - 2*_mm, w=col_w)
+    _sec(c, "Environnement du quartier", 14*_mm + col_w + col_gap, qbot - 2*_mm, w=col_w)
 
     zone_top = qbot - 10*_mm
     zone_bot = zone_top - zone_h
@@ -2171,7 +2189,7 @@ def _page4(c, comparables, d):
             c.setFont("Helvetica", 7.5)
             c.drawCentredString(_W/2, ct-33*_mm, "Mettre à jour la table 02_Loyers_Marche dans Airtable")
 
-        _footer(c, 4)
+        _footer(c, 5)
         return  # Sortir — pas de suite vente
 
     # ── PAGE 4 VENTE : Biens comparables DVF ──────────────────────────────────
@@ -2248,7 +2266,7 @@ def _page4(c, comparables, d):
         c.setFont("Helvetica",7); c.drawCentredString(mx2+mw2/2,my2+4*_mm,l)
     c.setFillColor(_colors.HexColor("#999999")); c.setFont("Helvetica-Oblique",7)
     c.drawString(14*_mm,sy-22*_mm,"Sources : DVF (data.gouv.fr) — Mutations de valeurs foncières, données officielles.")
-    _footer(c,4)
+    _footer(c,5)
 
 
 def _draw_atouts_cards(c, d, x, y, total_w):
@@ -2388,7 +2406,7 @@ def _page5(c, d):
         c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 8.5)
         c.drawString(18*_mm, loyer_y-7*_mm, "POSITIONNEMENT LOYER")
         loyer_para.drawOn(c, 18*_mm, loyer_y - 11*_mm - lph)
-        _footer(c,5)
+        _footer(c,6)
         return  # Fin branche location
 
     else:
@@ -2435,7 +2453,7 @@ def _page5(c, d):
             c.drawString(18*_mm, taxe_y - 14*_mm, taxe_fmt)
         except Exception:
             pass
-    _footer(c,5)
+    _footer(c,6)
 
 def _page6(c):
     c.setFillColor(_BLEU); c.rect(0,_H*0.5,_W,_H*0.5,fill=1,stroke=0)
@@ -2464,7 +2482,7 @@ def _page6(c):
     c.setFillColor(_BLEU_F); c.roundRect(14*_mm,14*_mm,_W-28*_mm,20*_mm,2*_mm,fill=1,stroke=0)
     c.setFillColor(_BLANC); c.setFont("Helvetica-Bold",10); c.drawString(20*_mm,28*_mm,"2 place Albert Einstein, 56000 Vannes")
     c.setFont("Helvetica",9); c.drawString(20*_mm,21*_mm,"02.97.47.11.11  ·  contact@barbierimmobilier.com  ·  barbierimmobilier.com")
-    _footer(c,6)
+    _footer(c,7)
 
 
 def _clean_desc(text):
@@ -2488,12 +2506,13 @@ def generate_dossier_pdf(d, comparables=[], mode="commercial"):
     cv  = _canvas.Canvas(buf, pagesize=_A4)
     cv.setTitle(f"Dossier — {d.get('reference','')}")
     _page1(cv, d);              cv.showPage()
-    _page3(cv, d, agence_brief=True); cv.showPage()  # Quartier — avec brève agence en tête
-    _page2(cv, d);              cv.showPage()  # Description + caractéristiques + photos + prix
+    _page3(cv, d, agence_brief=True); cv.showPage()  # Quartier
+    _page2(cv, d);              cv.showPage()  # Description + caractéristiques + prix
+    _page_photos(cv, d);        cv.showPage()  # Photos pleine page
     if mode == "estimation":
         _page4(cv, comparables, d); cv.showPage()
         _page5(cv, d);              cv.showPage()
-        _page6(cv);                 cv.showPage()  # page Barbier seulement en mode estimation
+        _page6(cv);                 cv.showPage()
     cv.save(); buf.seek(0)
     return buf.read()
 
