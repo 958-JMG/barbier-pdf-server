@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.64"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.65"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1517,6 +1517,7 @@ def _page2(c, d):
                     else: _draw_p(mp.group(1))
         else:
             blocs = [b.strip() for b in clean.split('\n\n') if b.strip()]
+            _in_bullet_zone = False  # True après une section → items courts = bullets
             for idx, bloc in enumerate(blocs):
                 if _y < 18*_mm: break
                 lines = [l.strip() for l in bloc.splitlines() if l.strip()]
@@ -1524,17 +1525,22 @@ def _page2(c, d):
                 fl = lines[0]
                 is_sec = (fl == fl.upper() and len(fl) > 4
                           and not any(cc.isdigit() for cc in fl[:2]) and len(lines) == 1)
-                is_bul = len(lines) > 1 and all(len(l) < 100 for l in lines)
+                # Bullet : plusieurs lignes courtes, OU une ligne courte dans la bullet zone
+                is_bul = (len(lines) > 1 and all(len(l) < 120 for l in lines)) or \
+                         (_in_bullet_zone and len(lines) == 1 and len(fl) < 80)
                 if idx == 0:
                     _draw_acc(fl)
                     if len(lines) > 1: _draw_p(' '.join(lines[1:]))
+                    _in_bullet_zone = False
                 elif is_sec:
                     _draw_sec(fl)
+                    _in_bullet_zone = True  # les blocs suivants sont des bullets
                 elif is_bul:
                     for li in lines: _draw_li(li)
-                    _y -= _GAP
+                    _y -= _GAP * 0.3
                 else:
                     _draw_p(' '.join(lines))
+                    _in_bullet_zone = False
 
         return _y
 
