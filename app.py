@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.59"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.60"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -998,13 +998,26 @@ def _pill_picto(c, x, y, picto_b64, label, value, w=57*_mm, h=16*_mm):
         c.setFillColor(_BLEU); c.setFont("Helvetica-Bold", 8)
         c.drawCentredString(cx, cy-3*_mm, "•")
     c.setFillColor(_colors.HexColor("#777777")); c.setFont("Helvetica", 6.5)
-    c.drawString(x+r*2+5*_mm, y+h-4.5*_mm, label.upper())
-    c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 9.5)
-    # Auto-fit
-    for fsz in [9, 8, 7]:
+    # Tronquer le label si trop long pour la pill
+    _lbl_max = w - r*2 - 8*_mm
+    _lbl_txt = label.upper()
+    while _lbl_txt and c.stringWidth(_lbl_txt, "Helvetica", 6.5) > _lbl_max:
+        _lbl_txt = _lbl_txt[:-1]
+    if _lbl_txt != label.upper():
+        _lbl_txt = _lbl_txt[:-1] + "…"
+    c.drawString(x+r*2+5*_mm, y+h-4.5*_mm, _lbl_txt)
+    c.setFillColor(_BLEU_F)
+    # Auto-fit valeur + tronquer si nécessaire
+    _val_str = str(value)
+    for fsz in [9.5, 9, 8, 7]:
         c.setFont("Helvetica-Bold", fsz)
-        if c.stringWidth(str(value), "Helvetica-Bold", fsz) < w-r*2-8*_mm: break
-    c.drawString(x+r*2+5*_mm, y+3.5*_mm, str(value))
+        if c.stringWidth(_val_str, "Helvetica-Bold", fsz) <= _lbl_max: break
+    # Si même à 7pt trop long, tronquer
+    while _val_str and c.stringWidth(_val_str, "Helvetica-Bold", 7) > _lbl_max:
+        _val_str = _val_str[:-1]
+    if _val_str != str(value):
+        _val_str = _val_str[:-1] + "…"
+    c.drawString(x+r*2+5*_mm, y+3.5*_mm, _val_str)
 
 # ── Carte OSM ──────────────────────────────────────────────
 
@@ -1662,14 +1675,27 @@ def _page3(c, d, agence_brief=False):
             ("+5 000", "clients accompagnés"),
             ("3 métiers", "vente · location · cession"),
         ]
-        kpi_x_start = _W - 14*_mm - 55*_mm
-        kpi_col_w   = 55*_mm / 3
+        # Largeur texte brief
+        _brief_col_w2 = kpi_x_start2 = 0  # calculé dynamiquement ci-dessous
+        _kpi_total_w = 60*_mm
+        kpi_x_start = _W - 14*_mm - _kpi_total_w
+        kpi_col_w   = _kpi_total_w / 3
         for i, (num, lbl) in enumerate(_kpis):
             kx = kpi_x_start + i * kpi_col_w
-            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 15)
+            c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 13)
             c.drawCentredString(kx + kpi_col_w/2, bloc_top - 20*_mm, num)
-            c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 6.5)
-            c.drawCentredString(kx + kpi_col_w/2, bloc_top - 25*_mm, lbl)
+            c.setFillColor(_colors.HexColor("#FFFFFFBB")); c.setFont("Helvetica", 6)
+            # Label KPI sur 2 lignes si trop long
+            _kw = c.stringWidth(lbl, "Helvetica", 6)
+            if _kw <= kpi_col_w - 2*_mm:
+                c.drawCentredString(kx + kpi_col_w/2, bloc_top - 25*_mm, lbl)
+            else:
+                # Couper en 2 lignes au premier espace
+                _parts = lbl.split(" · ") if " · " in lbl else lbl.rsplit(" ", 1)
+                _l1 = _parts[0]; _l2 = " · ".join(_parts[1:]) if len(_parts) > 1 else ""
+                c.drawCentredString(kx + kpi_col_w/2, bloc_top - 24*_mm, _l1)
+                if _l2:
+                    c.drawCentredString(kx + kpi_col_w/2, bloc_top - 27.5*_mm, _l2)
 
         # Texte de présentation (colonne gauche)
         _brief_txt = (
@@ -1683,7 +1709,8 @@ def _page3(c, d, agence_brief=False):
             _PS("ab", fontName="Helvetica", fontSize=7.5,
                 textColor=_colors.HexColor("#FFFFFFDD"), leading=11, alignment=0)
         )
-        txt_w = kpi_x_start - 20*_mm - 4*_mm
+        _kpi_total_w2 = 60*_mm
+        txt_w = (_W - 14*_mm - _kpi_total_w2) - 20*_mm - 8*_mm
         _, _pbh = _para_brief.wrap(txt_w, 9999)
         _para_brief.drawOn(c, 20*_mm, bloc_top - 13*_mm - _pbh)
 
@@ -1698,6 +1725,22 @@ def _page3(c, d, agence_brief=False):
     else:
         _header_top_offset = 0
     _sec(c, "Le quartier", 14*_mm, _H-32*_mm - _header_top_offset)
+    # ── Annonce du bien (Version portail / description) ──────────────────────
+    _annonce_p3 = (d.get("description") or "").strip()
+    _annonce_top_offset = 0
+    if _annonce_p3:
+        _ann_para = _Para(
+            _annonce_p3[:400].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"),
+            _PS("ann3", fontName="Helvetica-Oblique", fontSize=8.5,
+                textColor=_colors.HexColor("#444444"), leading=13, alignment=4)
+        )
+        _, _ann_h = _ann_para.wrap(_W-28*_mm, 9999)
+        _ann_y = _H - 32*_mm - 10*_mm - _ann_h - _header_top_offset
+        # Fond léger
+        c.setFillColor(_colors.HexColor("#F5F8FC"))
+        c.roundRect(14*_mm, _ann_y - 2*_mm, _W-28*_mm, _ann_h + 4*_mm, 1.5*_mm, fill=1, stroke=0)
+        _ann_para.drawOn(c, 14*_mm, _ann_y)
+        _annonce_top_offset = _ann_h + 8*_mm
     # Ligne d'accroche orange sous le titre
     ville = _safe(d.get("ville", "Vannes"))
     type_b_raw = d.get("type_bien") or ""
@@ -1706,7 +1749,7 @@ def _page3(c, d, agence_brief=False):
     else:
         _chapeau = f"Un emplacement stratégique au cœur de {ville}."
     c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold", 9)
-    c.drawString(14*_mm, _H-42*_mm - _header_top_offset, _chapeau)
+    c.drawString(14*_mm, _H-42*_mm - _header_top_offset - _annonce_top_offset, _chapeau)
     texte = d.get("texte_quartier") or (
         f"Situe a {_safe(d.get('ville','Vannes'))}, ce bien beneficie d'une localisation strategique "
         "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
@@ -1727,7 +1770,7 @@ def _page3(c, d, agence_brief=False):
     _, ph = p.wrap(_W-28*_mm, 9999)
     # Limiter dynamiquement si trop haut (garder au moins 80mm pour la carte)
     # +7mm réservé pour la ligne d'accroche chapeau
-    max_text_h = _H - 45*_mm - 80*_mm - _header_top_offset
+    max_text_h = _H - 45*_mm - 80*_mm - _header_top_offset - _annonce_top_offset
     if ph > max_text_h and max_text_h > 0:
         # Recalculer avec taille réduite — fallback texte brut sans XML
         for fsz in [9, 8, 7.5, 7]:
@@ -1755,8 +1798,8 @@ def _page3(c, d, agence_brief=False):
                     p = _Para(_texte_final, _PS("bf", fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
                     _, ph = p.wrap(_W-28*_mm, 9999)
                     break
-    p.drawOn(c, 14*_mm, _H-45*_mm-ph-_header_top_offset)
-    qbot = _H-45*_mm-ph-10*_mm-_header_top_offset
+    p.drawOn(c, 14*_mm, _H-45*_mm-ph-_header_top_offset-_annonce_top_offset)
+    qbot = _H-45*_mm-ph-10*_mm-_header_top_offset-_annonce_top_offset
 
     # ── Layout 50/50 : carte gauche + environnement droite ────────────────
     zone_h   = 75*_mm          # hauteur commune carte & POI
