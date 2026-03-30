@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.50"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.51"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1275,10 +1275,26 @@ def _page1(c, d):
         suffix_val   = " HT/mois"
         show_pm2     = False
     else:
-        val_affiche  = prix
-        label_prix   = "PRIX DE PRÉSENTATION"
+        # Vente : FAI (commercial) ou Net Vendeur (estimation)
+        mode_doc = d.get("_mode", "commercial")
+        taux_hono = float(d.get("taux_hono") or 0.05)
+        if mode_doc == "commercial" and prix:
+            val_affiche = int(float(str(prix)) * (1 + taux_hono))
+            label_prix  = "PRIX FAI (honoraires inclus)"
+        else:
+            val_affiche = prix
+            label_prix  = "PRIX NET VENDEUR"
         suffix_val   = ""
-        show_pm2     = bool(prix and surf)
+        show_pm2     = bool(val_affiche and surf)
+    # Badge EXCLUSIVITÉ
+    is_exclu = "exclusiv" in statut_mandat or "exclusiv" in str(d.get("type_mandat","")).lower()
+    if is_exclu:
+        badge_txt = "EXCLUSIVITÉ"
+        bw_exclu = c.stringWidth(badge_txt, "Helvetica-Bold", 9) + 10*_mm
+        c.setFillColor(_ORANGE)
+        c.roundRect(14*_mm, _H-69*_mm, bw_exclu, 6*_mm, 1.5*_mm, fill=1, stroke=0)
+        c.setFillColor(_BLANC); c.setFont("Helvetica-Bold", 9)
+        c.drawCentredString(14*_mm + bw_exclu/2, _H-64.8*_mm, badge_txt)
 
     c.setFillColor(_BLANC); c.setFont("Helvetica", 9)
     c.drawString(14*_mm, _H-74*_mm, label_prix)
@@ -2271,15 +2287,19 @@ def _clean_desc(text):
     if not text: return ""
     return _re.sub(r'\{\{[^}]+\}\}', '', text).strip()
 
-def generate_dossier_pdf(d, comparables=[]):
+def generate_dossier_pdf(d, comparables=[], mode="commercial"):
+    # mode = "commercial" (acquéreur, FAI, sans comparables/estimation)
+    #        "estimation"  (usage interne, Net Vendeur, toutes pages)
+    d["_mode"] = mode
     buf = _BytesIO()
     cv  = _canvas.Canvas(buf, pagesize=_A4)
     cv.setTitle(f"Dossier — {d.get('reference','')}")
     _page1(cv, d);              cv.showPage()
     _page2(cv, d);              cv.showPage()
     _page3(cv, d);              cv.showPage()
-    _page4(cv, comparables, d); cv.showPage()
-    _page5(cv, d);              cv.showPage()
+    if mode == "estimation":
+        _page4(cv, comparables, d); cv.showPage()
+        _page5(cv, d);              cv.showPage()
     _page6(cv);                 cv.showPage()
     cv.save(); buf.seek(0)
     return buf.read()
@@ -2544,7 +2564,9 @@ def dossier():
             except Exception:
                 pass
 
-        pdf_bytes = generate_dossier_pdf(d, comparables)
+        mode_doc = data.get("mode", "commercial")  # "commercial" ou "estimation"
+        d["_mode"] = mode_doc
+        pdf_bytes = generate_dossier_pdf(d, comparables, mode=mode_doc)
         ref = d.get("reference", "bien")
         import urllib.parse as _up
         extra_headers = {
