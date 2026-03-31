@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.80"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.83"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1599,13 +1599,13 @@ def _page2(c, d):
     _loyer_a = d.get("loyer_annuel") or 0
     _ca = d.get("ca_ht") or 0
     if _loyer_a:
-        try: _fin_items.append(("Loyer annuel HT", f"{int(float(str(_loyer_a))):,} €".replace(",", " ")))
+        try: _fin_items.append(("Loyer annuel HT", f"{int(float(str(_loyer_a))):,} EUR".replace(",", " ")))
         except: pass
     if _ca:
-        try: _fin_items.append(("CA HT annuel", f"{int(float(str(_ca))):,} €".replace(",", " ")))
+        try: _fin_items.append(("CA HT annuel", f"{int(float(str(_ca))):,} EUR".replace(",", " ")))
         except: pass
     if _taxe:
-        try: _fin_items.append(("Taxe fonciere", f"{int(float(str(_taxe))):,} €".replace(",", " ")))
+        try: _fin_items.append(("Taxe fonciere", f"{int(float(str(_taxe))):,} EUR".replace(",", " ")))
         except: pass
     if _fin_items:
         _fblock_top = pb - 4*_mm
