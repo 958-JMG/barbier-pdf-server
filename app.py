@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.86"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.87"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1608,12 +1608,17 @@ def _page2(c, d):
 
     if _is_bail:
         # ── Bloc bail locatif complet ──────────────────────────────────────────
+        # Calculer hauteur selon nombre de champs renseignés
+        _n_col1 = sum([bool(_locataire), bool(_loyer_ht)])
+        _n_col2 = sum([bool(_loyer_init), bool(_evol_loyer), bool(_duree_bail), bool(_taxe)])
+        _n_rows = max(_n_col1, _n_col2)
+        _bloc_bail_h = max(14*_mm, _n_rows * 11*_mm + 4*_mm)
+
         _fblock_top = pb - 4*_mm
         _sec(c, "Données du bail", 14*_mm, _fblock_top)
         _fy = _fblock_top - 7*_mm
 
         # Fond bloc
-        _bloc_bail_h = 36*_mm
         c.setFillColor(_colors.HexColor("#EBF0F8"))
         c.roundRect(14*_mm, _fy - _bloc_bail_h, _W - 28*_mm, _bloc_bail_h, 2*_mm, fill=1, stroke=0)
         # Barre orange gauche
@@ -1636,7 +1641,7 @@ def _page2(c, d):
             _fcy -= 11*_mm
         if _loyer_ht:
             try:
-                _lht_fmt = f"{int(float(str(_loyer_ht))):,} EUR HT/an".replace(",", " ")
+                _lht_fmt = f"{int(float(str(_loyer_ht))):,} EUR HT/an".replace(",", " ")
             except Exception:
                 _lht_fmt = str(_loyer_ht)
             _bail_line(_fcx1, _fcy, "Loyer annuel HT", _lht_fmt)
@@ -1646,7 +1651,7 @@ def _page2(c, d):
         _fcy2 = _fy - 6*_mm
         if _loyer_init:
             try:
-                _li_fmt = f"{int(float(str(_loyer_init))):,} EUR HT".replace(",", " ")
+                _li_fmt = f"{int(float(str(_loyer_init))):,} EUR HT".replace(",", " ")
             except Exception:
                 _li_fmt = str(_loyer_init)
             _bail_line(_fcx2, _fcy2, "Loyer initial", _li_fmt)
@@ -1661,7 +1666,7 @@ def _page2(c, d):
         # Taxe foncière en bas à droite si disponible
         if _taxe:
             try:
-                _tf_fmt = f"{int(float(str(_taxe))):,} EUR/an".replace(",", " ")
+                _tf_fmt = f"{int(float(str(_taxe))):,} EUR/an".replace(",", " ")
             except Exception:
                 _tf_fmt = str(_taxe)
             _bail_line(_fcx2, _fcy2, "Taxe foncière", _tf_fmt)
