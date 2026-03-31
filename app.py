@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.76"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.77"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1512,7 +1512,7 @@ def _page2(c, d):
                 clean, flags=_re_d.I | _re_d.DOTALL)
             first = True
             _bloc_count = 0
-            _max_blocs = 8  # limite pour éviter texte trop long
+            _max_blocs = 5  # limite blocs HTML — évite annonce trop longue
             for tok in tokens:
                 tok = tok.strip()
                 if not tok: continue
@@ -1534,7 +1534,7 @@ def _page2(c, d):
             _in_bullet_zone = False  # True après une section → items courts = bullets
             for idx, bloc in enumerate(blocs):
                 if _y < 18*_mm: break
-                if idx >= 5: break  # max 5 blocs pour éviter débordement
+                if idx >= 4: break  # max 4 blocs pour éviter débordement
                 lines = [l.strip() for l in bloc.splitlines() if l.strip()]
                 if not lines: continue
                 fl = lines[0]
@@ -1871,7 +1871,7 @@ def _page3(c, d, agence_brief=False):
     else:
         _chapeau = f"Un emplacement stratégique au cœur de {ville}."
     c.setFillColor(_ORANGE); c.setFont("Helvetica-Bold", 9)
-    c.drawString(14*_mm, _H-42*_mm - _header_top_offset - _annonce_top_offset, _chapeau)
+    c.drawString(14*_mm, _H-38*_mm - _header_top_offset - _annonce_top_offset, _chapeau)
     texte = d.get("texte_quartier") or (
         f"Situe a {_safe(d.get('ville','Vannes'))}, ce bien beneficie d'une localisation strategique "
         "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
@@ -1892,7 +1892,7 @@ def _page3(c, d, agence_brief=False):
     qbot      = zone_top + 12*_mm      # bas disponible pour le texte (inclut titres colonnes)
 
     # Espace disponible pour le texte (du bas du chapeau au dessus de qbot)
-    _text_top   = _H - 45*_mm - _header_top_offset - _annonce_top_offset
+    _text_top   = _H - 41*_mm - _header_top_offset - _annonce_top_offset
     max_text_h  = _text_top - qbot
     if max_text_h < 10*_mm:
         max_text_h = 10*_mm  # garde-fou minimum
@@ -2510,10 +2510,14 @@ def _page6(c):
 def _clean_desc(text):
     """Nettoie variables n8n. Préserve la structure \n\n pour le parser."""
     import re as _re
+    import html as _html
     if not text: return ""
     # Supprimer variables n8n
     text = _re.sub(r'\{\{[^}]+\}\}', '', text)
-    # Nettoyer entités HTML courantes (sans toucher aux balises HTML elles-mêmes)
+    # Décoder toutes les entités HTML (&#8201; &#160; &nbsp; etc.) avant de stripper les balises
+    text = _html.unescape(text)
+    # Nettoyer entités résiduelles et caractères invisibles
+    text = text.replace('\xa0', ' ').replace('\u202f', ' ').replace('\u2009', ' ')
     text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ').replace('&#39;', "'")
     # Nettoyer espaces multiples SUR CHAQUE LIGNE mais préserver les \n
     lines = text.split('\n')
