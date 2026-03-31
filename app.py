@@ -975,6 +975,29 @@ def generate_quartier():
     return jsonify({"texte_quartier": texte})
 
 
+@app.route("/debug-payload", methods=["POST"])
+def debug_payload():
+    """Temporary: log the exact payload received from cockpit."""
+    body = request.get_json(silent=True) or {}
+    # Log keys and types, truncate long values
+    summary = {}
+    for k, v in body.items():
+        if isinstance(v, str) and len(v) > 200:
+            summary[k] = "str[" + str(len(v)) + "] = " + v[:100] + "..."
+        elif isinstance(v, list):
+            items_desc = []
+            for item in v[:3]:
+                if isinstance(item, str) and len(item) > 100:
+                    items_desc.append("str[" + str(len(item)) + "]")
+                else:
+                    items_desc.append(str(item)[:80])
+            summary[k] = "list[" + str(len(v)) + "] = [" + ", ".join(items_desc) + "]"
+        else:
+            summary[k] = v
+    app.logger.info("PAYLOAD KEYS: %s", json.dumps(summary, default=str, ensure_ascii=False, indent=2))
+    return jsonify({"status": "logged", "keys": list(body.keys())})
+
+
 @app.route("/dossier", methods=["POST"])
 def dossier():
     """Generate and return a 3-page PDF dossier."""
@@ -983,6 +1006,16 @@ def dossier():
         return jsonify({"error": "Body JSON manquant"}), 400
 
     reference = body.get("reference", "inconnu")
+    # Log ALL keys and value types for debugging
+    key_types = {}
+    for k, v in body.items():
+        if isinstance(v, str):
+            key_types[k] = "str[" + str(len(v)) + "]"
+        elif isinstance(v, list):
+            key_types[k] = "list[" + str(len(v)) + "]"
+        else:
+            key_types[k] = str(type(v).__name__) + "=" + str(v)[:50]
+    app.logger.info("Dossier payload for %s: %s", reference, json.dumps(key_types, ensure_ascii=False))
     app.logger.info("Generating dossier for %s", reference)
 
     try:
