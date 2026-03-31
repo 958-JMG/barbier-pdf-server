@@ -143,8 +143,22 @@ def _geocode(adresse, ville):
     return None, None
 
 
+GOOGLE_MAPS_KEY = os.environ.get("GOOGLE_MAPS_KEY", "AIzaSyBBmTUkFXvCLMZqfCk26o6axikt98SY058")
+
+# Google Maps marker colors per POI category
+_GM_MARKER_COLORS = {
+    "Parking": "0x1B3A5C", "Transport": "0x0D5570", "Restauration": "0xE8472A",
+    "Banque": "0x1B5C3A", "Formation": "0x5C3A1B", "Commerce": "0x3A1B5C",
+    "Sante": "0x5C1B3A",
+}
+_GM_MARKER_LABELS = {
+    "Parking": "P", "Transport": "T", "Restauration": "R",
+    "Banque": "B", "Formation": "F", "Commerce": "C", "Sante": "S",
+}
+
+
 def _osm_map(adresse, ville, zoom=16, tiles=3):
-    """Returns (PIL Image, lat, lon) or (None, None, None)."""
+    """Returns (PIL Image, lat, lon) or (None, None, None). Fallback if Google fails."""
     try:
         lat, lon = _geocode(adresse, ville)
         if lat is None:
@@ -179,7 +193,7 @@ def _osm_map(adresse, ville, zoom=16, tiles=3):
 
 
 def _get_poi_osm(lat, lon, radius=500):
-    """Fetch POI via Overpass. Returns list of (category, name, color_hex)."""
+    """Fetch POI via Overpass. Returns list of (category, name, color_hex, poi_lat, poi_lon)."""
     categories = [
         ("amenity", "parking", "Parking", "#1B3A5C"),
         ("public_transport", "stop_position", "Transport", "#0D5570"),
@@ -206,18 +220,64 @@ def _get_poi_osm(lat, lon, radius=500):
             if resp.status_code != 200:
                 continue
             elements = resp.json().get("elements", [])
-            noms = []
             for el in elements:
                 nom = el.get("tags", {}).get("name", "")
-                if nom and nom not in noms:
-                    noms.append(nom)
-            if noms:
-                results.append((label, noms[0][:28], color))
+                plat = el.get("lat")
+                plon = el.get("lon")
+                if nom and plat and plon:
+                    results.append((label, nom[:28], color, float(plat), float(plon)))
+                    break  # one per category
             if len(results) >= 6:
                 break
     except Exception as e:
         app.logger.error("POI fetch: %s", e)
     return results
+
+
+def _google_static_map(adresse, ville, poi_list, w=640, h=400, zoom=16):
+    """Generate a Google Maps Static API image with POI markers.
+    poi_list: [(category, name, color_hex, lat, lon), ...]
+    Returns (PIL Image, lat, lon) or falls back to OSM.
+    """
+    if not GOOGLE_MAPS_KEY:
+        return None, None, None
+    try:
+        lat, lon = _geocode(adresse, ville)
+        if lat is None:
+            return None, None, None
+
+        import urllib.parse
+        params = {
+            "center": "{},{}".format(lat, lon),
+            "zoom": str(zoom),
+            "size": "{}x{}".format(w, h),
+            "scale": "2",
+            "maptype": "roadmap",
+            "key": GOOGLE_MAPS_KEY,
+        }
+        # Main marker (bien location) ‚Äî orange
+        markers = ["color:0xF0795B|size:mid|label:X|{},{}".format(lat, lon)]
+        # POI markers
+        for cat, nom, col_hex, plat, plon in (poi_list or [])[:6]:
+            mc = _GM_MARKER_COLORS.get(cat, "0x16708B")
+            ml = _GM_MARKER_LABELS.get(cat, "")
+            markers.append("color:{}|size:small|label:{}|{},{}".format(mc, ml, plat, plon))
+
+        url = "https://maps.googleapis.com/maps/api/staticmap?" + urllib.parse.urlencode(params)
+        for m in markers:
+            url += "&markers=" + urllib.parse.quote(m)
+
+        app.logger.info("Google Maps URL: %s", url[:200])
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 200 and "image" in resp.headers.get("Content-Type", ""):
+            img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+            return img, lat, lon
+        else:
+            app.logger.warning("Google Maps failed (%s): %s", resp.status_code, resp.text[:200])
+            return None, None, None
+    except Exception as e:
+        app.logger.error("Google Static Map: %s", e)
+        return None, None, None
 
 
 def _get_poi_gpt(adresse, ville, type_bien):
@@ -253,7 +313,7 @@ def _get_poi_gpt(adresse, ville, type_bien):
                 cat = it.get("categorie", "")
                 nom = it.get("nom", "")
                 if cat and nom:
-                    results.append((cat, nom[:28], cat_colors.get(cat, "#16708B")))
+                    results.append((cat, nom[:28], cat_colors.get(cat, "#16708B"), 0, 0))
             return results
     except Exception as e:
         app.logger.error("POI GPT fallback: %s", e)
@@ -424,7 +484,7 @@ def _draw_poi_icon(c, cat, cx, cy, r):
     lw = max(r * 0.18, 0.8)
     c.setLineWidth(lw)
     if "PARKING" in cu:
-        # Bold P — parking standard symbol
+        # Bold P ‚Äî parking standard symbol
         c.setFont("Helvetica-Bold", r * 1.6)
         c.drawCentredString(cx, cy - r * 0.52, "P")
     elif "TRANSPORT" in cu:
@@ -466,7 +526,7 @@ def _draw_poi_icon(c, cat, cx, cy, r):
         hw = bw * 0.5
         c.arc(cx - hw / 2, cy + bh * 0.3, cx + hw / 2, cy + bh * 0.7, 0, 180)
     elif "BANQUE" in cu:
-        # € symbol
+        # ‚Ç¨ symbol
         c.setFont("Helvetica-Bold", r * 1.5)
         c.drawCentredString(cx + r * 0.05, cy - r * 0.52, "\u20ac")
     elif "SANTE" in cu:
@@ -494,7 +554,7 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
     c.setStrokeColor(colors.HexColor("#E0E4EA"))
     c.setLineWidth(0.5)
     c.roundRect(bx, by, bw, bh, 2 * mm, fill=1, stroke=1)
-    # Icon circle — large, centered vertically
+    # Icon circle ‚Äî large, centered vertically
     r = min(bh * 0.32, 5.5 * mm)
     icx = bx + r + 4 * mm
     icy = by + bh / 2
@@ -528,7 +588,7 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 1 — Couverture
+# PAGE 1 ‚Äî Couverture
 # ---------------------------------------------------------------------------
 def _page1(c, d):
     # 1) Draw both backgrounds
@@ -611,7 +671,7 @@ def _page1(c, d):
     c.setFont("Helvetica", 9)
     c.drawString(ML, PAGE_H - (97 if hono else 91) * mm, "PRIX DE VENTE FAI")
 
-    # Pills: Surface, Type, Activite — drawn AFTER both backgrounds
+    # Pills: Surface, Type, Activite ‚Äî drawn AFTER both backgrounds
     pills = [
         ("SURFACE", _safe(d.get("surface")) + " m\u00b2"),
         ("TYPE", _safe(d.get("type_bien"))),
@@ -673,34 +733,53 @@ def _page1(c, d):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 2 — Quartier & Localisation (50/50 carte + POI)
+# PAGE 2 ‚Äî Quartier & Localisation (50/50 carte + POI)
 # ---------------------------------------------------------------------------
 def _page2(c, d):
     _header(c, "Quartier & environnement")
 
-    # -- Top of content area (16mm below header for breathing room)
-    content_top = PAGE_H - HEADER_H - 16 * mm
-    _sec(c, "Le quartier", ML, content_top)
+    # -- 1) "Pourquoi Barbier Immobilier" at TOP
+    pourquoi_h = 26 * mm
+    pq_top = PAGE_H - HEADER_H - 14 * mm
+    pq_bot = pq_top - pourquoi_h
+    c.setFillColor(TEAL)
+    c.roundRect(ML, pq_bot, CW, pourquoi_h, 2 * mm, fill=1, stroke=0)
+    c.setFillColor(WHITE)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(ML + 5 * mm, pq_top - 5 * mm, "Pourquoi Barbier Immobilier ?")
+    c.setFont("Helvetica", 7.5)
+    lines_pq = [
+        "Plus de 30 ans d'expertise en immobilier commercial dans le Morbihan.",
+        "Un accompagnement personnalis\u00e9 pour chaque projet d'investissement.",
+        "Une connaissance approfondie du tissu \u00e9conomique local et des opportunit\u00e9s.",
+    ]
+    for i_pq, lpq in enumerate(lines_pq):
+        c.drawString(ML + 5 * mm, pq_top - 13 * mm - i_pq * 5 * mm,
+                     "\u2022  " + lpq)
 
+    # -- 2) "Le quartier" section
     ville = _safe(d.get("ville"), "Vannes")
     tb = d.get("type_bien") or ""
-    if tb and tb != "\u2014":
-        chapeau = "Un emplacement strategique pour votre " + tb.lower() + " au c\u0153ur de " + ville + "."
-    else:
-        chapeau = "Un emplacement strategique au c\u0153ur de " + ville + "."
+    quartier_sec_y = pq_bot - 8 * mm
+    _sec(c, "Le quartier", ML, quartier_sec_y)
 
-    chapeau_y = content_top - 7 * mm
+    if tb and tb != "\u2014":
+        chapeau = "Un emplacement strat\u00e9gique pour votre " + tb.lower() + " au c\u0153ur de " + ville + "."
+    else:
+        chapeau = "Un emplacement strat\u00e9gique au c\u0153ur de " + ville + "."
+
+    chapeau_y = quartier_sec_y - 7 * mm
     c.setFillColor(ORANGE)
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, chapeau_y, chapeau)
 
-    # -- Quartier text
+    # Quartier text
     texte = d.get("texte_quartier") or (
-        "Situe a " + ville + ", ce bien beneficie d'une localisation strategique "
-        "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
-        "proximite de la rocade et des axes principaux. Le secteur compte de nombreux commerces, "
-        "services et equipements a proximite immediate, offrant un environnement favorable a "
-        "l'exploitation d'une activite commerciale ou professionnelle."
+        "Situ\u00e9 a " + ville + ", ce bien b\u00e9n\u00e9ficie d'une localisation strat\u00e9gique "
+        "dans un secteur \u00e9conomiquement actif du Morbihan. L'accessibilit\u00e9 est optimale gr\u00e2ce a la "
+        "proximit\u00e9 de la rocade et des axes principaux. Le secteur compte de nombreux commerces, "
+        "services et \u00e9quipements a proximit\u00e9 imm\u00e9diate, offrant un environnement favorable a "
+        "l'exploitation d'une activit\u00e9 commerciale ou professionnelle."
     )
 
     parts = re.split(r"(?<=[.!?])\s+", texte.strip(), maxsplit=1)
@@ -712,24 +791,21 @@ def _page2(c, d):
         texte_xml = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     text_top = chapeau_y - 4 * mm
-    # Reserve: "Pourquoi Barbier" (25mm) + map+POI zone (90mm min) + section headers (10mm)
-    pourquoi_h = 28 * mm
-    map_min_h = 80 * mm
-    col_gap = 5 * mm
-    col_w = (CW - col_gap) / 2
-    bottom_reserved = FOOTER_H + pourquoi_h + map_min_h + 20 * mm
+    # Reserve: map zone (min 75mm) + section header (10mm) + footer
+    map_min_h = 75 * mm
+    bottom_reserved = FOOTER_H + map_min_h + 14 * mm
     max_text_h = text_top - bottom_reserved
     if max_text_h < 8 * mm:
         max_text_h = 8 * mm
 
-    sty = ParagraphStyle("qt", fontName="Helvetica", fontSize=9.5,
-                         textColor=GRAY_DARK, leading=15, alignment=4)
+    sty = ParagraphStyle("qt", fontName="Helvetica", fontSize=9,
+                         textColor=GRAY_DARK, leading=14, alignment=4)
     para = Paragraph(texte_xml, sty)
     _, ph = para.wrap(CW, max_text_h)
     if ph > max_text_h:
-        for fsz in [9, 8.5, 8, 7.5]:
+        for fsz in [8.5, 8, 7.5, 7]:
             sty2 = ParagraphStyle("qt" + str(fsz), fontName="Helvetica", fontSize=fsz,
-                                  textColor=GRAY_DARK, leading=fsz * 1.6, alignment=4)
+                                  textColor=GRAY_DARK, leading=fsz * 1.55, alignment=4)
             para = Paragraph(texte_xml, sty2)
             _, ph = para.wrap(CW, max_text_h)
             if ph <= max_text_h:
@@ -737,55 +813,68 @@ def _page2(c, d):
     text_draw_y = text_top - ph
     para.drawOn(c, ML, text_draw_y)
 
-    # -- "Pourquoi Barbier Immobilier" at bottom
-    pourquoi_top = FOOTER_H + pourquoi_h + 2 * mm
-    c.setFillColor(TEAL)
-    c.roundRect(ML, FOOTER_H + 2 * mm, CW, pourquoi_h, 2 * mm, fill=1, stroke=0)
-    c.setFillColor(WHITE)
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(ML + 5 * mm, FOOTER_H + pourquoi_h - 5 * mm, "Pourquoi Barbier Immobilier ?")
-    c.setFont("Helvetica", 7.5)
-    lines_pq = [
-        "Plus de 30 ans d'expertise en immobilier commercial dans le Morbihan.",
-        "Un accompagnement personnalise pour chaque projet d'investissement.",
-        "Une connaissance approfondie du tissu economique local et des opportunites.",
-    ]
-    for i_pq, lpq in enumerate(lines_pq):
-        c.drawString(ML + 5 * mm, FOOTER_H + pourquoi_h - 13 * mm - i_pq * 5 * mm,
-                     "\u2022  " + lpq)
-
-    # -- Map + POI columns
-    map_zone_bot = pourquoi_top + 4 * mm
-    map_zone_top = text_draw_y - 6 * mm
-    zone_h = map_zone_top - 10 * mm - map_zone_bot
+    # -- 3) Localisation & Environnement ‚Äî single full-width map with POI markers
+    zone_bot = FOOTER_H + 5 * mm
+    sec2_y = text_draw_y - 6 * mm
+    zone_h = sec2_y - 8 * mm - zone_bot
     if zone_h < 40 * mm:
         zone_h = 40 * mm
+    zone_top = zone_bot + zone_h
 
-    zone_top = map_zone_bot + zone_h
-    sec2_y = zone_top + 1 * mm
+    _sec(c, "Localisation & environnement", ML, zone_top + 1 * mm)
 
-    _sec(c, "Localisation", ML, sec2_y, w=col_w)
-    _sec(c, "Environnement du quartier", ML + col_w + col_gap, sec2_y, w=col_w)
-
-    # Left column: OSM map
     mx = ML
-    mw = col_w
+    mw = CW
     mh = zone_h
-    my = map_zone_bot
+    my = zone_bot
     lat = lon = None
-    try:
-        osm_img, lat, lon = _osm_map(_safe(d.get("adresse"), ""), _safe(d.get("ville"), "Vannes"))
-        if osm_img:
-            iw2, ih2 = osm_img.size
+
+    # 1) Fetch POI (with coordinates)
+    adresse_str = _safe(d.get("adresse"), "")
+    ville_str = _safe(d.get("ville"), "Vannes")
+    lat, lon = _geocode(adresse_str, ville_str)
+    poi_blocks = []
+    if lat and lon:
+        poi_blocks = _get_poi_osm(lat, lon, radius=500)
+
+    # 2) Try Google Maps Static (full width, all POI as markers)
+    map_img = None
+    if GOOGLE_MAPS_KEY:
+        try:
+            gmap_img, glat, glon = _google_static_map(
+                adresse_str, ville_str, poi_blocks, w=640, h=380, zoom=16)
+            if gmap_img:
+                map_img = gmap_img
+                if glat:
+                    lat, lon = glat, glon
+        except Exception as e:
+            app.logger.error("Google map attempt: %s", e)
+
+    # 3) Fallback to OSM tiles if Google failed
+    if map_img is None:
+        try:
+            osm_img, olat, olon = _osm_map(adresse_str, ville_str)
+            if osm_img:
+                map_img = osm_img
+                if olat:
+                    lat, lon = olat, olon
+        except Exception as e:
+            app.logger.error("OSM fallback: %s", e)
+
+    # 4) Draw the map
+    if map_img:
+        try:
+            iw2, ih2 = map_img.size
             tr = mw / mh
-            if iw2 / ih2 > tr:
+            ir = iw2 / ih2
+            if ir > tr:
                 nw = int(ih2 * tr)
-                osm_img = osm_img.crop(((iw2 - nw) // 2, 0, (iw2 - nw) // 2 + nw, ih2))
+                map_img = map_img.crop(((iw2 - nw) // 2, 0, (iw2 - nw) // 2 + nw, ih2))
             else:
                 nh = int(iw2 / tr)
-                osm_img = osm_img.crop((0, (ih2 - nh) // 2, iw2, (ih2 - nh) // 2 + nh))
+                map_img = map_img.crop((0, (ih2 - nh) // 2, iw2, (ih2 - nh) // 2 + nh))
             buf2 = io.BytesIO()
-            osm_img.save(buf2, format="PNG")
+            map_img.save(buf2, format="PNG")
             buf2.seek(0)
             c.saveState()
             clip = c.beginPath()
@@ -793,79 +882,54 @@ def _page2(c, d):
             c.clipPath(clip, stroke=0, fill=0)
             c.drawImage(ImageReader(buf2), mx, my, width=mw, height=mh)
             c.restoreState()
-            # Marker pin
-            px2 = mx + mw / 2
-            py2 = my + mh / 2
-            c.setFillColor(colors.HexColor("#00000033"))
-            c.ellipse(px2 - 2.5 * mm, py2 - 1 * mm, px2 + 2.5 * mm, py2 + 0.5 * mm, fill=1, stroke=0)
-            c.setFillColor(ORANGE)
-            c.circle(px2, py2 + 3 * mm, 3 * mm, fill=1, stroke=0)
-            c.setFillColor(WHITE)
-            c.circle(px2, py2 + 3 * mm, 1.2 * mm, fill=1, stroke=0)
-            p_path = c.beginPath()
-            p_path.moveTo(px2 - 2 * mm, py2 + 3 * mm)
-            p_path.lineTo(px2 + 2 * mm, py2 + 3 * mm)
-            p_path.lineTo(px2, py2 - 0.5 * mm)
-            p_path.close()
-            c.setFillColor(ORANGE)
-            c.drawPath(p_path, fill=1, stroke=0)
-            # Address chip
-            adr = _safe(d.get("adresse")) + ", " + _safe(d.get("ville"))
-            chip_w = min(c.stringWidth(adr, "Helvetica-Bold", 6) + 8 * mm, mw - 10 * mm)
-            chip_h = 7 * mm
-            chip_x = px2 - chip_w / 2
-            chip_y = py2 - 9 * mm
-            c.setFillColor(WHITE)
-            c.setStrokeColor(colors.HexColor("#CCCCCC"))
-            c.setLineWidth(0.4)
-            c.roundRect(chip_x, chip_y, chip_w, chip_h, 1.5 * mm, fill=1, stroke=1)
-            c.setFillColor(TEAL_DARK)
-            c.setFont("Helvetica-Bold", 6)
-            c.drawCentredString(px2, chip_y + 2.2 * mm, adr[:55])
-            # Border + copyright
+            # Subtle border
             c.setStrokeColor(colors.HexColor("#BBBBBB"))
             c.setLineWidth(0.6)
             c.roundRect(mx, my, mw, mh, 3 * mm, fill=0, stroke=1)
-            c.setFillColor(colors.HexColor("#FFFFFF99"))
-            c.rect(mx, my, mw, 4.5 * mm, fill=1, stroke=0)
-            c.setFillColor(colors.HexColor("#555555"))
-            c.setFont("Helvetica", 5)
-            c.drawRightString(mx + mw - 2 * mm, my + 1.2 * mm, "\u00a9 OpenStreetMap contributors")
-    except Exception as e:
-        app.logger.error("Map draw: %s", e)
+            # Address chip centered at bottom of map
+            adr = adresse_str + ", " + ville_str
+            chip_w = min(c.stringWidth(adr, "Helvetica-Bold", 7) + 10 * mm, mw - 20 * mm)
+            chip_h = 8 * mm
+            chip_x = mx + (mw - chip_w) / 2
+            chip_y = my + 6 * mm
+            c.setFillColor(WHITE)
+            c.setStrokeColor(colors.HexColor("#CCCCCC"))
+            c.setLineWidth(0.4)
+            c.roundRect(chip_x, chip_y, chip_w, chip_h, 2 * mm, fill=1, stroke=1)
+            c.setFillColor(TEAL_DARK)
+            c.setFont("Helvetica-Bold", 7)
+            c.drawCentredString(mx + mw / 2, chip_y + 2.5 * mm, adr[:65])
+        except Exception as e:
+            app.logger.error("Map draw: %s", e)
+    else:
         c.setFillColor(colors.HexColor("#E8F0F4"))
         c.roundRect(mx, my, mw, mh, 3 * mm, fill=1, stroke=0)
         c.setFillColor(colors.HexColor("#AAAAAA"))
         c.setFont("Helvetica", 8)
         c.drawCentredString(mx + mw / 2, my + mh / 2, "Carte indisponible")
 
-    # Right column: POI cards
-    poi_x = ML + col_w + col_gap
-    poi_blocks = []
-    if lat and lon:
-        poi_blocks = _get_poi_osm(lat, lon, radius=500)
-    if not poi_blocks:
-        poi_blocks = _get_poi_gpt(d.get("adresse", ""), d.get("ville", ""), d.get("type_bien", ""))
-
-    n_poi = min(len(poi_blocks), 5)
-    if n_poi > 0:
-        poi_gap = 3 * mm
-        poi_ch = (zone_h - (n_poi - 1) * poi_gap) / n_poi
-        for i, (lbl, val, col_hex) in enumerate(poi_blocks[:n_poi]):
-            by2 = my + zone_h - (i + 1) * poi_ch - i * poi_gap
-            _draw_poi_card(c, poi_x, by2, col_w, poi_ch, lbl, val, col_hex)
-    else:
-        c.setFillColor(colors.HexColor("#E8F0F4"))
-        c.roundRect(poi_x, my, col_w, mh, 3 * mm, fill=1, stroke=0)
-        c.setFillColor(colors.HexColor("#AAAAAA"))
-        c.setFont("Helvetica", 8)
-        c.drawCentredString(poi_x + col_w / 2, my + mh / 2, "Donn\u00e9es en cours d'analyse")
+    # 5) POI legend below map (compact row of labels if we have POI)
+    if poi_blocks:
+        legend_y = my - 5 * mm
+        c.setFont("Helvetica", 6)
+        lx = ML
+        for i_poi, (cat, nom, col_hex, *_coords) in enumerate(poi_blocks[:6]):
+            col = colors.HexColor(col_hex) if col_hex else TEAL
+            # Colored dot + text
+            c.setFillColor(col)
+            c.circle(lx + 2 * mm, legend_y + 1.5 * mm, 1.5 * mm, fill=1, stroke=0)
+            c.setFillColor(GRAY_DARK)
+            label_txt = cat[0] + " " + nom
+            c.drawString(lx + 5 * mm, legend_y, label_txt[:25])
+            lx += c.stringWidth(label_txt[:25], "Helvetica", 6) + 9 * mm
+            if lx > ML + CW - 20 * mm:
+                break
 
     _footer(c, 2)
 
 
 # ---------------------------------------------------------------------------
-# PAGE 3 — Annonce + Donnees financieres + Prix
+# PAGE 3 ‚Äî Annonce + Donnees financieres + Prix
 # ---------------------------------------------------------------------------
 def _page3(c, d):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
@@ -924,8 +988,8 @@ def _page3(c, d):
     )
     desc_stop_y = needed_bottom + 4 * mm
 
-    # Section + title (16mm below header for breathing room)
-    _sec(c, "Pr\u00e9sentation du bien", ML, PAGE_H - HEADER_H - 16 * mm)
+    # Section + title (14mm below header for breathing room)
+    _sec(c, "Pr\u00e9sentation du bien", ML, PAGE_H - HEADER_H - 14 * mm)
 
     desc = _clean(d.get("description", ""))
     desc_lines = desc.split("\n")
@@ -943,13 +1007,13 @@ def _page3(c, d):
                                 textColor=TEAL_DARK, leading=14)
     p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
     _, th = p_titre.wrap(CW, 30 * mm)
-    titre_y = PAGE_H - HEADER_H - 28 * mm - th
+    titre_y = PAGE_H - HEADER_H - 24 * mm - th
     p_titre.drawOn(c, ML, titre_y)
 
-    text_y = titre_y - 4 * mm
+    text_y = titre_y - 2 * mm
     desc_bot = _render_desc(c, desc_body, text_y, 999, stop_y=desc_stop_y)
 
-    # Caracteristiques pills — placed right below description
+    # Caracteristiques pills ‚Äî placed right below description
     pills_sec_y = desc_bot - 8 * mm
     _sec(c, "Caract\u00e9ristiques", ML, pills_sec_y)
     pgx = 3 * mm
@@ -981,11 +1045,9 @@ def _page3(c, d):
         row_h = 12 * mm
         total_rows = math.ceil(len(bail_rows) / cols2)
         bloc_h = total_rows * row_h + 4 * mm
-        # Background
+        # Background ‚Äî simple aplat, NO orange bar
         c.setFillColor(colors.HexColor("#EBF0F8"))
         c.roundRect(ML, fy_top - bloc_h, CW, bloc_h, 2 * mm, fill=1, stroke=0)
-        c.setFillColor(ORANGE)
-        c.rect(ML, fy_top - bloc_h, 3 * mm, bloc_h, fill=1, stroke=0)
         for idx2, (label, valeur) in enumerate(bail_rows):
             col2 = idx2 % cols2
             row2 = idx2 // cols2
@@ -1023,7 +1085,7 @@ def _page3(c, d):
         c.drawString(ML + 3 * mm, fy - 12 * mm, _pfmt(taxe))
         _fin_bottom = fy - 14 * mm - 4 * mm
 
-    # Prix block — anchored just above footer
+    # Prix block ‚Äî anchored just above footer
     if has_prix:
         try:
             prix_fai = int(float(str(prix_brut)))
@@ -1042,9 +1104,9 @@ def _page3(c, d):
             bloc_y = margin_bottom + 2 * mm
             _sec(c, "Prix", ML, bloc_y + bloc_h2 + 3 * mm)
             items = [
-                ("PRIX DE VENTE FAI", _pfmt(prix_fai), TEAL_DARK),
+                ("PRIX DE VENTE FAI", _pfmt(prix_fai), TEAL),
                 ("HONORAIRES (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
-                ("PRIX NET VENDEUR", _pfmt(pnv_v), colors.HexColor("#0D5570")),
+                ("PRIX NET VENDEUR", _pfmt(pnv_v), TEAL_DARK),
             ]
             for ip, (lbl, val, col) in enumerate(items):
                 bxp = ML + ip * (bw3 + 3 * mm)
@@ -1236,7 +1298,7 @@ def _is_plan(url_or_data):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 4 — Photos du bien (images only, no cadastre)
+# PAGE 4 ‚Äî Photos du bien (images only, no cadastre)
 # ---------------------------------------------------------------------------
 def _page_photos(c, d, page_num=4, total=4):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
@@ -1265,8 +1327,8 @@ def _page_photos(c, d, page_num=4, total=4):
         _footer(c, page_num, total=total)
         return
 
-    # Full width, stacked horizontally, same height — max 3 photos
-    n = min(len(real_photos), 3)
+    # Full width, stacked, same height ‚Äî 2 photos (landscape format)
+    n = min(len(real_photos), 2)
     ph_each = (available_h - (n - 1) * gap_y) / n
 
     for i in range(n):
@@ -1287,7 +1349,7 @@ def _page_photos(c, d, page_num=4, total=4):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 5 — Plan cadastral & informations parcelle
+# PAGE 5 ‚Äî Plan cadastral & informations parcelle
 # ---------------------------------------------------------------------------
 def _page_cadastre(c, d, page_num=5, total=5):
     _header(c, "Plan cadastral \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
@@ -1316,7 +1378,7 @@ def _page_cadastre(c, d, page_num=5, total=5):
         _footer(c, page_num, total=total)
         return
 
-    # Display cadastre images — full width, stacked
+    # Display cadastre images ‚Äî full width, stacked
     n = min(len(cadastre_imgs), 2)
     ph_each = (available_h - (n - 1) * gap_y) / n
 
@@ -1418,7 +1480,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.6"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.8"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -1439,7 +1501,7 @@ def dossier():
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
     ref = body.get("reference", "inconnu")
-    app.logger.info("Dossier for %s — keys: %s", ref, list(body.keys()))
+    app.logger.info("Dossier for %s ‚Äî keys: %s", ref, list(body.keys()))
 
     # Generate quartier text if missing
     texte_q = body.get("texte_quartier") or ""
