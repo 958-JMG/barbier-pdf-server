@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.75"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.76"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1491,7 +1491,11 @@ def _page2(c, d):
 
         def _draw_p(txt):
             nonlocal _y
-            _t = _sb(_xs(_strip(txt).strip()))
+            import re as _re_bold
+            _raw = _strip(txt).strip()
+            # Mettre en gras les montants €, pourcentages et données chiffrées
+            _raw = _re_bold.sub(r'(\d[\d\s]*(?:€|%|m²|ans?)[^.,;]*)','**\1**', _raw)
+            _t = _sb(_xs(_raw))
             if not _t: return
             _p = _Para(_t, _PS("_dap_body", parent=None, fontName="Helvetica", fontSize=9,
                                textColor=_GTEXTE, leading=13, alignment=4))
@@ -1507,9 +1511,13 @@ def _page2(c, d):
                 r'(<h[1-6][^>]*>.*?</h[1-6]>|<p[^>]*>.*?</p>|<li[^>]*>.*?</li>)',
                 clean, flags=_re_d.I | _re_d.DOTALL)
             first = True
+            _bloc_count = 0
+            _max_blocs = 8  # limite pour éviter texte trop long
             for tok in tokens:
                 tok = tok.strip()
                 if not tok: continue
+                _bloc_count += 1
+                if _bloc_count > _max_blocs: break
                 mh = _re_d.match(r'<h[1-6][^>]*>(.*?)</h[1-6]>', tok, _re_d.I | _re_d.DOTALL)
                 mp = _re_d.match(r'<p[^>]*>(.*?)</p>', tok, _re_d.I | _re_d.DOTALL)
                 ml = _re_d.match(r'<li[^>]*>(.*?)</li>', tok, _re_d.I | _re_d.DOTALL)
@@ -1526,6 +1534,7 @@ def _page2(c, d):
             _in_bullet_zone = False  # True après une section → items courts = bullets
             for idx, bloc in enumerate(blocs):
                 if _y < 18*_mm: break
+                if idx >= 5: break  # max 5 blocs pour éviter débordement
                 lines = [l.strip() for l in bloc.splitlines() if l.strip()]
                 if not lines: continue
                 fl = lines[0]
@@ -1926,8 +1935,11 @@ def _page3(c, d, agence_brief=False):
                     p = _Para(_texte_final, _PS("bf%s" % _fsz_final, fontName="Helvetica", fontSize=_fsz_final, textColor=_GTEXTE, leading=_fsz_final*1.6, alignment=4))
                     _, ph = p.wrap(_W-28*_mm, 9999)
                     break
-    # Dessiner le texte juste au-dessus de qbot (aligné par le bas)
-    p.drawOn(c, 14*_mm, qbot)
+    # Dessiner le texte ancré par le haut (sous l'accroche), pas par le bas
+    _text_y = _text_top - ph  # bas du texte = haut - hauteur réelle
+    if _text_y < qbot:        # si déborde sur la carte, ancrer par le bas
+        _text_y = qbot
+    p.drawOn(c, 14*_mm, _text_y)
 
     # Titres des deux colonnes — largeur limitée à la colonne
     _sec(c, "Localisation", 14*_mm, zone_top + 2*_mm, w=col_w)
