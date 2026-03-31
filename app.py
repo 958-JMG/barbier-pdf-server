@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.79"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.80"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1592,6 +1592,35 @@ def _page2(c, d):
         col = i%cols; row2 = i//cols
         _pill_picto(c, 14*_mm+col*(pw+pgx), sy-row2*(ph2+pgy), b64, lbl, val, pw, ph2)
     pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-6*_mm
+
+    # ── Bloc données financières (conditionnel) ──────────────────────────────
+    _fin_items = []
+    _taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
+    _loyer_a = d.get("loyer_annuel") or 0
+    _ca = d.get("ca_ht") or 0
+    if _loyer_a:
+        try: _fin_items.append(("Loyer annuel HT", f"{int(float(str(_loyer_a))):,} €".replace(",", " ")))
+        except: pass
+    if _ca:
+        try: _fin_items.append(("CA HT annuel", f"{int(float(str(_ca))):,} €".replace(",", " ")))
+        except: pass
+    if _taxe:
+        try: _fin_items.append(("Taxe fonciere", f"{int(float(str(_taxe))):,} €".replace(",", " ")))
+        except: pass
+    if _fin_items:
+        _fblock_top = pb - 4*_mm
+        _sec(c, "Donnees financieres", 14*_mm, _fblock_top)
+        _fy = _fblock_top - 6*_mm
+        _fw = (_W - 28*_mm) / len(_fin_items) - 2*_mm
+        for _fi, (_flbl, _fval) in enumerate(_fin_items):
+            _fx = 14*_mm + _fi * (_fw + 2*_mm)
+            c.setFillColor(_colors.HexColor("#EBF0F8"))
+            c.roundRect(_fx, _fy - 12*_mm, _fw, 12*_mm, 1.5*_mm, fill=1, stroke=0)
+            c.setFillColor(_BLEU_F); c.setFont("Helvetica", 6.5)
+            c.drawString(_fx + 3*_mm, _fy - 5*_mm, _flbl.upper())
+            c.setFont("Helvetica-Bold", 9)
+            c.drawString(_fx + 3*_mm, _fy - 10*_mm, _fval)
+
     # ── Bloc Prix — ancré sur le bas de page (au-dessus du footer) ───────────
     prix_brut = d.get("prix") or 0
     taux_h    = float(d.get("taux_hono") or 0.05)
