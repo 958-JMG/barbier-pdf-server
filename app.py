@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Barbier Immobilier - PDF Dossier de Vente v5.2
+Barbier Immobilier - PDF Dossier de Vente v5.9
 Flask app deployed on Railway.
 Routes: GET /, POST /generate-quartier, POST /dossier
 """
@@ -51,6 +51,13 @@ MR = 14 * mm
 CW = PAGE_W - ML - MR # content width
 HEADER_H = 11 * mm
 FOOTER_H = 9 * mm
+
+# Uniform spacing constants (premium feel)
+SP_AFTER_HEADER = 12 * mm   # space between header bar and first content
+SP_BEFORE_FOOTER = 5 * mm   # space between last content and footer bar
+SP_AFTER_SEC = 4 * mm       # space between section title bar and its content
+SP_BETWEEN_BLOCS = 6 * mm   # space between two blocs/sections
+SEC_H = 8 * mm              # section title bar height
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -255,7 +262,7 @@ def _google_static_map(adresse, ville, poi_list, w=640, h=400, zoom=16):
             "maptype": "roadmap",
             "key": GOOGLE_MAPS_KEY,
         }
-        # Main marker (bien location) ‚Äî orange
+        # Main marker (bien location) — orange
         markers = ["color:0xF0795B|size:mid|label:X|{},{}".format(lat, lon)]
         # POI markers
         for cat, nom, col_hex, plat, plon in (poi_list or [])[:6]:
@@ -484,7 +491,7 @@ def _draw_poi_icon(c, cat, cx, cy, r):
     lw = max(r * 0.18, 0.8)
     c.setLineWidth(lw)
     if "PARKING" in cu:
-        # Bold P ‚Äî parking standard symbol
+        # Bold P — parking standard symbol
         c.setFont("Helvetica-Bold", r * 1.6)
         c.drawCentredString(cx, cy - r * 0.52, "P")
     elif "TRANSPORT" in cu:
@@ -554,7 +561,7 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
     c.setStrokeColor(colors.HexColor("#E0E4EA"))
     c.setLineWidth(0.5)
     c.roundRect(bx, by, bw, bh, 2 * mm, fill=1, stroke=1)
-    # Icon circle ‚Äî large, centered vertically
+    # Icon circle — large, centered vertically
     r = min(bh * 0.32, 5.5 * mm)
     icx = bx + r + 4 * mm
     icy = by + bh / 2
@@ -588,7 +595,7 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 1 ‚Äî Couverture
+# PAGE 1 — Couverture
 # ---------------------------------------------------------------------------
 def _page1(c, d):
     # 1) Draw both backgrounds
@@ -671,7 +678,7 @@ def _page1(c, d):
     c.setFont("Helvetica", 9)
     c.drawString(ML, PAGE_H - (97 if hono else 91) * mm, "PRIX DE VENTE FAI")
 
-    # Pills: Surface, Type, Activite ‚Äî drawn AFTER both backgrounds
+    # Pills: Surface, Type, Activite — drawn AFTER both backgrounds
     pills = [
         ("SURFACE", _safe(d.get("surface")) + " m\u00b2"),
         ("TYPE", _safe(d.get("type_bien"))),
@@ -733,14 +740,14 @@ def _page1(c, d):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 2 ‚Äî Quartier & Localisation (50/50 carte + POI)
+# PAGE 2 — Quartier & Localisation (50/50 carte + POI)
 # ---------------------------------------------------------------------------
 def _page2(c, d):
     _header(c, "Quartier & environnement")
 
     # -- 1) "Pourquoi Barbier Immobilier" at TOP
     pourquoi_h = 26 * mm
-    pq_top = PAGE_H - HEADER_H - 14 * mm
+    pq_top = PAGE_H - HEADER_H - SP_AFTER_HEADER
     pq_bot = pq_top - pourquoi_h
     c.setFillColor(TEAL)
     c.roundRect(ML, pq_bot, CW, pourquoi_h, 2 * mm, fill=1, stroke=0)
@@ -760,7 +767,7 @@ def _page2(c, d):
     # -- 2) "Le quartier" section
     ville = _safe(d.get("ville"), "Vannes")
     tb = d.get("type_bien") or ""
-    quartier_sec_y = pq_bot - 8 * mm
+    quartier_sec_y = pq_bot - SP_BETWEEN_BLOCS
     _sec(c, "Le quartier", ML, quartier_sec_y)
 
     if tb and tb != "\u2014":
@@ -768,7 +775,7 @@ def _page2(c, d):
     else:
         chapeau = "Un emplacement strat\u00e9gique au c\u0153ur de " + ville + "."
 
-    chapeau_y = quartier_sec_y - 7 * mm
+    chapeau_y = quartier_sec_y - SP_AFTER_SEC - 2 * mm
     c.setFillColor(ORANGE)
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, chapeau_y, chapeau)
@@ -790,10 +797,10 @@ def _page2(c, d):
     else:
         texte_xml = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    text_top = chapeau_y - 4 * mm
+    text_top = chapeau_y - SP_AFTER_SEC
     # Reserve: map zone (min 75mm) + section header (10mm) + footer
     map_min_h = 75 * mm
-    bottom_reserved = FOOTER_H + map_min_h + 14 * mm
+    bottom_reserved = FOOTER_H + SP_BEFORE_FOOTER + map_min_h + SP_BETWEEN_BLOCS + SEC_H
     max_text_h = text_top - bottom_reserved
     if max_text_h < 8 * mm:
         max_text_h = 8 * mm
@@ -813,10 +820,10 @@ def _page2(c, d):
     text_draw_y = text_top - ph
     para.drawOn(c, ML, text_draw_y)
 
-    # -- 3) Localisation & Environnement ‚Äî single full-width map with POI markers
-    zone_bot = FOOTER_H + 5 * mm
-    sec2_y = text_draw_y - 6 * mm
-    zone_h = sec2_y - 8 * mm - zone_bot
+    # -- 3) Localisation & Environnement — single full-width map with POI markers
+    zone_bot = FOOTER_H + SP_BEFORE_FOOTER
+    sec2_y = text_draw_y - SP_BETWEEN_BLOCS
+    zone_h = sec2_y - SEC_H - zone_bot
     if zone_h < 40 * mm:
         zone_h = 40 * mm
     zone_top = zone_bot + zone_h
@@ -929,7 +936,7 @@ def _page2(c, d):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 3 ‚Äî Annonce + Donnees financieres + Prix
+# PAGE 3 — Annonce + Donnees financieres + Prix
 # ---------------------------------------------------------------------------
 def _page3(c, d):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
@@ -988,8 +995,8 @@ def _page3(c, d):
     )
     desc_stop_y = needed_bottom + 4 * mm
 
-    # Section + title (14mm below header for breathing room)
-    _sec(c, "Pr\u00e9sentation du bien", ML, PAGE_H - HEADER_H - 14 * mm)
+    # Section + title
+    _sec(c, "Pr\u00e9sentation du bien", ML, PAGE_H - HEADER_H - SP_AFTER_HEADER)
 
     desc = _clean(d.get("description", ""))
     desc_lines = desc.split("\n")
@@ -1007,18 +1014,18 @@ def _page3(c, d):
                                 textColor=TEAL_DARK, leading=14)
     p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
     _, th = p_titre.wrap(CW, 30 * mm)
-    titre_y = PAGE_H - HEADER_H - 24 * mm - th
+    titre_y = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - th
     p_titre.drawOn(c, ML, titre_y)
 
-    text_y = titre_y - 2 * mm
+    text_y = titre_y - 2.5 * mm
     desc_bot = _render_desc(c, desc_body, text_y, 999, stop_y=desc_stop_y)
 
-    # Caracteristiques pills ‚Äî placed right below description
-    pills_sec_y = desc_bot - 8 * mm
+    # Caracteristiques pills — placed right below description
+    pills_sec_y = desc_bot - SP_BETWEEN_BLOCS
     _sec(c, "Caract\u00e9ristiques", ML, pills_sec_y)
     pgx = 3 * mm
     cols = 3
-    sy = pills_sec_y - 4 * mm - ph2
+    sy = pills_sec_y - SP_AFTER_SEC - ph2
     for i, (b64, lbl, val) in enumerate(pills_data):
         col_i = i % cols
         row_i = i // cols
@@ -1028,9 +1035,9 @@ def _page3(c, d):
     # Bail / financial data
     _fin_bottom = None
     if is_bail:
-        bail_sec_y = pills_bot - 8 * mm
+        bail_sec_y = pills_bot - SP_BETWEEN_BLOCS
         _sec(c, "Donn\u00e9es du bail", ML, bail_sec_y)
-        fy_top = bail_sec_y - 3 * mm
+        fy_top = bail_sec_y - SP_AFTER_SEC
         # Build ordered list of bail items
         bail_rows = []
         if loc:    bail_rows.append(("Locataire", loc))
@@ -1045,7 +1052,7 @@ def _page3(c, d):
         row_h = 12 * mm
         total_rows = math.ceil(len(bail_rows) / cols2)
         bloc_h = total_rows * row_h + 4 * mm
-        # Background ‚Äî simple aplat, NO orange bar
+        # Background — simple aplat, NO orange bar
         c.setFillColor(colors.HexColor("#EBF0F8"))
         c.roundRect(ML, fy_top - bloc_h, CW, bloc_h, 2 * mm, fill=1, stroke=0)
         for idx2, (label, valeur) in enumerate(bail_rows):
@@ -1068,9 +1075,9 @@ def _page3(c, d):
         _fin_bottom = fy_top - bloc_h - 4 * mm
 
     elif taxe:
-        bail_sec_y = pills_bot - 8 * mm
+        bail_sec_y = pills_bot - SP_BETWEEN_BLOCS
         _sec(c, "Donn\u00e9es financi\u00e8res", ML, bail_sec_y)
-        fy = bail_sec_y - 3 * mm
+        fy = bail_sec_y - SP_AFTER_SEC
         fw = CW / 2 - 1 * mm
         c.setFillColor(colors.HexColor("#EBF0F8"))
         c.roundRect(ML, fy - 14 * mm, fw, 14 * mm, 1.5 * mm, fill=1, stroke=0)
@@ -1085,7 +1092,7 @@ def _page3(c, d):
         c.drawString(ML + 3 * mm, fy - 12 * mm, _pfmt(taxe))
         _fin_bottom = fy - 14 * mm - 4 * mm
 
-    # Prix block ‚Äî anchored just above footer
+    # Prix block — anchored just above footer
     if has_prix:
         try:
             prix_fai = int(float(str(prix_brut)))
@@ -1101,8 +1108,8 @@ def _page3(c, d):
             bloc_h2 = prix_block_h
             bw3 = CW / 3 - 2 * mm
             hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
-            bloc_y = margin_bottom + 2 * mm
-            _sec(c, "Prix", ML, bloc_y + bloc_h2 + 3 * mm)
+            bloc_y = margin_bottom + SP_BEFORE_FOOTER
+            _sec(c, "Prix", ML, bloc_y + bloc_h2 + SP_AFTER_SEC)
             items = [
                 ("PRIX DE VENTE FAI", _pfmt(prix_fai), TEAL),
                 ("HONORAIRES (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
@@ -1298,11 +1305,12 @@ def _is_plan(url_or_data):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 4 ‚Äî Photos du bien (images only, no cadastre)
+# PAGE 4 — Photos du bien (images only, no cadastre)
 # ---------------------------------------------------------------------------
 def _page_photos(c, d, page_num=4, total=4):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
-    _sec(c, "Photos du bien", ML, PAGE_H - HEADER_H - 16 * mm)
+    sec_y = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "Photos du bien", ML, sec_y)
 
     photos = d.get("photos") or []
     # Filter: skip first (cover) + skip PDFs/cadastre
@@ -1313,10 +1321,10 @@ def _page_photos(c, d, page_num=4, total=4):
         if not _is_plan(p):
             real_photos.append(p)
 
-    zone_top = PAGE_H - HEADER_H - 28 * mm
-    zone_bot = FOOTER_H + 5 * mm
+    zone_top = sec_y - SEC_H - SP_AFTER_SEC
+    zone_bot = FOOTER_H + SP_BEFORE_FOOTER
     available_h = zone_top - zone_bot
-    gap_y = 5 * mm
+    gap_y = 4 * mm
 
     if not real_photos:
         c.setFillColor(GRAY_LIGHT)
@@ -1327,8 +1335,8 @@ def _page_photos(c, d, page_num=4, total=4):
         _footer(c, page_num, total=total)
         return
 
-    # Full width, stacked, same height ‚Äî 2 photos (landscape format)
-    n = min(len(real_photos), 2)
+    # Full width, stacked, same height — 3 photos minimum (landscape format)
+    n = min(len(real_photos), 3)
     ph_each = (available_h - (n - 1) * gap_y) / n
 
     for i in range(n):
@@ -1349,11 +1357,12 @@ def _page_photos(c, d, page_num=4, total=4):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 5 ‚Äî Plan cadastral & informations parcelle
+# PAGE 5 — Plan cadastral & informations parcelle
 # ---------------------------------------------------------------------------
 def _page_cadastre(c, d, page_num=5, total=5):
     _header(c, "Plan cadastral \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
-    _sec(c, "Plan cadastral", ML, PAGE_H - HEADER_H - 16 * mm)
+    sec_y = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "Plan cadastral", ML, sec_y)
 
     photos = d.get("photos") or []
     # Find cadastre images (PDFs)
@@ -1364,10 +1373,10 @@ def _page_cadastre(c, d, page_num=5, total=5):
             if img:
                 cadastre_imgs.append(img)
 
-    zone_top = PAGE_H - HEADER_H - 28 * mm
+    zone_top = sec_y - SEC_H - SP_AFTER_SEC
     zone_bot = FOOTER_H + 20 * mm  # extra space for parcel info
     available_h = zone_top - zone_bot
-    gap_y = 5 * mm
+    gap_y = 4 * mm
 
     if not cadastre_imgs:
         c.setFillColor(GRAY_LIGHT)
@@ -1378,7 +1387,7 @@ def _page_cadastre(c, d, page_num=5, total=5):
         _footer(c, page_num, total=total)
         return
 
-    # Display cadastre images ‚Äî full width, stacked
+    # Display cadastre images — full width, stacked
     n = min(len(cadastre_imgs), 2)
     ph_each = (available_h - (n - 1) * gap_y) / n
 
@@ -1480,7 +1489,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.8"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.9"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -1501,7 +1510,7 @@ def dossier():
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
     ref = body.get("reference", "inconnu")
-    app.logger.info("Dossier for %s ‚Äî keys: %s", ref, list(body.keys()))
+    app.logger.info("Dossier for %s — keys: %s", ref, list(body.keys()))
 
     # Generate quartier text if missing
     texte_q = body.get("texte_quartier") or ""
