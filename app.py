@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.77"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.78"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1588,6 +1588,14 @@ def _page2(c, d):
     # ── Bloc Prix — ancré sur le bas de page (au-dessus du footer) ───────────
     prix_brut = d.get("prix") or 0
     taux_h    = float(d.get("taux_hono") or 0.05)
+    if not prix_brut:
+        _pnv  = d.get("prix_net_vendeur") or 0
+        _hnr  = d.get("honoraires") or 0
+        if _pnv and _hnr:
+            try:
+                prix_brut = int(float(str(_pnv))) + int(float(str(_hnr)))
+            except Exception:
+                pass
     if prix_brut:
         try:
             prix_fai_v  = int(float(str(prix_brut)))
@@ -2519,6 +2527,10 @@ def _clean_desc(text):
     # Nettoyer entités résiduelles et caractères invisibles
     text = text.replace('\xa0', ' ').replace('\u202f', ' ').replace('\u2009', ' ')
     text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ').replace('&#39;', "'")
+    # Supprimer les queues de listes orphelines n8n : ", , , , 'Arz, Ville, ..."
+    import re as _re2
+    text = _re2.sub(r'(,\s*){3,}[^.!?\n]{0,300}$', '', text, flags=_re2.MULTILINE)
+    text = _re2.sub(r',\s*$', '', text.rstrip())  # virgule finale résiduelle
     # Nettoyer espaces multiples SUR CHAQUE LIGNE mais préserver les \n
     lines = text.split('\n')
     lines = [' '.join(l.split()) for l in lines]
