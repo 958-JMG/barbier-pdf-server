@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.85"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.86"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -2725,6 +2725,12 @@ def dossier():
             "loyer_pm2_median":data.get("loyer_pm2_median", 0),
             "loyer_ville_match":data.get("loyer_ville_match", ""),
             "loyer_marche_pm2_an": data.get("loyer_marche_pm2_an", 0),
+            # Bail locatif
+            "locataire":       data.get("locataire", ""),
+            "loyer_annuel_ht": data.get("loyer_annuel_ht", 0),
+            "loyer_initial_ht":data.get("loyer_initial_ht", 0),
+            "evolution_loyer": data.get("evolution_loyer", ""),
+            "duree_bail":      data.get("duree_bail", ""),
         }
 
         comparables = data.get("comparables", [])
