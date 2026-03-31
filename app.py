@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.78"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.79"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1503,6 +1503,13 @@ def _page2(c, d):
             if _y - _ph < 18*_mm: return
             _p.drawOn(c, _x, _y - _ph); _y -= _ph + _GAP
 
+        # Nettoyage complet avant toute chose
+        import html as _html_r
+        desc_txt = _html_r.unescape(desc_txt)
+        desc_txt = desc_txt.replace('\u00b2', '2').replace('\u00b3', '3')
+        desc_txt = desc_txt.replace('\u2019', "'").replace('\u2018', "'")
+        desc_txt = desc_txt.replace('\u2013', '-').replace('\u2014', '-')
+        desc_txt = desc_txt.replace('\u2026', '...')
         clean = desc_txt.replace('\xa0', ' ').strip()
         is_html = bool(_re_d.search(r'<(p|h[1-6]|ul|li|strong|em|br)\b', clean, _re_d.I))
 
