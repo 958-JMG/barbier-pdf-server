@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Barbier Immobilier - PDF Dossier de Vente v5.10
+Barbier Immobilier - PDF Dossier de Vente v5.11
 Flask app deployed on Railway.
 Routes: GET /, POST /generate-quartier, POST /dossier
 """
@@ -53,10 +53,10 @@ HEADER_H = 11 * mm
 FOOTER_H = 9 * mm
 
 # Uniform spacing constants (premium feel)
-SP_AFTER_HEADER = 12 * mm   # space between header bar and first content
+SP_AFTER_HEADER = 10 * mm   # space between header bar and first content
 SP_BEFORE_FOOTER = 5 * mm   # space between last content and footer bar
-SP_AFTER_SEC = 4 * mm       # space between section title bar and its content
-SP_BETWEEN_BLOCS = 6 * mm   # space between two blocs/sections
+SP_AFTER_SEC = 5 * mm       # space between section title bar and its content
+SP_BETWEEN_BLOCS = 8 * mm   # space between two blocs/sections
 SEC_H = 8 * mm              # section title bar height
 
 # ---------------------------------------------------------------------------
@@ -409,7 +409,7 @@ def _footer(c, n, total=3):
     c.setFont("Helvetica", 6.5)
     c.drawString(ML, 3.5 * mm,
                  "Barbier Immobilier \u2014 2 place Albert Einstein, 56000 Vannes \u2014 02.97.47.11.11 \u2014 barbierimmobilier.com")
-    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.10  " + str(n) + " / " + str(total))
+    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.11  " + str(n) + " / " + str(total))
     c.restoreState()
 
 
@@ -481,6 +481,47 @@ def _draw_cover(c, img, x, y, w, h):
         c.restoreState()
     except Exception as e:
         app.logger.error("draw_cover: %s", e)
+
+
+def _is_portrait(img):
+    """Check if an image is portrait (taller than wide)."""
+    try:
+        iw, ih = img.getSize()
+        return ih > iw * 1.15  # at least 15% taller than wide
+    except Exception:
+        return False
+
+
+def _draw_photo_fit(c, img, x, y, w, h):
+    """Draw image fitted inside rect (no crop), with light gray background.
+    Used for portrait photos so they don't get distorted."""
+    try:
+        iw, ih = img.getSize()
+        ir = iw / ih if ih > 0 else 1
+        tr = w / h
+        if ir > tr:
+            dw = w
+            dh = w / ir
+        else:
+            dh = h
+            dw = h * ir
+        dx = x + (w - dw) / 2
+        dy = y + (h - dh) / 2
+        # Background
+        c.saveState()
+        clip = c.beginPath()
+        clip.roundRect(x, y, w, h, 3 * mm)
+        c.clipPath(clip, stroke=0, fill=0)
+        c.setFillColor(colors.HexColor("#F0F2F5"))
+        c.rect(x, y, w, h, fill=1, stroke=0)
+        c.drawImage(img, dx, dy, dw, dh, mask="auto")
+        c.restoreState()
+        # Border
+        c.setStrokeColor(GRAY_BDR)
+        c.setLineWidth(0.4)
+        c.roundRect(x, y, w, h, 3 * mm, fill=0, stroke=1)
+    except Exception as e:
+        app.logger.error("draw_photo_fit: %s", e)
 
 
 def _draw_poi_icon(c, cat, cx, cy, r):
@@ -986,14 +1027,15 @@ def _page3(c, d):
     prix_block_h = 28 * mm if has_prix else 0
 
     # How much space do we need at the bottom?
-    margin_bottom = FOOTER_H + 5 * mm
+    margin_bottom = FOOTER_H + SP_BEFORE_FOOTER
+    sec_overhead = SEC_H + SP_AFTER_SEC + SP_BETWEEN_BLOCS  # each section: title bar + gap after + gap before
     needed_bottom = (
         margin_bottom
-        + (prix_block_h + 11 * mm if has_prix else 0)    # prix section
-        + (bail_h + 11 * mm if bail_h > 0 else 0)         # bail section
-        + pills_total_h + 11 * mm                          # pills section
+        + (prix_block_h + sec_overhead if has_prix else 0)
+        + (bail_h + sec_overhead if bail_h > 0 else 0)
+        + pills_total_h + sec_overhead
     )
-    desc_stop_y = needed_bottom + 4 * mm
+    desc_stop_y = needed_bottom
 
     # Section + title
     _sec(c, "Pr\u00e9sentation du bien", ML, PAGE_H - HEADER_H - SP_AFTER_HEADER)
@@ -1108,7 +1150,7 @@ def _page3(c, d):
             bloc_h2 = prix_block_h
             bw3 = CW / 3 - 2 * mm
             hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
-            bloc_y = margin_bottom + SP_BEFORE_FOOTER
+            bloc_y = margin_bottom
             _sec(c, "Prix", ML, bloc_y + bloc_h2 + SP_AFTER_SEC)
             items = [
                 ("PRIX DE VENTE FAI", _pfmt(prix_fai), TEAL),
@@ -1343,7 +1385,10 @@ def _page_photos(c, d, page_num=4, total=4):
         img = _fetch_photo(real_photos[i])
         py = zone_top - (i + 1) * ph_each - i * gap_y
         if img:
-            _draw_cover(c, img, ML, py, CW, ph_each)
+            if _is_portrait(img):
+                _draw_photo_fit(c, img, ML, py, CW, ph_each)
+            else:
+                _draw_cover(c, img, ML, py, CW, ph_each)
         else:
             c.setFillColor(GRAY_LIGHT)
             c.setStrokeColor(GRAY_BDR)
@@ -1489,7 +1534,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.10"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.11"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -1514,7 +1559,7 @@ def dossier():
     real = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
     plans = [p for p in photos if _is_plan(p)]
     app.logger.info(
-        "Dossier v5.10 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
+        "Dossier v5.11 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
         ref, list(body.keys()), len(photos), len(real), len(plans))
     # Log first 80 chars of each photo to debug
     for idx, p in enumerate(photos):
