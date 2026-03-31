@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.94"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.95"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1607,6 +1607,7 @@ def _page2(c, d):
 
     # Détecter si c'est un bien avec bail locatif
     _is_bail = bool(_locataire or _loyer_ht or _loyer_init or _evol_loyer or _duree_bail)
+    _fin_bottom = None  # sera calculé si bloc bail ou données financières présents
 
     if _is_bail:
         # ── Bloc bail locatif complet ──────────────────────────────────────────
@@ -1727,8 +1728,12 @@ def _page2(c, d):
             bloc_h = 22*_mm
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
-            # Ancrage fixe sécurisé : footer à 9mm + bloc 22mm + titre 11mm = 42mm min
-            bloc_y  = 18*_mm
+            # Ancrage dynamique : colle Prix sous bail si possible, sinon ancrage bas fixe
+            _bloc_total_h = bloc_h + 11*_mm  # 22mm carte + 11mm titre
+            if _fin_bottom is not None:
+                bloc_y = max(18*_mm, _fin_bottom - _bloc_total_h - 3*_mm)
+            else:
+                bloc_y  = 18*_mm
             titre_y = bloc_y + bloc_h + 3*_mm
             _sec(c, "Prix", 14*_mm, titre_y)
             items_prix = [
