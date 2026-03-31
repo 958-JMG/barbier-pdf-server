@@ -487,45 +487,43 @@ def _draw_poi_icon(c, cat, cx, cy, r):
 
 
 def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
+    """POI card: white rounded rect, colored circle icon, category + name."""
     col = colors.HexColor(color_hex) if color_hex else TEAL
-    # Left color accent bar
-    c.setFillColor(col)
-    c.roundRect(bx, by, bw, bh, 1.5 * mm, fill=1, stroke=0)
-    c.setFillColor(GRAY_LIGHT)
-    c.roundRect(bx + 3.5 * mm, by, bw - 3.5 * mm, bh, 1.5 * mm, fill=1, stroke=0)
-    c.setFillColor(col)
-    c.rect(bx + 3.5 * mm, by, 2 * mm, bh, fill=1, stroke=0)
-    # Icon circle
-    r = min(bh * 0.38, 5 * mm)
-    icx = bx + 3.5 * mm + r + 2.5 * mm
+    # White card background with subtle border
+    c.setFillColor(WHITE)
+    c.setStrokeColor(colors.HexColor("#E0E4EA"))
+    c.setLineWidth(0.5)
+    c.roundRect(bx, by, bw, bh, 2 * mm, fill=1, stroke=1)
+    # Icon circle — large, centered vertically
+    r = min(bh * 0.32, 5.5 * mm)
+    icx = bx + r + 4 * mm
     icy = by + bh / 2
     c.saveState()
     c.setFillColor(col)
     c.circle(icx, icy, r, fill=1, stroke=0)
     _draw_poi_icon(c, label, icx, icy, r)
     c.restoreState()
-    # Text: category label small gray, then name bold teal
-    tx = icx + r + 2.5 * mm
-    avail_w = bx + bw - tx - 2 * mm
+    # Text: category label small gray, then POI name bold dark
+    tx = icx + r + 4 * mm
+    avail_w = bx + bw - tx - 3 * mm
     c.saveState()
     c.setFillColor(GRAY_MID)
     c.setFont("Helvetica", 6)
     cat_txt = label.upper()
     while cat_txt and c.stringWidth(cat_txt, "Helvetica", 6) > avail_w:
         cat_txt = cat_txt[:-1]
-    c.drawString(tx, by + bh - 3.8 * mm, cat_txt)
+    c.drawString(tx, by + bh - 4.5 * mm, cat_txt)
     c.setFillColor(TEAL_DARK)
     nom = str(valeur)
-    for fsz in [8.5, 7.5, 7, 6.5]:
+    for fsz in [9, 8, 7.5, 7]:
         c.setFont("Helvetica-Bold", fsz)
         if c.stringWidth(nom, "Helvetica-Bold", fsz) <= avail_w:
             break
     else:
-        # Truncate if still too long
-        while nom and c.stringWidth(nom + "…", "Helvetica-Bold", 6.5) > avail_w:
+        while nom and c.stringWidth(nom + "\u2026", "Helvetica-Bold", 7) > avail_w:
             nom = nom[:-1]
-        nom = nom + "…"
-    c.drawString(tx, by + 3 * mm, nom)
+        nom = nom + "\u2026"
+    c.drawString(tx, by + 3.5 * mm, nom)
     c.restoreState()
 
 
@@ -680,9 +678,9 @@ def _page1(c, d):
 def _page2(c, d):
     _header(c, "Quartier & environnement")
 
-    # Section header
-    sec_y = PAGE_H - HEADER_H - 8 * mm
-    _sec(c, "Le quartier", ML, sec_y)
+    # -- Top of content area (16mm below header for breathing room)
+    content_top = PAGE_H - HEADER_H - 16 * mm
+    _sec(c, "Le quartier", ML, content_top)
 
     ville = _safe(d.get("ville"), "Vannes")
     tb = d.get("type_bien") or ""
@@ -691,12 +689,12 @@ def _page2(c, d):
     else:
         chapeau = "Un emplacement strategique au c\u0153ur de " + ville + "."
 
-    chapeau_y = sec_y - 7 * mm
+    chapeau_y = content_top - 7 * mm
     c.setFillColor(ORANGE)
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, chapeau_y, chapeau)
 
-    # Quartier text — wraps naturally
+    # -- Quartier text
     texte = d.get("texte_quartier") or (
         "Situe a " + ville + ", ce bien beneficie d'une localisation strategique "
         "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
@@ -713,14 +711,13 @@ def _page2(c, d):
     else:
         texte_xml = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    # Compute available text height: from chapeau_y down to ~half page (min 35mm)
-    # We want text to flow then map to fill the rest
     text_top = chapeau_y - 4 * mm
-    # Reserve bottom: footer + sections + map zone minimum 80mm
+    # Reserve: "Pourquoi Barbier" (25mm) + map+POI zone (90mm min) + section headers (10mm)
+    pourquoi_h = 28 * mm
     map_min_h = 80 * mm
     col_gap = 5 * mm
     col_w = (CW - col_gap) / 2
-    bottom_reserved = FOOTER_H + map_min_h + 18 * mm  # sections (2x8mm) + gap
+    bottom_reserved = FOOTER_H + pourquoi_h + map_min_h + 20 * mm
     max_text_h = text_top - bottom_reserved
     if max_text_h < 8 * mm:
         max_text_h = 8 * mm
@@ -740,24 +737,41 @@ def _page2(c, d):
     text_draw_y = text_top - ph
     para.drawOn(c, ML, text_draw_y)
 
-    # Map+POI section: from text_bottom down to footer
-    sections_top = text_draw_y - 6 * mm
-    zone_bot = FOOTER_H + 5 * mm
-    zone_h = sections_top - 10 * mm - zone_bot  # 10mm for section headers
+    # -- "Pourquoi Barbier Immobilier" at bottom
+    pourquoi_top = FOOTER_H + pourquoi_h + 2 * mm
+    c.setFillColor(TEAL)
+    c.roundRect(ML, FOOTER_H + 2 * mm, CW, pourquoi_h, 2 * mm, fill=1, stroke=0)
+    c.setFillColor(WHITE)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(ML + 5 * mm, FOOTER_H + pourquoi_h - 5 * mm, "Pourquoi Barbier Immobilier ?")
+    c.setFont("Helvetica", 7.5)
+    lines_pq = [
+        "Plus de 30 ans d'expertise en immobilier commercial dans le Morbihan.",
+        "Un accompagnement personnalise pour chaque projet d'investissement.",
+        "Une connaissance approfondie du tissu economique local et des opportunites.",
+    ]
+    for i_pq, lpq in enumerate(lines_pq):
+        c.drawString(ML + 5 * mm, FOOTER_H + pourquoi_h - 13 * mm - i_pq * 5 * mm,
+                     "\u2022  " + lpq)
+
+    # -- Map + POI columns
+    map_zone_bot = pourquoi_top + 4 * mm
+    map_zone_top = text_draw_y - 6 * mm
+    zone_h = map_zone_top - 10 * mm - map_zone_bot
     if zone_h < 40 * mm:
         zone_h = 40 * mm
 
-    zone_top = zone_bot + zone_h  # bottom edge of section headers = zone_bot + zone_h
+    zone_top = map_zone_bot + zone_h
     sec2_y = zone_top + 1 * mm
 
     _sec(c, "Localisation", ML, sec2_y, w=col_w)
-    _sec(c, "Environnement", ML + col_w + col_gap, sec2_y, w=col_w)
+    _sec(c, "Environnement du quartier", ML + col_w + col_gap, sec2_y, w=col_w)
 
     # Left column: OSM map
     mx = ML
     mw = col_w
     mh = zone_h
-    my = zone_bot
+    my = map_zone_bot
     lat = lon = None
     try:
         osm_img, lat, lon = _osm_map(_safe(d.get("adresse"), ""), _safe(d.get("ville"), "Vannes"))
@@ -782,15 +796,12 @@ def _page2(c, d):
             # Marker pin
             px2 = mx + mw / 2
             py2 = my + mh / 2
-            # Pin drop shadow
             c.setFillColor(colors.HexColor("#00000033"))
             c.ellipse(px2 - 2.5 * mm, py2 - 1 * mm, px2 + 2.5 * mm, py2 + 0.5 * mm, fill=1, stroke=0)
-            # Pin body
             c.setFillColor(ORANGE)
             c.circle(px2, py2 + 3 * mm, 3 * mm, fill=1, stroke=0)
             c.setFillColor(WHITE)
             c.circle(px2, py2 + 3 * mm, 1.2 * mm, fill=1, stroke=0)
-            # Pin tail
             p_path = c.beginPath()
             p_path.moveTo(px2 - 2 * mm, py2 + 3 * mm)
             p_path.lineTo(px2 + 2 * mm, py2 + 3 * mm)
@@ -798,7 +809,7 @@ def _page2(c, d):
             p_path.close()
             c.setFillColor(ORANGE)
             c.drawPath(p_path, fill=1, stroke=0)
-            # Address chip below pin
+            # Address chip
             adr = _safe(d.get("adresse")) + ", " + _safe(d.get("ville"))
             chip_w = min(c.stringWidth(adr, "Helvetica-Bold", 6) + 8 * mm, mw - 10 * mm)
             chip_h = 7 * mm
@@ -811,11 +822,10 @@ def _page2(c, d):
             c.setFillColor(TEAL_DARK)
             c.setFont("Helvetica-Bold", 6)
             c.drawCentredString(px2, chip_y + 2.2 * mm, adr[:55])
-            # Border
+            # Border + copyright
             c.setStrokeColor(colors.HexColor("#BBBBBB"))
             c.setLineWidth(0.6)
             c.roundRect(mx, my, mw, mh, 3 * mm, fill=0, stroke=1)
-            # OSM copyright
             c.setFillColor(colors.HexColor("#FFFFFF99"))
             c.rect(mx, my, mw, 4.5 * mm, fill=1, stroke=0)
             c.setFillColor(colors.HexColor("#555555"))
@@ -837,9 +847,9 @@ def _page2(c, d):
     if not poi_blocks:
         poi_blocks = _get_poi_gpt(d.get("adresse", ""), d.get("ville", ""), d.get("type_bien", ""))
 
-    n_poi = min(len(poi_blocks), 6)
+    n_poi = min(len(poi_blocks), 5)
     if n_poi > 0:
-        poi_gap = 2.5 * mm
+        poi_gap = 3 * mm
         poi_ch = (zone_h - (n_poi - 1) * poi_gap) / n_poi
         for i, (lbl, val, col_hex) in enumerate(poi_blocks[:n_poi]):
             by2 = my + zone_h - (i + 1) * poi_ch - i * poi_gap
@@ -914,8 +924,8 @@ def _page3(c, d):
     )
     desc_stop_y = needed_bottom + 4 * mm
 
-    # Section + title
-    _sec(c, "Presentation du bien", ML, PAGE_H - HEADER_H - 8 * mm)
+    # Section + title (16mm below header for breathing room)
+    _sec(c, "Pr\u00e9sentation du bien", ML, PAGE_H - HEADER_H - 16 * mm)
 
     desc = _clean(d.get("description", ""))
     desc_lines = desc.split("\n")
@@ -933,7 +943,7 @@ def _page3(c, d):
                                 textColor=TEAL_DARK, leading=14)
     p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
     _, th = p_titre.wrap(CW, 30 * mm)
-    titre_y = PAGE_H - HEADER_H - 20 * mm - th
+    titre_y = PAGE_H - HEADER_H - 28 * mm - th
     p_titre.drawOn(c, ML, titre_y)
 
     text_y = titre_y - 4 * mm
@@ -1218,101 +1228,152 @@ def _render_desc(c, desc_txt, start_y, max_h, stop_y=None):
     return y
 
 
+def _is_plan(url_or_data):
+    """Check if a photo URL/data is a cadastre/PDF document."""
+    s = str(url_or_data or "")
+    return ("cadastr" in s.lower() or s.startswith("data:application/pdf")
+            or (s.startswith("data:") and "pdf" in s.lower()[:40]))
+
+
 # ---------------------------------------------------------------------------
-# PAGE 4 — Photos & Plan cadastral
+# PAGE 4 — Photos du bien (images only, no cadastre)
 # ---------------------------------------------------------------------------
-def _page_photos(c, d):
+def _page_photos(c, d, page_num=4, total=4):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
-    _sec(c, "Vues du bien", ML, PAGE_H - HEADER_H - 8 * mm)
+    _sec(c, "Photos du bien", ML, PAGE_H - HEADER_H - 16 * mm)
 
     photos = d.get("photos") or []
-    # Skip first photo (already on cover)
-    photo_list = photos[1:] if len(photos) > 1 else photos
+    # Filter: skip first (cover) + skip PDFs/cadastre
+    real_photos = []
+    for i, p in enumerate(photos):
+        if i == 0:
+            continue
+        if not _is_plan(p):
+            real_photos.append(p)
 
-    zone_top = PAGE_H - HEADER_H - 20 * mm
+    zone_top = PAGE_H - HEADER_H - 28 * mm
     zone_bot = FOOTER_H + 5 * mm
     available_h = zone_top - zone_bot
-    gap_x = 4 * mm
-    gap_y = 4 * mm
+    gap_y = 5 * mm
 
-    if not photo_list:
+    if not real_photos:
         c.setFillColor(GRAY_LIGHT)
         c.roundRect(ML, zone_bot, CW, available_h, 3 * mm, fill=1, stroke=0)
         c.setFillColor(GRAY_MID)
         c.setFont("Helvetica", 10)
-        c.drawCentredString(ML + CW / 2, zone_bot + available_h / 2, "Aucune vue suppl\u00e9mentaire")
-        _footer(c, 4, total=4)
+        c.drawCentredString(ML + CW / 2, zone_bot + available_h / 2, "Aucune photo suppl\u00e9mentaire")
+        _footer(c, page_num, total=total)
         return
 
-    n = min(len(photo_list), 4)
+    # Full width, stacked horizontally, same height — max 3 photos
+    n = min(len(real_photos), 3)
+    ph_each = (available_h - (n - 1) * gap_y) / n
 
-    # Determine if any photo is a cadastre/PDF (was converted)
-    def _is_plan(url_or_data):
-        s = str(url_or_data or "")
-        return "cadastr" in s.lower() or s.startswith("data:application/pdf") or (
-            s.startswith("data:") and "pdf" in s.lower()[:30])
-
-    # Layout: up to 4 photos in smart grid
-    # 1 photo: full width
-    # 2 photos: 2 columns
-    # 3 photos: top full + bottom 2 cols
-    # 4 photos: 2x2 grid
-    imgs = []
-    labels = []
     for i in range(n):
-        p_url = photo_list[i]
-        img = _fetch_photo(p_url)
-        imgs.append(img)
-        if _is_plan(p_url):
-            labels.append("Plan cadastral")
-        else:
-            labels.append("Vue " + str(i + 2))
-
-    def _draw_photo_cell(img, lbl, bx, by, bw, bh):
+        img = _fetch_photo(real_photos[i])
+        py = zone_top - (i + 1) * ph_each - i * gap_y
         if img:
-            _draw_cover(c, img, bx, by, bw, bh)
+            _draw_cover(c, img, ML, py, CW, ph_each)
         else:
             c.setFillColor(GRAY_LIGHT)
             c.setStrokeColor(GRAY_BDR)
             c.setLineWidth(0.5)
-            c.roundRect(bx, by, bw, bh, 2.5 * mm, fill=1, stroke=1)
+            c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=1)
             c.setFillColor(GRAY_MID)
-            c.setFont("Helvetica", 8)
-            c.drawCentredString(bx + bw / 2, by + bh / 2, lbl)
-            return
-        # Label chip at bottom-left
-        chip_h = 6.5 * mm
-        chip_w = min(c.stringWidth(lbl, "Helvetica-Bold", 7) + 8 * mm, bw * 0.6)
-        c.setFillColor(colors.HexColor("#00000066"))
-        c.roundRect(bx + 2.5 * mm, by + 2.5 * mm, chip_w, chip_h, 1 * mm, fill=1, stroke=0)
-        c.setFillColor(WHITE)
-        c.setFont("Helvetica-Bold", 7)
-        c.drawString(bx + 2.5 * mm + 3 * mm, by + 2.5 * mm + 2.2 * mm, lbl)
+            c.setFont("Helvetica", 9)
+            c.drawCentredString(ML + CW / 2, py + ph_each / 2, "Photo " + str(i + 2))
 
-    if n == 1:
-        _draw_photo_cell(imgs[0], labels[0], ML, zone_bot, CW, available_h)
-    elif n == 2:
-        col_w = (CW - gap_x) / 2
-        _draw_photo_cell(imgs[0], labels[0], ML, zone_bot, col_w, available_h)
-        _draw_photo_cell(imgs[1], labels[1], ML + col_w + gap_x, zone_bot, col_w, available_h)
-    elif n == 3:
-        top_h = available_h * 0.55
-        bot_h = available_h - top_h - gap_y
-        col_w = (CW - gap_x) / 2
-        _draw_photo_cell(imgs[0], labels[0], ML, zone_bot + bot_h + gap_y, CW, top_h)
-        _draw_photo_cell(imgs[1], labels[1], ML, zone_bot, col_w, bot_h)
-        _draw_photo_cell(imgs[2], labels[2], ML + col_w + gap_x, zone_bot, col_w, bot_h)
-    else:
-        row_h = (available_h - gap_y) / 2
-        col_w = (CW - gap_x) / 2
-        for ri in range(2):
-            for ci in range(2):
-                idx = ri * 2 + ci
-                bx = ML + ci * (col_w + gap_x)
-                by = zone_bot + (1 - ri) * (row_h + gap_y)
-                _draw_photo_cell(imgs[idx], labels[idx], bx, by, col_w, row_h)
+    _footer(c, page_num, total=total)
 
-    _footer(c, 4, total=4)
+
+# ---------------------------------------------------------------------------
+# PAGE 5 — Plan cadastral & informations parcelle
+# ---------------------------------------------------------------------------
+def _page_cadastre(c, d, page_num=5, total=5):
+    _header(c, "Plan cadastral \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
+    _sec(c, "Plan cadastral", ML, PAGE_H - HEADER_H - 16 * mm)
+
+    photos = d.get("photos") or []
+    # Find cadastre images (PDFs)
+    cadastre_imgs = []
+    for p in photos:
+        if _is_plan(p):
+            img = _fetch_photo(p)
+            if img:
+                cadastre_imgs.append(img)
+
+    zone_top = PAGE_H - HEADER_H - 28 * mm
+    zone_bot = FOOTER_H + 20 * mm  # extra space for parcel info
+    available_h = zone_top - zone_bot
+    gap_y = 5 * mm
+
+    if not cadastre_imgs:
+        c.setFillColor(GRAY_LIGHT)
+        c.roundRect(ML, zone_bot, CW, available_h, 3 * mm, fill=1, stroke=0)
+        c.setFillColor(GRAY_MID)
+        c.setFont("Helvetica", 10)
+        c.drawCentredString(ML + CW / 2, zone_bot + available_h / 2, "Plan cadastral non disponible")
+        _footer(c, page_num, total=total)
+        return
+
+    # Display cadastre images — full width, stacked
+    n = min(len(cadastre_imgs), 2)
+    ph_each = (available_h - (n - 1) * gap_y) / n
+
+    for i in range(n):
+        py = zone_top - (i + 1) * ph_each - i * gap_y
+        # For cadastre, draw with white background + border (no cover-crop)
+        img = cadastre_imgs[i]
+        try:
+            iw, ih = img.getSize()
+            ir_ratio = iw / ih if ih > 0 else 1
+            target_r = CW / ph_each
+            if ir_ratio > target_r:
+                dw = CW
+                dh = CW / ir_ratio
+            else:
+                dh = ph_each
+                dw = ph_each * ir_ratio
+            dx = ML + (CW - dw) / 2
+            dy = py + (ph_each - dh) / 2
+            # White background
+            c.setFillColor(WHITE)
+            c.setStrokeColor(colors.HexColor("#CCCCCC"))
+            c.setLineWidth(0.5)
+            c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=1)
+            c.drawImage(img, dx, dy, width=dw, height=dh, mask="auto")
+        except Exception as e:
+            app.logger.error("Cadastre draw: %s", e)
+            c.setFillColor(GRAY_LIGHT)
+            c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=0)
+
+    # Parcel info at bottom
+    ref_cad = d.get("reference_cadastrale") or ""
+    parcelle = d.get("parcelle") or ""
+    section = d.get("section_cadastrale") or ""
+    surface_terrain = d.get("surface_terrain") or ""
+    if ref_cad or parcelle or section or surface_terrain:
+        info_y = zone_bot - 14 * mm
+        _sec(c, "Informations parcelle", ML, info_y + 2 * mm)
+        c.setFillColor(colors.HexColor("#EBF0F8"))
+        c.roundRect(ML, info_y - 12 * mm, CW, 12 * mm, 1.5 * mm, fill=1, stroke=0)
+        ix = ML + 5 * mm
+        c.setFillColor(GRAY_MID)
+        c.setFont("Helvetica", 6.5)
+        c.setFillColor(TEAL_DARK)
+        c.setFont("Helvetica-Bold", 8)
+        infos = []
+        if ref_cad:
+            infos.append("R\u00e9f. cadastrale : " + str(ref_cad))
+        if parcelle:
+            infos.append("Parcelle : " + str(parcelle))
+        if section:
+            infos.append("Section : " + str(section))
+        if surface_terrain:
+            infos.append("Surface terrain : " + str(surface_terrain) + " m\u00b2")
+        c.drawString(ix, info_y - 7 * mm, "  \u00b7  ".join(infos))
+
+    _footer(c, page_num, total=total)
 
 
 # ---------------------------------------------------------------------------
@@ -1324,8 +1385,13 @@ def generate_dossier_pdf(d):
     cv.setTitle("Dossier \u2014 " + str(d.get("reference", "")))
 
     photos = d.get("photos") or []
-    has_extra_photos = len(photos) > 1
-    total = 4 if has_extra_photos else 3
+    # Separate real photos from cadastre/PDFs
+    real_photos = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
+    cadastre_photos = [p for p in photos if _is_plan(p)]
+
+    has_photos = len(real_photos) > 0
+    has_cadastre = len(cadastre_photos) > 0
+    total = 3 + (1 if has_photos else 0) + (1 if has_cadastre else 0)
 
     _page1(cv, d)
     cv.showPage()
@@ -1333,8 +1399,13 @@ def generate_dossier_pdf(d):
     cv.showPage()
     _page3(cv, d)
     cv.showPage()
-    if has_extra_photos:
-        _page_photos(cv, d)
+    pn = 4
+    if has_photos:
+        _page_photos(cv, d, page_num=pn, total=total)
+        cv.showPage()
+        pn += 1
+    if has_cadastre:
+        _page_cadastre(cv, d, page_num=pn, total=total)
         cv.showPage()
 
     cv.save()
@@ -1347,7 +1418,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.5"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.6"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
