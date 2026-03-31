@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.90"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.91"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1675,6 +1675,9 @@ def _page2(c, d):
                 _tf_fmt = str(_taxe)
             _bail_line(_fcx2, _fcy2, "Taxe foncière", _tf_fmt)
 
+        # Position basse réelle du bloc bail (pour ancrer Prix juste dessous)
+        _fin_bottom = _fy - _bloc_bail_h - 4*_mm
+
     elif _taxe or _ca:
         # ── Bloc financier simple (vente sans bail) ────────────────────────────
         _fin_items = []
@@ -1697,6 +1700,7 @@ def _page2(c, d):
                 c.drawString(_fx + 3*_mm, _fy - 5*_mm, _flbl.upper())
                 c.setFont("Helvetica-Bold", 9)
                 c.drawString(_fx + 3*_mm, _fy - 10*_mm, _fval)
+            _fin_bottom = _fy - 12*_mm - 4*_mm
 
     # ── Bloc Prix — ancré sur le bas de page (au-dessus du footer) ───────────
     prix_brut = d.get("prix") or 0
@@ -1723,8 +1727,13 @@ def _page2(c, d):
             bloc_h = 22*_mm
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
-            # Ancrage fixe : juste au-dessus du footer (18mm depuis le bas)
-            bloc_y  = 18*_mm
+            # Ancrage dynamique : sous le bloc financier, minimum 18mm du bas
+            _prix_min_y = 18*_mm
+            if "_fin_bottom" in dir() and _fin_bottom is not None:
+                _prix_ideal = _fin_bottom - bloc_h - 10*_mm
+                bloc_y = max(_prix_min_y, _prix_ideal)
+            else:
+                bloc_y = _prix_min_y
             titre_y = bloc_y + bloc_h + 3*_mm
             _sec(c, "Prix", 14*_mm, titre_y)
             items_prix = [
