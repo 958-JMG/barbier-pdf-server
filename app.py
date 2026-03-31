@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.88"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.89"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1587,7 +1587,7 @@ def _page2(c, d):
     if d.get("loyer_annuel"):    pills.append((PICTO_SURFACE_B64,"Loyer annuel",_pfmt(d.get("loyer_annuel"))))
     if d.get("activite"):        pills.append((PICTO_TYPE_B64,"Activité",_safe(d.get("activite"))))
     pw, ph2, pgx, pgy = 57*_mm, 16*_mm, 3*_mm, 3*_mm; cols = 3
-    sy = bot-20*_mm
+    sy = bot-14*_mm
     for i, (b64, lbl, val) in enumerate(pills):
         col = i%cols; row2 = i//cols
         _pill_picto(c, 14*_mm+col*(pw+pgx), sy-row2*(ph2+pgy), b64, lbl, val, pw, ph2)
@@ -1615,7 +1615,7 @@ def _page2(c, d):
         # 11mm par ligne + 6mm padding haut + 4mm padding bas
         _bloc_bail_h = max(14*_mm, _n_rows * 11*_mm + 10*_mm)
 
-        _fblock_top = pb - 4*_mm
+        _fblock_top = pb - 2*_mm
         _sec(c, "Données du bail", 14*_mm, _fblock_top)
         # _fy = haut intérieur du bloc (sous le titre de section)
         _fy = _fblock_top - 7*_mm
