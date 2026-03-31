@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Barbier Immobilier - PDF Dossier de Vente v5.11
+Barbier Immobilier - PDF Dossier de Vente v5.12
 Flask app deployed on Railway.
 Routes: GET /, POST /generate-quartier, POST /dossier
 """
@@ -52,11 +52,11 @@ CW = PAGE_W - ML - MR # content width
 HEADER_H = 11 * mm
 FOOTER_H = 9 * mm
 
-# Uniform spacing constants (premium feel)
-SP_AFTER_HEADER = 10 * mm   # space between header bar and first content
-SP_BEFORE_FOOTER = 5 * mm   # space between last content and footer bar
-SP_AFTER_SEC = 5 * mm       # space between section title bar and its content
-SP_BETWEEN_BLOCS = 8 * mm   # space between two blocs/sections
+# Uniform spacing constants (premium feel) — MUST be visible!
+SP_AFTER_HEADER = 8 * mm    # space between header bar and first content
+SP_BEFORE_FOOTER = 6 * mm   # space between last content and footer bar
+SP_AFTER_SEC = 3 * mm       # space between section title bar and its content
+SP_BETWEEN_BLOCS = 10 * mm  # space between two blocs/sections — LARGE, visible
 SEC_H = 8 * mm              # section title bar height
 
 # ---------------------------------------------------------------------------
@@ -111,6 +111,42 @@ def _pdf_to_image(raw_bytes):
         return None
 
 
+def _fix_exif_orientation(pil_img):
+    """Apply EXIF orientation tag and return corrected PIL image."""
+    try:
+        from PIL import ExifTags
+        exif = pil_img._getexif()
+        if exif:
+            for tag, val in exif.items():
+                if ExifTags.TAGS.get(tag) == "Orientation":
+                    if val == 3:
+                        pil_img = pil_img.rotate(180, expand=True)
+                    elif val == 6:
+                        pil_img = pil_img.rotate(270, expand=True)
+                    elif val == 8:
+                        pil_img = pil_img.rotate(90, expand=True)
+                    break
+    except Exception:
+        pass
+    return pil_img
+
+
+def _bytes_to_image_reader(raw):
+    """Convert raw image bytes to ImageReader, fixing EXIF orientation."""
+    pil = Image.open(io.BytesIO(raw))
+    pil = _fix_exif_orientation(pil)
+    if pil.mode == "RGBA":
+        bg = Image.new("RGB", pil.size, (255, 255, 255))
+        bg.paste(pil, mask=pil.split()[3])
+        pil = bg
+    elif pil.mode != "RGB":
+        pil = pil.convert("RGB")
+    buf = io.BytesIO()
+    pil.save(buf, format="JPEG", quality=92)
+    buf.seek(0)
+    return ImageReader(buf)
+
+
 def _fetch_photo(url_or_data):
     if not url_or_data:
         return None
@@ -122,13 +158,13 @@ def _fetch_photo(url_or_data):
             # PDF? Convert to image
             if raw[:4] == b"%PDF" or s.startswith("data:application/pdf"):
                 return _pdf_to_image(raw)
-            return ImageReader(io.BytesIO(raw))
+            return _bytes_to_image_reader(raw)
         resp = requests.get(s, timeout=15, headers={"User-Agent": "BarbierImmo/1.0"})
         if resp.status_code == 200:
             ct = resp.headers.get("Content-Type", "")
             if "pdf" in ct or resp.content[:4] == b"%PDF":
                 return _pdf_to_image(resp.content)
-            return ImageReader(io.BytesIO(resp.content))
+            return _bytes_to_image_reader(resp.content)
     except Exception as e:
         app.logger.error("Photo fetch: %s", e)
     return None
@@ -409,7 +445,7 @@ def _footer(c, n, total=3):
     c.setFont("Helvetica", 6.5)
     c.drawString(ML, 3.5 * mm,
                  "Barbier Immobilier \u2014 2 place Albert Einstein, 56000 Vannes \u2014 02.97.47.11.11 \u2014 barbierimmobilier.com")
-    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.11  " + str(n) + " / " + str(total))
+    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.12  " + str(n) + " / " + str(total))
     c.restoreState()
 
 
@@ -805,7 +841,7 @@ def _page2(c, d):
         c.drawString(ML + 5 * mm, pq_top - 13 * mm - i_pq * 5 * mm,
                      "\u2022  " + lpq)
 
-    # -- 2) "Le quartier" section
+    # -- 2) "Le quartier" section — SP_BETWEEN_BLOCS gap
     ville = _safe(d.get("ville"), "Vannes")
     tb = d.get("type_bien") or ""
     quartier_sec_y = pq_bot - SP_BETWEEN_BLOCS
@@ -816,7 +852,7 @@ def _page2(c, d):
     else:
         chapeau = "Un emplacement strat\u00e9gique au c\u0153ur de " + ville + "."
 
-    chapeau_y = quartier_sec_y - SP_AFTER_SEC - 2 * mm
+    chapeau_y = quartier_sec_y - SEC_H - SP_AFTER_SEC
     c.setFillColor(ORANGE)
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, chapeau_y, chapeau)
@@ -838,7 +874,7 @@ def _page2(c, d):
     else:
         texte_xml = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    text_top = chapeau_y - SP_AFTER_SEC
+    text_top = chapeau_y - 5 * mm
     # Reserve: map zone (min 75mm) + section header (10mm) + footer
     map_min_h = 75 * mm
     bottom_reserved = FOOTER_H + SP_BEFORE_FOOTER + map_min_h + SP_BETWEEN_BLOCS + SEC_H
@@ -982,7 +1018,7 @@ def _page2(c, d):
 def _page3(c, d):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
 
-    # Pre-compute bottom blocks heights to know how much space desc can use
+    # ── Gather data ──
     loc = d.get("locataire") or ""
     lht = d.get("loyer_annuel_ht") or 0
     linit = d.get("loyer_initial_ht") or 0
@@ -1002,7 +1038,6 @@ def _page3(c, d):
                 pass
     has_prix = bool(prix_brut)
 
-    # Pills height: 2 rows x 16mm + gap
     pills_data = [
         (PICTO_SURFACE_B64, "Surface", _safe(d.get("surface")) + " m\u00b2"),
         (PICTO_TYPE_B64, "Type de bien", _safe(d.get("type_bien"))),
@@ -1015,30 +1050,34 @@ def _page3(c, d):
     pw2 = 57 * mm; ph2 = 16 * mm; pgy = 3 * mm
     pills_total_h = n_pill_rows * ph2 + (n_pill_rows - 1) * pgy
 
-    # Bail block height
+    bail_rows = []
     if is_bail:
-        bail_items = [x for x in [loc, lht, linit, evol, duree, taxe] if x]
-        bail_h = max(20 * mm, math.ceil(len(bail_items) / 2) * 12 * mm + 6 * mm)
+        if loc:    bail_rows.append(("Locataire", loc))
+        if lht:    bail_rows.append(("Loyer annuel HT", _pfmt(lht) + " HT/an"))
+        if linit:  bail_rows.append(("Loyer initial", _pfmt(linit) + " HT"))
+        if evol:   bail_rows.append(("Evolution loyer", str(evol)))
+        if duree:  bail_rows.append(("Dur\u00e9e du bail", str(duree)))
+        if taxe:   bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
     elif taxe:
-        bail_h = 14 * mm
-    else:
-        bail_h = 0
+        bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
+    row_h_bail = 12 * mm
+    bail_bloc_h = (math.ceil(len(bail_rows) / 2) * row_h_bail + 4 * mm) if bail_rows else 0
 
     prix_block_h = 28 * mm if has_prix else 0
 
-    # How much space do we need at the bottom?
-    margin_bottom = FOOTER_H + SP_BEFORE_FOOTER
-    sec_overhead = SEC_H + SP_AFTER_SEC + SP_BETWEEN_BLOCS  # each section: title bar + gap after + gap before
-    needed_bottom = (
-        margin_bottom
-        + (prix_block_h + sec_overhead if has_prix else 0)
-        + (bail_h + sec_overhead if bail_h > 0 else 0)
-        + pills_total_h + sec_overhead
-    )
-    desc_stop_y = needed_bottom
+    # ── PRE-COMPUTE: what desc can use ──
+    # Everything below desc is: pills + bail + prix, each with (SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC) overhead
+    bottom_used = FOOTER_H + SP_BEFORE_FOOTER
+    if has_prix:
+        bottom_used += prix_block_h + SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC
+    if bail_rows:
+        bottom_used += bail_bloc_h + SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC
+    bottom_used += pills_total_h + SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC
 
-    # Section + title
-    _sec(c, "Pr\u00e9sentation du bien", ML, PAGE_H - HEADER_H - SP_AFTER_HEADER)
+    # ── BLOC 1: Présentation du bien ──
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "Pr\u00e9sentation du bien", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
 
     desc = _clean(d.get("description", ""))
     desc_lines = desc.split("\n")
@@ -1056,85 +1095,55 @@ def _page3(c, d):
                                 textColor=TEAL_DARK, leading=14)
     p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
     _, th = p_titre.wrap(CW, 30 * mm)
-    titre_y = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - th
-    p_titre.drawOn(c, ML, titre_y)
+    cursor -= th
+    p_titre.drawOn(c, ML, cursor)
+    cursor -= 2 * mm
 
-    text_y = titre_y - 2.5 * mm
-    desc_bot = _render_desc(c, desc_body, text_y, 999, stop_y=desc_stop_y)
+    desc_stop_y = bottom_used + 2 * mm
+    desc_bot = _render_desc(c, desc_body, cursor, 999, stop_y=desc_stop_y)
+    cursor = desc_bot
 
-    # Caracteristiques pills — placed right below description
-    pills_sec_y = desc_bot - SP_BETWEEN_BLOCS
-    _sec(c, "Caract\u00e9ristiques", ML, pills_sec_y)
+    # ── BLOC 2: Caractéristiques ──
+    cursor -= SP_BETWEEN_BLOCS
+    _sec(c, "Caract\u00e9ristiques", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
     pgx = 3 * mm
     cols = 3
-    sy = pills_sec_y - SP_AFTER_SEC - ph2
+    pill_y = cursor - ph2
     for i, (b64, lbl, val) in enumerate(pills_data):
         col_i = i % cols
         row_i = i // cols
-        _pill(c, ML + col_i * (pw2 + pgx), sy - row_i * (ph2 + pgy), b64, lbl, val, pw2, ph2)
-    pills_bot = sy - (n_pill_rows - 1) * (ph2 + pgy) - 3 * mm
+        _pill(c, ML + col_i * (pw2 + pgx), pill_y - row_i * (ph2 + pgy), b64, lbl, val, pw2, ph2)
+    cursor = pill_y - (n_pill_rows - 1) * (ph2 + pgy)
 
-    # Bail / financial data
-    _fin_bottom = None
-    if is_bail:
-        bail_sec_y = pills_bot - SP_BETWEEN_BLOCS
-        _sec(c, "Donn\u00e9es du bail", ML, bail_sec_y)
-        fy_top = bail_sec_y - SP_AFTER_SEC
-        # Build ordered list of bail items
-        bail_rows = []
-        if loc:    bail_rows.append(("Locataire", loc))
-        if lht:    bail_rows.append(("Loyer annuel HT", _pfmt(lht) + " HT/an"))
-        if linit:  bail_rows.append(("Loyer initial", _pfmt(linit) + " HT"))
-        if evol:   bail_rows.append(("Evolution loyer", str(evol)))
-        if duree:  bail_rows.append(("Dur\u00e9e du bail", str(duree)))
-        if taxe:   bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
-        # 2-column grid
+    # ── BLOC 3: Données du bail ──
+    if bail_rows:
+        cursor -= SP_BETWEEN_BLOCS
+        bail_label = "Donn\u00e9es du bail" if is_bail else "Donn\u00e9es financi\u00e8res"
+        _sec(c, bail_label, ML, cursor)
+        cursor -= SEC_H + SP_AFTER_SEC
+        # Background aplat
+        c.setFillColor(colors.HexColor("#EBF0F8"))
+        c.roundRect(ML, cursor - bail_bloc_h, CW, bail_bloc_h, 2 * mm, fill=1, stroke=0)
         cols2 = 2
         col_bail_w = (CW - 4 * mm) / cols2
-        row_h = 12 * mm
-        total_rows = math.ceil(len(bail_rows) / cols2)
-        bloc_h = total_rows * row_h + 4 * mm
-        # Background — simple aplat, NO orange bar
-        c.setFillColor(colors.HexColor("#EBF0F8"))
-        c.roundRect(ML, fy_top - bloc_h, CW, bloc_h, 2 * mm, fill=1, stroke=0)
         for idx2, (label, valeur) in enumerate(bail_rows):
             col2 = idx2 % cols2
             row2 = idx2 // cols2
             cx2 = ML + 6 * mm + col2 * (col_bail_w + 4 * mm)
-            cy2 = fy_top - 4 * mm - row2 * row_h
-            # Label small gray
+            cy2 = cursor - 4 * mm - row2 * row_h_bail
             c.setFillColor(GRAY_MID)
             c.setFont("Helvetica", 6.5)
             c.drawString(cx2, cy2, label.upper())
-            # Separator line
             c.setStrokeColor(colors.HexColor("#C0CBD8"))
             c.setLineWidth(0.4)
             c.line(cx2, cy2 - 1 * mm, cx2 + col_bail_w - 6 * mm, cy2 - 1 * mm)
-            # Value bold teal
             c.setFillColor(TEAL_DARK)
             c.setFont("Helvetica-Bold", 9)
             c.drawString(cx2, cy2 - 6.5 * mm, str(valeur))
-        _fin_bottom = fy_top - bloc_h - 4 * mm
+        cursor -= bail_bloc_h
 
-    elif taxe:
-        bail_sec_y = pills_bot - SP_BETWEEN_BLOCS
-        _sec(c, "Donn\u00e9es financi\u00e8res", ML, bail_sec_y)
-        fy = bail_sec_y - SP_AFTER_SEC
-        fw = CW / 2 - 1 * mm
-        c.setFillColor(colors.HexColor("#EBF0F8"))
-        c.roundRect(ML, fy - 14 * mm, fw, 14 * mm, 1.5 * mm, fill=1, stroke=0)
-        c.setFillColor(GRAY_MID)
-        c.setFont("Helvetica", 6.5)
-        c.drawString(ML + 3 * mm, fy - 5 * mm, "TAXE FONCI\u00c8RE")
-        c.setStrokeColor(colors.HexColor("#C0CBD8"))
-        c.setLineWidth(0.4)
-        c.line(ML + 3 * mm, fy - 6 * mm, ML + fw - 3 * mm, fy - 6 * mm)
-        c.setFillColor(TEAL_DARK)
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(ML + 3 * mm, fy - 12 * mm, _pfmt(taxe))
-        _fin_bottom = fy - 14 * mm - 4 * mm
-
-    # Prix block — anchored just above footer
+    # ── BLOC 4: Prix ──
     if has_prix:
         try:
             prix_fai = int(float(str(prix_brut)))
@@ -1147,11 +1156,12 @@ def _page3(c, d):
                 hono_v = int(prix_fai * 0.05)
                 pnv_v = prix_fai - hono_v
 
-            bloc_h2 = prix_block_h
+            cursor -= SP_BETWEEN_BLOCS
+            _sec(c, "Prix", ML, cursor)
+            cursor -= SEC_H + SP_AFTER_SEC
             bw3 = CW / 3 - 2 * mm
             hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
-            bloc_y = margin_bottom
-            _sec(c, "Prix", ML, bloc_y + bloc_h2 + SP_AFTER_SEC)
+            bloc_y = cursor - prix_block_h
             items = [
                 ("PRIX DE VENTE FAI", _pfmt(prix_fai), TEAL),
                 ("HONORAIRES (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
@@ -1160,14 +1170,13 @@ def _page3(c, d):
             for ip, (lbl, val, col) in enumerate(items):
                 bxp = ML + ip * (bw3 + 3 * mm)
                 c.setFillColor(col)
-                c.roundRect(bxp, bloc_y, bw3, bloc_h2, 2.5 * mm, fill=1, stroke=0)
+                c.roundRect(bxp, bloc_y, bw3, prix_block_h, 2.5 * mm, fill=1, stroke=0)
                 c.setFillColor(WHITE)
                 c.setFont("Helvetica", 6)
-                c.drawString(bxp + 4 * mm, bloc_y + bloc_h2 - 8 * mm, lbl)
-                # Horizontal rule
+                c.drawString(bxp + 4 * mm, bloc_y + prix_block_h - 8 * mm, lbl)
                 c.setStrokeColor(colors.HexColor("#FFFFFF55"))
                 c.setLineWidth(0.5)
-                c.line(bxp + 4 * mm, bloc_y + bloc_h2 - 10 * mm, bxp + bw3 - 4 * mm, bloc_y + bloc_h2 - 10 * mm)
+                c.line(bxp + 4 * mm, bloc_y + prix_block_h - 10 * mm, bxp + bw3 - 4 * mm, bloc_y + prix_block_h - 10 * mm)
                 c.setFont("Helvetica-Bold", 13)
                 c.drawString(bxp + 4 * mm, bloc_y + 6 * mm, val)
         except Exception as e:
@@ -1559,7 +1568,7 @@ def dossier():
     real = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
     plans = [p for p in photos if _is_plan(p)]
     app.logger.info(
-        "Dossier v5.11 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
+        "Dossier v5.12 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
         ref, list(body.keys()), len(photos), len(real), len(plans))
     # Log first 80 chars of each photo to debug
     for idx, p in enumerate(photos):
