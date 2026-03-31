@@ -94,11 +94,21 @@ def _fetch_photo(url_or_data):
         return None
     try:
         s = str(url_or_data)
+        # Skip PDF files (e.g. cadastral plans)
+        if s.startswith("data:application/pdf"):
+            return None
         if s.startswith("data:"):
             _, b = s.split(",", 1)
-            return ImageReader(io.BytesIO(_b64.b64decode(b)))
+            raw = _b64.b64decode(b)
+            # Check it's actually an image, not a PDF
+            if raw[:4] == b"%PDF":
+                return None
+            return ImageReader(io.BytesIO(raw))
         resp = requests.get(s, timeout=15, headers={"User-Agent": "BarbierImmo/1.0"})
         if resp.status_code == 200:
+            ct = resp.headers.get("Content-Type", "")
+            if "pdf" in ct:
+                return None
             return ImageReader(io.BytesIO(resp.content))
     except Exception as e:
         app.logger.error("Photo fetch: %s", e)
@@ -173,14 +183,14 @@ def _get_poi_osm(lat, lon, radius=500):
         for key, values, label, color in categories:
             val_filter = "|".join('"' + v + '"' for v in values.split("|"))
             query = (
-                '[out:json][timeout:6];(node["' + key + '"~' + val_filter
+                '[out:json][timeout:10];(node["' + key + '"~' + val_filter
                 + '](around:' + str(radius) + ',' + str(lat) + ',' + str(lon)
                 + '););out 3;'
             )
             enc = urllib.parse.quote(query)
             resp = requests.get(
                 "https://overpass-api.de/api/interpreter?data=" + enc,
-                headers={"User-Agent": "BarbierImmo/1.0"}, timeout=7)
+                headers={"User-Agent": "BarbierImmo/1.0"}, timeout=12)
             if resp.status_code != 200:
                 continue
             elements = resp.json().get("elements", [])
@@ -407,9 +417,40 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
 # PAGE 1 — Couverture
 # ---------------------------------------------------------------------------
 def _page1(c, d):
+    # 1) Draw both backgrounds
     c.setFillColor(TEAL)
     c.rect(0, PAGE_H * 0.50, PAGE_W, PAGE_H * 0.50, fill=1, stroke=0)
+    c.setFillColor(WHITE)
+    c.rect(0, 0, PAGE_W, PAGE_H * 0.50, fill=1, stroke=0)
 
+    # 2) Draw photo FIRST (below pills z-order)
+    pho_h = PAGE_H * 0.50 - 22 * mm
+    pho_x = ML
+    pho_y = 20 * mm
+    pho_w = CW
+    photos = d.get("photos") or []
+    img = None
+    for p in photos:
+        if p:
+            img = _fetch_photo(p)
+            if img:
+                break
+    if not img:
+        url = d.get("Photo principale URL", "")
+        if url:
+            img = _fetch_photo(url)
+    if img:
+        _draw_cover(c, img, pho_x, pho_y, pho_w, pho_h)
+    else:
+        c.setFillColor(GRAY_LIGHT)
+        c.setStrokeColor(GRAY_BDR)
+        c.setLineWidth(1)
+        c.roundRect(pho_x, pho_y, pho_w, pho_h, 3 * mm, fill=1, stroke=1)
+        c.setFillColor(GRAY_MID)
+        c.setFont("Helvetica", 10)
+        c.drawCentredString(pho_x + pho_w / 2, pho_y + pho_h / 2, "[ Photo principale du bien ]")
+
+    # 3) Now draw teal zone content (on top of everything)
     # Badge exclusivite
     statut = str(d.get("statut_mandat") or "").lower()
     yoff = 0
@@ -456,7 +497,7 @@ def _page1(c, d):
     c.setFont("Helvetica", 9)
     c.drawString(ML, PAGE_H - (97 if hono else 91) * mm, "PRIX DE VENTE FAI")
 
-    # Pills: Surface, Type, Activite (3 pills like before)
+    # Pills: Surface, Type, Activite — drawn AFTER both backgrounds
     pills = [
         ("SURFACE", _safe(d.get("surface")) + " m\u00b2"),
         ("TYPE", _safe(d.get("type_bien"))),
@@ -467,9 +508,9 @@ def _page1(c, d):
         pills.append(("ETAT", _safe(d.get("etat_bien"), "---")))
     pills = pills[:4]
 
-    np = len(pills)
+    npills = len(pills)
     pg = 2 * mm
-    pw = (CW - (np - 1) * pg) / np
+    pw = (CW - (npills - 1) * pg) / npills
     ph = 22 * mm
     py = PAGE_H * 0.50 - ph / 2 + 1 * mm
     for i, (lbl, val) in enumerate(pills):
@@ -493,36 +534,6 @@ def _page1(c, d):
                 break
         c.drawCentredString(px + pw / 2, py + 5 * mm, val)
         c.restoreState()
-
-    # Bottom half: white + main photo
-    c.setFillColor(WHITE)
-    c.rect(0, 0, PAGE_W, PAGE_H * 0.50, fill=1, stroke=0)
-    pho_h = PAGE_H * 0.50 - 22 * mm
-    pho_x = ML
-    pho_y = 20 * mm
-    pho_w = CW
-
-    photos = d.get("photos") or []
-    img = None
-    for p in photos:
-        if p:
-            img = _fetch_photo(p)
-            if img:
-                break
-    if not img:
-        url = d.get("Photo principale URL", "")
-        if url:
-            img = _fetch_photo(url)
-    if img:
-        _draw_cover(c, img, pho_x, pho_y, pho_w, pho_h)
-    else:
-        c.setFillColor(GRAY_LIGHT)
-        c.setStrokeColor(GRAY_BDR)
-        c.setLineWidth(1)
-        c.roundRect(pho_x, pho_y, pho_w, pho_h, 3 * mm, fill=1, stroke=1)
-        c.setFillColor(GRAY_MID)
-        c.setFont("Helvetica", 10)
-        c.drawCentredString(pho_x + pho_w / 2, pho_y + pho_h / 2, "[ Photo principale du bien ]")
 
     # Logo top-right
     try:
@@ -567,11 +578,11 @@ def _page2(c, d):
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, PAGE_H - 38 * mm, chapeau)
 
-    # Layout: carte+POI anchored at bottom, text fills above
+    # Layout: carte+POI anchored at bottom with breathing room
     zone_h = 75 * mm
     col_gap = 5 * mm
     col_w = (CW - col_gap) / 2
-    zone_bot = FOOTER_H
+    zone_bot = FOOTER_H + 8 * mm  # space above footer
     zone_top = zone_bot + zone_h
     qbot = zone_top + 12 * mm
 
@@ -724,8 +735,8 @@ def _page3(c, d):
 
     desc = _clean(d.get("description", ""))
     text_y = PAGE_H - 43 * mm
-    desc_bot = _render_desc(c, desc, text_y, 60 * mm)
-    bot = desc_bot - 8 * mm
+    desc_bot = _render_desc(c, desc, text_y, 48 * mm)
+    bot = desc_bot - 10 * mm
 
     # Caracteristiques pills
     _sec(c, "Caracteristiques", ML, bot - 2 * mm)
@@ -1104,7 +1115,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.2"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.3"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
