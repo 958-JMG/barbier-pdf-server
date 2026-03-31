@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.92"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.93"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1589,7 +1589,7 @@ def _page2(c, d):
     if d.get("loyer_annuel") and float(str(d.get("loyer_annuel") or 0)) > 0: pills.append((PICTO_SURFACE_B64,"Loyer annuel",_pfmt(d.get("loyer_annuel"))))
     if d.get("activite"):        pills.append((PICTO_TYPE_B64,"Activité",_safe(d.get("activite"))))
     pw, ph2, pgx, pgy = 57*_mm, 16*_mm, 3*_mm, 3*_mm; cols = 3
-    sy = bot-10*_mm
+    sy = bot-14*_mm
     for i, (b64, lbl, val) in enumerate(pills):
         col = i%cols; row2 = i//cols
         _pill_picto(c, 14*_mm+col*(pw+pgx), sy-row2*(ph2+pgy), b64, lbl, val, pw, ph2)
@@ -1615,7 +1615,7 @@ def _page2(c, d):
         _n_col2 = sum([bool(_loyer_init), bool(_evol_loyer), bool(_duree_bail), bool(_taxe)])
         _n_rows = max(_n_col1, _n_col2)
         # 11mm par ligne + 6mm padding haut + 4mm padding bas
-        _bloc_bail_h = max(14*_mm, _n_rows * 11*_mm + 10*_mm)
+        _bloc_bail_h = max(14*_mm, _n_rows * 11*_mm + 6*_mm)
 
         _fblock_top = pb
         _sec(c, "Données du bail", 14*_mm, _fblock_top)
@@ -1632,7 +1632,7 @@ def _page2(c, d):
         # Colonne gauche : locataire + loyer annuel + loyer initial
         _fcx1 = 20*_mm
         _fcx2 = 14*_mm + (_W - 28*_mm) / 2 + 3*_mm
-        _fcy  = _fy - 6*_mm
+        _fcy  = _fy - 4*_mm
 
         def _bail_line(x, y, label, valeur):
             c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 7)
@@ -1652,7 +1652,7 @@ def _page2(c, d):
             _fcy -= 11*_mm
 
         # Colonne droite : loyer initial + évolution + durée + taxe
-        _fcy2 = _fy - 6*_mm
+        _fcy2 = _fy - 4*_mm
         if _loyer_init:
             try:
                 _li_fmt = f"{int(float(str(_loyer_init))):,} EUR HT".replace(",", " ")
