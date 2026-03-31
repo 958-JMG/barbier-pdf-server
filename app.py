@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Barbier Immobilier - PDF Dossier de Vente v5.9
+Barbier Immobilier - PDF Dossier de Vente v5.10
 Flask app deployed on Railway.
 Routes: GET /, POST /generate-quartier, POST /dossier
 """
@@ -409,7 +409,7 @@ def _footer(c, n, total=3):
     c.setFont("Helvetica", 6.5)
     c.drawString(ML, 3.5 * mm,
                  "Barbier Immobilier \u2014 2 place Albert Einstein, 56000 Vannes \u2014 02.97.47.11.11 \u2014 barbierimmobilier.com")
-    c.drawRightString(PAGE_W - MR, 3.5 * mm, str(n) + " / " + str(total))
+    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.10  " + str(n) + " / " + str(total))
     c.restoreState()
 
 
@@ -1489,7 +1489,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.9"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.10"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -1510,7 +1510,15 @@ def dossier():
     if not body:
         return jsonify({"error": "Body JSON manquant"}), 400
     ref = body.get("reference", "inconnu")
-    app.logger.info("Dossier for %s — keys: %s", ref, list(body.keys()))
+    photos = body.get("photos") or []
+    real = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
+    plans = [p for p in photos if _is_plan(p)]
+    app.logger.info(
+        "Dossier v5.10 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
+        ref, list(body.keys()), len(photos), len(real), len(plans))
+    # Log first 80 chars of each photo to debug
+    for idx, p in enumerate(photos):
+        app.logger.info("  photo[%d]: %s", idx, str(p)[:80])
 
     # Generate quartier text if missing
     texte_q = body.get("texte_quartier") or ""
