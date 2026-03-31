@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.83"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.84"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1609,7 +1609,7 @@ def _page2(c, d):
         except: pass
     if _fin_items:
         _fblock_top = pb - 4*_mm
-        _sec(c, "Donnees financieres", 14*_mm, _fblock_top)
+        _sec(c, "Données financières", 14*_mm, _fblock_top)
         _fy = _fblock_top - 6*_mm
         _fw = (_W - 28*_mm) / len(_fin_items) - 2*_mm
         for _fi, (_flbl, _fval) in enumerate(_fin_items):
