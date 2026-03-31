@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.87"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.88"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1612,10 +1612,12 @@ def _page2(c, d):
         _n_col1 = sum([bool(_locataire), bool(_loyer_ht)])
         _n_col2 = sum([bool(_loyer_init), bool(_evol_loyer), bool(_duree_bail), bool(_taxe)])
         _n_rows = max(_n_col1, _n_col2)
-        _bloc_bail_h = max(14*_mm, _n_rows * 11*_mm + 4*_mm)
+        # 11mm par ligne + 6mm padding haut + 4mm padding bas
+        _bloc_bail_h = max(14*_mm, _n_rows * 11*_mm + 10*_mm)
 
         _fblock_top = pb - 4*_mm
         _sec(c, "Données du bail", 14*_mm, _fblock_top)
+        # _fy = haut intérieur du bloc (sous le titre de section)
         _fy = _fblock_top - 7*_mm
 
         # Fond bloc
