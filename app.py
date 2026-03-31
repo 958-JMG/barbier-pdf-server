@@ -89,26 +89,38 @@ def _ir(b64):
     return ImageReader(io.BytesIO(_b64.b64decode(b64)))
 
 
+def _pdf_to_image(raw_bytes):
+    """Convert a PDF's first page to a PIL Image using pymupdf (fitz)."""
+    try:
+        import fitz
+        doc = fitz.open(stream=raw_bytes, filetype="pdf")
+        page = doc[0]
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+        img_data = pix.tobytes("png")
+        doc.close()
+        return ImageReader(io.BytesIO(img_data))
+    except Exception as e:
+        app.logger.error("PDF to image: %s", e)
+        return None
+
+
 def _fetch_photo(url_or_data):
     if not url_or_data:
         return None
     try:
         s = str(url_or_data)
-        # Skip PDF files (e.g. cadastral plans)
-        if s.startswith("data:application/pdf"):
-            return None
         if s.startswith("data:"):
             _, b = s.split(",", 1)
             raw = _b64.b64decode(b)
-            # Check it's actually an image, not a PDF
-            if raw[:4] == b"%PDF":
-                return None
+            # PDF? Convert to image
+            if raw[:4] == b"%PDF" or s.startswith("data:application/pdf"):
+                return _pdf_to_image(raw)
             return ImageReader(io.BytesIO(raw))
         resp = requests.get(s, timeout=15, headers={"User-Agent": "BarbierImmo/1.0"})
         if resp.status_code == 200:
             ct = resp.headers.get("Content-Type", "")
-            if "pdf" in ct:
-                return None
+            if "pdf" in ct or resp.content[:4] == b"%PDF":
+                return _pdf_to_image(resp.content)
             return ImageReader(io.BytesIO(resp.content))
     except Exception as e:
         app.logger.error("Photo fetch: %s", e)
@@ -206,6 +218,46 @@ def _get_poi_osm(lat, lon, radius=500):
     except Exception as e:
         app.logger.error("POI fetch: %s", e)
     return results
+
+
+def _get_poi_gpt(adresse, ville, type_bien):
+    """Fallback: ask GPT for nearby POI when Overpass fails."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        return []
+    prompt = (
+        "Tu es expert en immobilier commercial dans le Morbihan."
+        " Pour : " + (type_bien or "local") + " au " + (adresse or "") + ", " + (ville or "Vannes") + ","
+        " liste les points d'interet REELS certains dans un rayon de 500m."
+        " Reponds UNIQUEMENT en JSON (sans backticks) :"
+        ' [{"categorie":"Parking","nom":"Nom exact"}]'
+        " Categories : Parking, Transport, Restauration, Commerce, Banque, Sante."
+        " Maximum 5 elements. N'inclus QUE ce dont tu es certain."
+    )
+    cat_colors = {"Parking": "#1B3A5C", "Transport": "#0D5570", "Restauration": "#E8472A",
+                  "Commerce": "#3A1B5C", "Banque": "#1B5C3A", "Sante": "#5C1B3A",
+                  "Formation": "#5C3A1B"}
+    try:
+        resp = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
+            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": 300, "temperature": 0.1},
+            timeout=20)
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        match = re.search(r"\[.*?\]", raw, re.DOTALL)
+        if match:
+            items = json.loads(match.group(0))
+            results = []
+            for it in items[:5]:
+                cat = it.get("categorie", "")
+                nom = it.get("nom", "")
+                if cat and nom:
+                    results.append((cat, nom[:28], cat_colors.get(cat, "#16708B")))
+            return results
+    except Exception as e:
+        app.logger.error("POI GPT fallback: %s", e)
+    return []
 
 
 def _gpt_quartier(adresse, ville, type_bien):
@@ -578,11 +630,11 @@ def _page2(c, d):
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, PAGE_H - 38 * mm, chapeau)
 
-    # Layout: carte+POI anchored at bottom with breathing room
-    zone_h = 75 * mm
+    # Layout: carte+POI in the MIDDLE, text above, good spacing
+    zone_h = 70 * mm
     col_gap = 5 * mm
     col_w = (CW - col_gap) / 2
-    zone_bot = FOOTER_H + 8 * mm  # space above footer
+    zone_bot = FOOTER_H + 12 * mm
     zone_top = zone_bot + zone_h
     qbot = zone_top + 12 * mm
 
@@ -698,20 +750,23 @@ def _page2(c, d):
     poi_blocks = []
     if lat and lon:
         poi_blocks = _get_poi_osm(lat, lon, radius=500)
+    # GPT fallback if Overpass returned nothing
+    if not poi_blocks:
+        poi_blocks = _get_poi_gpt(d.get("adresse", ""), d.get("ville", ""), d.get("type_bien", ""))
 
     n_poi = min(len(poi_blocks), 5)
     if n_poi > 0:
         poi_gap = 3 * mm
         poi_ch = (zone_h - (n_poi - 1) * poi_gap) / n_poi
         for i, (lbl, val, col_hex) in enumerate(poi_blocks[:n_poi]):
-            by = zone_top - (i + 1) * poi_ch - i * poi_gap
-            _draw_poi_card(c, poi_x, by, col_w, poi_ch, lbl, val, col_hex)
+            by2 = zone_top - (i + 1) * poi_ch - i * poi_gap
+            _draw_poi_card(c, poi_x, by2, col_w, poi_ch, lbl, val, col_hex)
     else:
         c.setFillColor(colors.HexColor("#E8F0F4"))
         c.roundRect(poi_x, my, col_w, mh, 3 * mm, fill=1, stroke=0)
         c.setFillColor(colors.HexColor("#AAAAAA"))
         c.setFont("Helvetica", 8)
-        c.drawCentredString(poi_x + col_w / 2, my + mh / 2, "Donnees en cours...")
+        c.drawCentredString(poi_x + col_w / 2, my + mh / 2, "Environnement en cours d'analyse")
 
     _footer(c, 2)
 
@@ -723,19 +778,30 @@ def _page3(c, d):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
     _sec(c, "Presentation du bien", ML, PAGE_H - 32 * mm)
 
-    # Title line
-    c.setFillColor(TEAL_DARK)
-    c.setFont("Helvetica-Bold", 13)
-    c.drawString(ML, PAGE_H - 37 * mm, _safe(d.get("type_bien"), "Bien immobilier").upper())
-    c.setFillColor(GRAY_DARK)
-    c.setFont("Helvetica", 9)
-    adr = _safe(d.get("adresse"), "")
-    vl = _safe(d.get("ville"), "")
-    c.drawString(ML, PAGE_H - 40.5 * mm, (adr + ", " + vl) if adr and vl else (adr or vl))
-
+    # Use first line of description as title (more meaningful than type_bien)
     desc = _clean(d.get("description", ""))
-    text_y = PAGE_H - 43 * mm
-    desc_bot = _render_desc(c, desc, text_y, 48 * mm)
+    desc_lines = desc.split("\n")
+    titre_annonce = ""
+    desc_body = desc
+    if desc_lines:
+        titre_annonce = desc_lines[0].strip()
+        # Remove first line from body if it's a short title (< 120 chars)
+        if len(titre_annonce) < 120:
+            desc_body = "\n".join(desc_lines[1:]).strip()
+        else:
+            titre_annonce = _safe(d.get("type_bien"), "Bien immobilier")
+            desc_body = desc
+
+    # Title - editorial style
+    sty_titre = ParagraphStyle("pt", fontName="Helvetica-Bold", fontSize=11,
+                                textColor=TEAL_DARK, leading=14)
+    p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
+    _, th = p_titre.wrap(CW, 30 * mm)
+    titre_y = PAGE_H - 34 * mm - th
+    p_titre.drawOn(c, ML, titre_y)
+
+    text_y = titre_y - 3 * mm
+    desc_bot = _render_desc(c, desc_body, text_y, 42 * mm)
     bot = desc_bot - 10 * mm
 
     # Caracteristiques pills
@@ -1115,7 +1181,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.3"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.4"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
