@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.84"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.85"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1594,32 +1594,100 @@ def _page2(c, d):
     pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-6*_mm
 
     # ── Bloc données financières (conditionnel) ──────────────────────────────
-    _fin_items = []
-    _taxe = d.get("taxe_fonciere") or d.get("taxe") or 0
-    _loyer_a = d.get("loyer_annuel") or 0
-    _ca = d.get("ca_ht") or 0
-    if _loyer_a:
-        try: _fin_items.append(("Loyer annuel HT", f"{int(float(str(_loyer_a))):,} EUR".replace(",", " ")))
-        except: pass
-    if _ca:
-        try: _fin_items.append(("CA HT annuel", f"{int(float(str(_ca))):,} EUR".replace(",", " ")))
-        except: pass
-    if _taxe:
-        try: _fin_items.append(("Taxe fonciere", f"{int(float(str(_taxe))):,} EUR".replace(",", " ")))
-        except: pass
-    if _fin_items:
+    # Champs bail locatif (nouveaux)
+    _locataire    = d.get("locataire") or ""
+    _loyer_ht     = d.get("loyer_annuel_ht") or 0
+    _loyer_init   = d.get("loyer_initial_ht") or 0
+    _evol_loyer   = d.get("evolution_loyer") or ""
+    _duree_bail   = d.get("duree_bail") or ""
+    _taxe         = d.get("taxe_fonciere") or d.get("taxe") or 0
+    _ca           = d.get("ca_ht") or 0
+
+    # Détecter si c'est un bien avec bail locatif
+    _is_bail = bool(_locataire or _loyer_ht or _loyer_init or _evol_loyer or _duree_bail)
+
+    if _is_bail:
+        # ── Bloc bail locatif complet ──────────────────────────────────────────
         _fblock_top = pb - 4*_mm
-        _sec(c, "Données financières", 14*_mm, _fblock_top)
-        _fy = _fblock_top - 6*_mm
-        _fw = (_W - 28*_mm) / len(_fin_items) - 2*_mm
-        for _fi, (_flbl, _fval) in enumerate(_fin_items):
-            _fx = 14*_mm + _fi * (_fw + 2*_mm)
-            c.setFillColor(_colors.HexColor("#EBF0F8"))
-            c.roundRect(_fx, _fy - 12*_mm, _fw, 12*_mm, 1.5*_mm, fill=1, stroke=0)
-            c.setFillColor(_BLEU_F); c.setFont("Helvetica", 6.5)
-            c.drawString(_fx + 3*_mm, _fy - 5*_mm, _flbl.upper())
-            c.setFont("Helvetica-Bold", 9)
-            c.drawString(_fx + 3*_mm, _fy - 10*_mm, _fval)
+        _sec(c, "Données du bail", 14*_mm, _fblock_top)
+        _fy = _fblock_top - 7*_mm
+
+        # Fond bloc
+        _bloc_bail_h = 36*_mm
+        c.setFillColor(_colors.HexColor("#EBF0F8"))
+        c.roundRect(14*_mm, _fy - _bloc_bail_h, _W - 28*_mm, _bloc_bail_h, 2*_mm, fill=1, stroke=0)
+        # Barre orange gauche
+        c.setFillColor(_ORANGE)
+        c.rect(14*_mm, _fy - _bloc_bail_h, 3*_mm, _bloc_bail_h, fill=1, stroke=0)
+
+        # Colonne gauche : locataire + loyer annuel + loyer initial
+        _fcx1 = 20*_mm
+        _fcx2 = 14*_mm + (_W - 28*_mm) / 2 + 3*_mm
+        _fcy  = _fy - 6*_mm
+
+        def _bail_line(x, y, label, valeur):
+            c.setFillColor(_BLEU_F); c.setFont("Helvetica-Bold", 7)
+            c.drawString(x, y, label.upper())
+            c.setFillColor(_GTEXTE); c.setFont("Helvetica", 8.5)
+            c.drawString(x, y - 5*_mm, str(valeur))
+
+        if _locataire:
+            _bail_line(_fcx1, _fcy, "Locataire", _locataire)
+            _fcy -= 11*_mm
+        if _loyer_ht:
+            try:
+                _lht_fmt = f"{int(float(str(_loyer_ht))):,} EUR HT/an".replace(",", " ")
+            except Exception:
+                _lht_fmt = str(_loyer_ht)
+            _bail_line(_fcx1, _fcy, "Loyer annuel HT", _lht_fmt)
+            _fcy -= 11*_mm
+
+        # Colonne droite : loyer initial + évolution + durée + taxe
+        _fcy2 = _fy - 6*_mm
+        if _loyer_init:
+            try:
+                _li_fmt = f"{int(float(str(_loyer_init))):,} EUR HT".replace(",", " ")
+            except Exception:
+                _li_fmt = str(_loyer_init)
+            _bail_line(_fcx2, _fcy2, "Loyer initial", _li_fmt)
+            _fcy2 -= 11*_mm
+        if _evol_loyer:
+            _bail_line(_fcx2, _fcy2, "Evolution du loyer", _evol_loyer)
+            _fcy2 -= 11*_mm
+        if _duree_bail:
+            _bail_line(_fcx2, _fcy2, "Durée du bail", _duree_bail)
+            _fcy2 -= 11*_mm
+
+        # Taxe foncière en bas à droite si disponible
+        if _taxe:
+            try:
+                _tf_fmt = f"{int(float(str(_taxe))):,} EUR/an".replace(",", " ")
+            except Exception:
+                _tf_fmt = str(_taxe)
+            _bail_line(_fcx2, _fcy2, "Taxe foncière", _tf_fmt)
+
+    elif _taxe or _ca:
+        # ── Bloc financier simple (vente sans bail) ────────────────────────────
+        _fin_items = []
+        if _ca:
+            try: _fin_items.append(("CA HT annuel", f"{int(float(str(_ca))):,} EUR".replace(",", " ")))
+            except: pass
+        if _taxe:
+            try: _fin_items.append(("Taxe fonciere", f"{int(float(str(_taxe))):,} EUR".replace(",", " ")))
+            except: pass
+        if _fin_items:
+            _fblock_top = pb - 4*_mm
+            _sec(c, "Données financières", 14*_mm, _fblock_top)
+            _fy = _fblock_top - 6*_mm
+            _fw = (_W - 28*_mm) / len(_fin_items) - 2*_mm
+            for _fi, (_flbl, _fval) in enumerate(_fin_items):
+                _fx = 14*_mm + _fi * (_fw + 2*_mm)
+                c.setFillColor(_colors.HexColor("#EBF0F8"))
+                c.roundRect(_fx, _fy - 12*_mm, _fw, 12*_mm, 1.5*_mm, fill=1, stroke=0)
+                c.setFillColor(_BLEU_F); c.setFont("Helvetica", 6.5)
+                c.drawString(_fx + 3*_mm, _fy - 5*_mm, _flbl.upper())
+                c.setFont("Helvetica-Bold", 9)
+                c.drawString(_fx + 3*_mm, _fy - 10*_mm, _fval)
 
     # ── Bloc Prix — ancré sur le bas de page (au-dessus du footer) ───────────
     prix_brut = d.get("prix") or 0
