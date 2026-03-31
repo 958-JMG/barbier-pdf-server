@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Barbier Immobilier - PDF Dossier de Vente v5.12
+Barbier Immobilier - PDF Dossier de Vente v5.13
 Flask app deployed on Railway.
 Routes: GET /, POST /generate-quartier, POST /dossier
 """
@@ -53,10 +53,10 @@ HEADER_H = 11 * mm
 FOOTER_H = 9 * mm
 
 # Uniform spacing constants (premium feel) — MUST be visible!
-SP_AFTER_HEADER = 8 * mm    # space between header bar and first content
-SP_BEFORE_FOOTER = 6 * mm   # space between last content and footer bar
-SP_AFTER_SEC = 3 * mm       # space between section title bar and its content
-SP_BETWEEN_BLOCS = 10 * mm  # space between two blocs/sections — LARGE, visible
+SP_AFTER_HEADER = 10 * mm   # header bar → first section title
+SP_BEFORE_FOOTER = 6 * mm   # last content → footer bar
+SP_AFTER_SEC = 6 * mm       # section title bar → its content below
+SP_BETWEEN_BLOCS = 10 * mm  # between two blocs/sections
 SEC_H = 8 * mm              # section title bar height
 
 # ---------------------------------------------------------------------------
@@ -445,7 +445,7 @@ def _footer(c, n, total=3):
     c.setFont("Helvetica", 6.5)
     c.drawString(ML, 3.5 * mm,
                  "Barbier Immobilier \u2014 2 place Albert Einstein, 56000 Vannes \u2014 02.97.47.11.11 \u2014 barbierimmobilier.com")
-    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.12  " + str(n) + " / " + str(total))
+    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.13  " + str(n) + " / " + str(total))
     c.restoreState()
 
 
@@ -1568,7 +1568,7 @@ def dossier():
     real = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
     plans = [p for p in photos if _is_plan(p)]
     app.logger.info(
-        "Dossier v5.12 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
+        "Dossier v5.13 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
         ref, list(body.keys()), len(photos), len(real), len(plans))
     # Log first 80 chars of each photo to debug
     for idx, p in enumerate(photos):
