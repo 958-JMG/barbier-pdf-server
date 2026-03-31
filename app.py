@@ -1596,6 +1596,7 @@ def _page2(c, d):
     pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-3*_mm
 
     # ── Bloc données financières (conditionnel) ──────────────────────────────
+    _fin_bottom = None  # sera calculé si bail ou données financières présents
     # Champs bail locatif (nouveaux)
     _locataire    = d.get("locataire") or ""
     _loyer_ht     = d.get("loyer_annuel_ht") or 0
@@ -1607,7 +1608,6 @@ def _page2(c, d):
 
     # Détecter si c'est un bien avec bail locatif
     _is_bail = bool(_locataire or _loyer_ht or _loyer_init or _evol_loyer or _duree_bail)
-    _fin_bottom = None  # sera calculé si bloc bail ou données financières présents
 
     if _is_bail:
         # ── Bloc bail locatif complet ──────────────────────────────────────────
@@ -1728,12 +1728,11 @@ def _page2(c, d):
             bloc_h = 22*_mm
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
-            # Ancrage dynamique : colle Prix sous bail si possible, sinon ancrage bas fixe
-            _bloc_total_h = bloc_h + 11*_mm  # 22mm carte + 11mm titre
-            if _fin_bottom is not None:
-                bloc_y = max(18*_mm, _fin_bottom - _bloc_total_h - 3*_mm)
+            # Ancrage dynamique : Prix juste sous le dernier bloc financier
+            if _fin_bottom is not None and _fin_bottom > 46*_mm:
+                bloc_y = max(18*_mm, _fin_bottom - bloc_h - 11*_mm)
             else:
-                bloc_y  = 18*_mm
+                bloc_y = 18*_mm
             titre_y = bloc_y + bloc_h + 3*_mm
             _sec(c, "Prix", 14*_mm, titre_y)
             items_prix = [
@@ -5046,3 +5045,4 @@ def debug_location():
     except Exception as e:
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()[:800]})
+
