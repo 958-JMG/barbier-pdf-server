@@ -1848,8 +1848,8 @@ def mandat():
 # ---------------------------------------------------------------------------
 # URBANISME (Cadastre + PLU + Servitudes)
 # ---------------------------------------------------------------------------
-def _geocode(adresse, code_postal, ville):
-    """Geocode an address using api-adresse.data.gouv.fr. Returns (lon, lat, code_insee) or None."""
+def _geocode_urba(adresse, code_postal, ville):
+    """Geocode for urbanisme. Returns (lon, lat, code_insee) or None."""
     q = f"{adresse} {ville}".strip()
     if not q:
         return None
@@ -1867,7 +1867,7 @@ def _geocode(adresse, code_postal, ville):
         code_insee = f["properties"].get("citycode", "")
         return lon, lat, code_insee
     except Exception as e:
-        app.logger.error("Geocode error: %s", e)
+        app.logger.error("Geocode urba error: %s", e)
         return None
 
 
@@ -1999,7 +1999,7 @@ def urbanisme():
     type_bien = body.get("type_bien", "Local commercial")
 
     # Step 1: Geocode
-    geo = _geocode(adresse, cp, ville)
+    geo = _geocode_urba(adresse, cp, ville)
     if not geo:
         return jsonify({"ok": False, "error": "Impossible de g\u00e9olocaliser l\u2019adresse"}), 400
     lon, lat, code_insee = geo
