@@ -2,7 +2,7 @@
 """
 Barbier Immobilier - PDF Dossier de Vente v5.16
 Flask app deployed on Railway.
-Routes: GET /, POST /generate-quartier, POST /dossier
+Routes: GET /, POST /generate-quartier, POST /dossier, POST /mandat, POST /urbanisme
 """
 
 import html as _html_mod
@@ -1544,7 +1544,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.11"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.17"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -1599,3 +1599,449 @@ def dossier():
     except Exception as e:
         app.logger.error("Dossier error %s: %s", ref, e, exc_info=True)
         return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# MANDAT PDF Generation
+# ---------------------------------------------------------------------------
+def _mandat_draw_field(c, label, value, x, y, w):
+    """Draw a label: value pair for the mandat. Returns new y after drawing."""
+    c.setFont("Helvetica", 7)
+    c.setFillColor(GRAY_MID)
+    c.drawString(x, y + 3.5 * mm, label)
+    c.setFont("Helvetica", 9)
+    c.setFillColor(GRAY_DARK)
+    c.drawString(x + 42 * mm, y + 3.5 * mm, str(value or "\u2014"))
+    # underline
+    c.setStrokeColor(GRAY_BDR)
+    c.setLineWidth(0.3)
+    c.line(x, y, x + w, y)
+    return y - 7 * mm
+
+
+def _mandat_section(c, title, y):
+    """Draw a mandat section header. Returns y below the section bar."""
+    _sec(c, title, ML, y)
+    return y - SEC_H - SP_AFTER_SEC
+
+
+def generate_mandat_pdf(d):
+    """Generate a mandat de vente PDF from the payload dict d."""
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+
+    type_m = d.get("type_mandat", "Simple")
+    is_moral = d.get("mandant_type", "physique") == "moral"
+
+    # ── PAGE 1 ──────────────────────────────────────────────────────────────
+    _header(c, sub="MANDAT DE VENTE " + type_m.upper())
+    _footer(c, 1, total=2)
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+
+    # Title
+    c.setFont("Helvetica-Bold", 16)
+    c.setFillColor(TEAL_DARK)
+    c.drawCentredString(PAGE_W / 2, cursor, "MANDAT DE VENTE")
+    cursor -= 7 * mm
+    c.setFont("Helvetica", 11)
+    c.setFillColor(ORANGE)
+    c.drawCentredString(PAGE_W / 2, cursor, type_m.upper())
+    cursor -= 4 * mm
+
+    # Numéro et date
+    c.setFont("Helvetica", 8)
+    c.setFillColor(GRAY_MID)
+    num = d.get("num_mandat", "")
+    date_s = d.get("date_signature", "")
+    c.drawCentredString(PAGE_W / 2, cursor, f"N\u00b0 {num}  \u2014  Date : {date_s}")
+    cursor -= SP_BETWEEN_BLOCS
+
+    # ── Section: LE MANDANT ─────────────────────────────────────────────────
+    cursor = _mandat_section(c, "LE MANDANT", cursor)
+    fw = CW  # field width
+
+    if is_moral:
+        cursor = _mandat_draw_field(c, "Soci\u00e9t\u00e9", d.get("mandant_societe"), ML, cursor, fw)
+        cursor = _mandat_draw_field(c, "Forme juridique", d.get("mandant_forme"), ML, cursor, fw)
+        cursor = _mandat_draw_field(c, "SIREN", d.get("mandant_siren"), ML, cursor, fw)
+        cursor = _mandat_draw_field(c, "Capital", d.get("mandant_capital"), ML, cursor, fw)
+        cursor = _mandat_draw_field(c, "Repr\u00e9sent\u00e9 par", d.get("mandant_representant"), ML, cursor, fw)
+    else:
+        cursor = _mandat_draw_field(c, "Nom", d.get("mandant_nom"), ML, cursor, fw)
+
+    cursor = _mandat_draw_field(c, "Adresse", d.get("mandant_adresse"), ML, cursor, fw)
+    cursor = _mandat_draw_field(c, "Code postal", d.get("mandant_cp"), ML, cursor, fw)
+    cursor = _mandat_draw_field(c, "Ville", d.get("mandant_ville"), ML, cursor, fw)
+    cursor -= SP_BETWEEN_BLOCS - 4 * mm
+
+    # ── Section: LE BIEN ────────────────────────────────────────────────────
+    cursor = _mandat_section(c, "DESCRIPTION DU BIEN", cursor)
+    cursor = _mandat_draw_field(c, "Adresse du bien", d.get("bien_adresse"), ML, cursor, fw)
+    cursor = _mandat_draw_field(c, "Occupation", d.get("bien_occupation", "Libre"), ML, cursor, fw)
+
+    # Description (multi-line)
+    desc = d.get("bien_description", "")
+    if desc:
+        c.setFont("Helvetica", 7)
+        c.setFillColor(GRAY_MID)
+        c.drawString(ML, cursor + 3.5 * mm, "Description")
+        cursor -= 1 * mm
+        style = ParagraphStyle("mandatDesc", fontName="Helvetica", fontSize=8.5,
+                               leading=11, textColor=GRAY_DARK)
+        p = Paragraph(desc.replace("\n", "<br/>"), style)
+        pw, ph = p.wrap(CW - 42 * mm, 80 * mm)
+        p.drawOn(c, ML + 42 * mm, cursor - ph + 3 * mm)
+        cursor -= max(ph, 8 * mm) + 2 * mm
+        c.setStrokeColor(GRAY_BDR)
+        c.setLineWidth(0.3)
+        c.line(ML, cursor + 2 * mm, ML + fw, cursor + 2 * mm)
+    cursor -= SP_BETWEEN_BLOCS - 4 * mm
+
+    # ── Section: CONDITIONS FINANCIERES ─────────────────────────────────────
+    cursor = _mandat_section(c, "CONDITIONS FINANCI\u00c8RES", cursor)
+
+    prix_nv = d.get("prix_net_vendeur", "")
+    prix_vt = d.get("prix_de_vente", "")
+    hono = d.get("honoraires", "")
+    charge = d.get("honoraires_charge", "Acqu\u00e9reur")
+
+    cursor = _mandat_draw_field(c, "Prix net vendeur", _pfmt(prix_nv), ML, cursor, fw)
+    cursor = _mandat_draw_field(c, "Honoraires", _pfmt(hono) + f" \u00e0 la charge de l'{charge.lower()}", ML, cursor, fw)
+    cursor = _mandat_draw_field(c, "Prix de vente FAI", _pfmt(prix_vt), ML, cursor, fw)
+    cursor -= SP_BETWEEN_BLOCS - 4 * mm
+
+    # ── Section: DUREE ET CONDITIONS ────────────────────────────────────────
+    cursor = _mandat_section(c, "DUR\u00c9E ET CONDITIONS", cursor)
+    duree = d.get("duree_mois", 12)
+    nego = d.get("negociatrice", "")
+    cursor = _mandat_draw_field(c, "Dur\u00e9e", f"{duree} mois", ML, cursor, fw)
+    cursor = _mandat_draw_field(c, "N\u00e9gociateur", nego, ML, cursor, fw)
+
+    if type_m.lower() == "exclusif":
+        cursor -= 3 * mm
+        c.setFont("Helvetica-Oblique", 7.5)
+        c.setFillColor(GRAY_MID)
+        txt_excl = ("Ce mandat est consenti \u00e0 titre exclusif. Le mandant s\u2019interdit de "
+                     "traiter directement ou par l\u2019interm\u00e9diaire d\u2019un autre mandataire pendant "
+                     "la dur\u00e9e du pr\u00e9sent mandat.")
+        style_excl = ParagraphStyle("excl", fontName="Helvetica-Oblique", fontSize=7.5,
+                                    leading=10, textColor=GRAY_MID)
+        pe = Paragraph(txt_excl, style_excl)
+        _, peh = pe.wrap(CW, 30 * mm)
+        pe.drawOn(c, ML, cursor - peh)
+        cursor -= peh + 2 * mm
+
+    c.showPage()
+
+    # ── PAGE 2: Clauses légales + signatures ────────────────────────────────
+    _header(c, sub="MANDAT DE VENTE " + type_m.upper())
+    _footer(c, 2, total=2)
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+
+    # ── Section: OBLIGATIONS ────────────────────────────────────────────────
+    cursor = _mandat_section(c, "OBLIGATIONS DES PARTIES", cursor)
+
+    clauses = [
+        ("Obligations du mandataire",
+         "Le mandataire s\u2019engage \u00e0 mettre en \u0153uvre tous les moyens n\u00e9cessaires \u00e0 la "
+         "r\u00e9alisation de la vente : estimation, publicit\u00e9, organisation des visites, "
+         "n\u00e9gociation, accompagnement jusqu\u2019\u00e0 la signature de l\u2019acte authentique."),
+        ("Obligations du mandant",
+         "Le mandant s\u2019engage \u00e0 fournir tous les documents et informations n\u00e9cessaires "
+         "\u00e0 la mise en vente, notamment les diagnostics techniques obligatoires, le titre "
+         "de propri\u00e9t\u00e9 et les informations relatives aux charges et servitudes."),
+        ("Droit de r\u00e9tractation",
+         "Conform\u00e9ment \u00e0 l\u2019article L. 221-18 du Code de la consommation, le mandant "
+         "dispose d\u2019un d\u00e9lai de 14 jours \u00e0 compter de la signature pour exercer son "
+         "droit de r\u00e9tractation, sans motif et sans p\u00e9nalit\u00e9."),
+        ("Protection juridique",
+         "Conform\u00e9ment \u00e0 la loi Hoguet n\u00b0 70-9 du 2 janvier 1970 et \u00e0 son d\u00e9cret "
+         "d\u2019application n\u00b0 72-678 du 20 juillet 1972, aucune somme n\u2019est due au "
+         "mandataire avant la r\u00e9alisation effective de la vente."),
+    ]
+
+    style_clause_title = ParagraphStyle("ct", fontName="Helvetica-Bold", fontSize=9,
+                                        leading=12, textColor=TEAL_DARK)
+    style_clause_body = ParagraphStyle("cb", fontName="Helvetica", fontSize=8,
+                                       leading=11, textColor=GRAY_DARK)
+
+    for title, body in clauses:
+        pt = Paragraph(title, style_clause_title)
+        _, pth = pt.wrap(CW, 20 * mm)
+        pt.drawOn(c, ML, cursor - pth)
+        cursor -= pth + 1.5 * mm
+
+        pb = Paragraph(body, style_clause_body)
+        _, pbh = pb.wrap(CW, 40 * mm)
+        pb.drawOn(c, ML, cursor - pbh)
+        cursor -= pbh + 6 * mm
+
+    cursor -= SP_BETWEEN_BLOCS - 6 * mm
+
+    # ── Section: SIGNATURES ─────────────────────────────────────────────────
+    cursor = _mandat_section(c, "SIGNATURES", cursor)
+
+    sig_w = CW / 2 - 5 * mm
+    sig_h = 35 * mm
+    left_x = ML
+    right_x = ML + CW / 2 + 5 * mm
+
+    # Left: Mandant
+    _rrect(c, left_x, cursor - sig_h, sig_w, sig_h, r=3, stroke=GRAY_BDR)
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(TEAL_DARK)
+    c.drawString(left_x + 4 * mm, cursor - 5 * mm, "Le Mandant")
+    c.setFont("Helvetica", 7)
+    c.setFillColor(GRAY_MID)
+    mandant_name = d.get("mandant_societe") if is_moral else d.get("mandant_nom")
+    c.drawString(left_x + 4 * mm, cursor - 10 * mm, str(mandant_name or ""))
+    c.drawString(left_x + 4 * mm, cursor - sig_h + 4 * mm, "Fait \u00e0 ________________  le ________________")
+
+    # Right: Mandataire
+    _rrect(c, right_x, cursor - sig_h, sig_w, sig_h, r=3, stroke=GRAY_BDR)
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(TEAL_DARK)
+    c.drawString(right_x + 4 * mm, cursor - 5 * mm, "Le Mandataire")
+    c.setFont("Helvetica", 7)
+    c.setFillColor(GRAY_MID)
+    c.drawString(right_x + 4 * mm, cursor - 10 * mm, "Barbier Immobilier")
+    c.drawString(right_x + 4 * mm, cursor - 15 * mm, str(nego))
+    c.drawString(right_x + 4 * mm, cursor - sig_h + 4 * mm, "Fait \u00e0 Vannes  le ________________")
+
+    cursor -= sig_h + 8 * mm
+
+    # Mention légale en bas
+    c.setFont("Helvetica", 6)
+    c.setFillColor(GRAY_MID)
+    mention = ("Barbier Immobilier \u2014 SAS au capital de 10 000 \u20ac \u2014 RCS Vannes \u2014 "
+               "Carte professionnelle CPI 5602 2018 000 029 497 \u2014 "
+               "Garantie financi\u00e8re CEGC \u2014 RC Professionnelle MMA")
+    style_mention = ParagraphStyle("mention", fontName="Helvetica", fontSize=6,
+                                   leading=7.5, textColor=GRAY_MID, alignment=1)
+    pm = Paragraph(mention, style_mention)
+    _, pmh = pm.wrap(CW, 15 * mm)
+    pm.drawOn(c, ML, FOOTER_H + 4 * mm)
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+@app.route("/mandat", methods=["POST"])
+def mandat():
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    num = body.get("num_mandat", "mandat")
+    type_m = body.get("type_mandat", "Simple")
+    try:
+        pdf_buf = generate_mandat_pdf(body)
+        fname = f"Mandat_{type_m}_{num}.pdf"
+        return send_file(pdf_buf, mimetype="application/pdf",
+                         as_attachment=True, download_name=fname)
+    except Exception as e:
+        app.logger.error("Mandat error: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# URBANISME (Cadastre + PLU + Servitudes)
+# ---------------------------------------------------------------------------
+def _geocode(adresse, code_postal, ville):
+    """Geocode an address using api-adresse.data.gouv.fr. Returns (lon, lat, code_insee) or None."""
+    q = f"{adresse} {ville}".strip()
+    if not q:
+        return None
+    params = {"q": q, "limit": 1}
+    if code_postal:
+        params["postcode"] = str(code_postal)
+    try:
+        r = requests.get("https://api-adresse.data.gouv.fr/search/", params=params, timeout=10)
+        r.raise_for_status()
+        features = r.json().get("features", [])
+        if not features:
+            return None
+        f = features[0]
+        lon, lat = f["geometry"]["coordinates"]
+        code_insee = f["properties"].get("citycode", "")
+        return lon, lat, code_insee
+    except Exception as e:
+        app.logger.error("Geocode error: %s", e)
+        return None
+
+
+def _parse_ref_cadastrale(ref):
+    """Parse '000 AB 1234' or 'AB 1234' into (com_abs, section, numero)."""
+    if not ref:
+        return None, None, None
+    parts = ref.strip().split()
+    if len(parts) == 3:
+        return parts[0], parts[1].upper(), parts[2]
+    elif len(parts) == 2:
+        return "000", parts[0].upper(), parts[1]
+    elif len(parts) == 1:
+        # Try to parse "AB1234"
+        m = re.match(r"([A-Z]{1,2})(\d+)", ref.strip().upper())
+        if m:
+            return "000", m.group(1), m.group(2)
+    return None, None, None
+
+
+def _get_parcelle_geometry(code_insee, section, numero):
+    """Fetch parcel GeoJSON geometry from API Carto cadastre."""
+    try:
+        params = {"code_insee": code_insee, "section": section, "numero": numero}
+        r = requests.get("https://apicarto.ign.fr/api/cadastre/parcelle",
+                         params=params, timeout=15)
+        r.raise_for_status()
+        features = r.json().get("features", [])
+        if features:
+            return features[0]["geometry"]
+    except Exception as e:
+        app.logger.error("Cadastre parcelle error: %s", e)
+    return None
+
+
+def _get_plu_zone(geom):
+    """Query API Carto GPU for PLU zone info. geom is a GeoJSON geometry dict."""
+    try:
+        import json as _j
+        geom_str = _j.dumps(geom)
+        r = requests.get("https://apicarto.ign.fr/api/gpu/zone-urba",
+                         params={"geom": geom_str}, timeout=20)
+        r.raise_for_status()
+        features = r.json().get("features", [])
+        if not features:
+            return None
+        props = features[0]["properties"]
+        return {
+            "zone_plu": props.get("libelle", ""),
+            "libelong": props.get("libelong", ""),
+            "typezone": props.get("typezone", ""),
+            "destdomi": props.get("destdomi", ""),
+            "url_reglement": props.get("urlfic", ""),
+        }
+    except Exception as e:
+        app.logger.error("GPU zone-urba error: %s", e)
+        return None
+
+
+SUP_LABELS = {
+    "AC1": "Monuments historiques",
+    "AC2": "Sites inscrits et class\u00e9s",
+    "AC4": "Zone de protection du patrimoine",
+    "PM1": "Plan de pr\u00e9vention des risques naturels",
+    "PM3": "Plan de pr\u00e9vention des risques technologiques",
+    "PT2": "Servitudes transmissions radio\u00e9lectriques",
+    "T1": "Servitudes voies ferr\u00e9es",
+    "EL7": "Servitudes d\u2019alignement",
+    "I4": "Canalisations de gaz",
+}
+
+
+def _get_servitudes(geom):
+    """Query API Carto GPU for servitudes d'utilité publique."""
+    import json as _j
+    geom_str = _j.dumps(geom)
+    servitudes = set()
+    for suffix in ["assiette-sup-s", "assiette-sup-l", "assiette-sup-p"]:
+        try:
+            r = requests.get(f"https://apicarto.ign.fr/api/gpu/{suffix}",
+                             params={"geom": geom_str}, timeout=15)
+            if r.ok:
+                for f in r.json().get("features", []):
+                    cat = f.get("properties", {}).get("categorie", "")
+                    if cat:
+                        label = SUP_LABELS.get(cat, cat)
+                        servitudes.add(f"{cat} - {label}")
+        except Exception as e:
+            app.logger.warning("SUP %s error: %s", suffix, e)
+    return sorted(servitudes)
+
+
+def _gpt_resume_plu(zone, typezone, destdomi, libelong, ville, type_bien):
+    """Use GPT to generate a human-readable PLU summary."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        return libelong or f"Zone {zone}"
+    prompt = (
+        f"Tu es urbaniste expert. R\u00e9sume en 3-4 phrases claires ce que signifie "
+        f"la zone PLU \u00ab {zone} \u00bb ({libelong}) pour un {type_bien} \u00e0 {ville}.\n"
+        f"Type de zone: {typezone}. Destination dominante: {destdomi}.\n"
+        f"Explique: ce qui est autoris\u00e9/interdit, les contraintes cl\u00e9s. "
+        f"Ton professionnel, pas de liste \u00e0 puces."
+    )
+    try:
+        resp = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
+            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": 400, "temperature": 0.5},
+            timeout=25)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        app.logger.error("GPT resume PLU: %s", e)
+        return libelong or f"Zone {zone}"
+
+
+@app.route("/urbanisme", methods=["POST"])
+def urbanisme():
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"ok": False, "error": "Body JSON manquant"}), 400
+
+    ref_cad = body.get("ref_cadastrale", "")
+    adresse = body.get("adresse", "")
+    ville = body.get("ville", "Vannes")
+    cp = body.get("code_postal", "56000")
+    type_bien = body.get("type_bien", "Local commercial")
+
+    # Step 1: Geocode
+    geo = _geocode(adresse, cp, ville)
+    if not geo:
+        return jsonify({"ok": False, "error": "Impossible de g\u00e9olocaliser l\u2019adresse"}), 400
+    lon, lat, code_insee = geo
+    app.logger.info("Urbanisme: geocoded %s %s -> INSEE %s (%s, %s)", adresse, ville, code_insee, lon, lat)
+
+    # Step 2: Get parcel geometry (from cadastre ref or point fallback)
+    geom = None
+    if ref_cad:
+        _, section, numero = _parse_ref_cadastrale(ref_cad)
+        if section and numero:
+            geom = _get_parcelle_geometry(code_insee, section, numero)
+
+    # Fallback: use point geometry from geocoding
+    if not geom:
+        geom = {"type": "Point", "coordinates": [lon, lat]}
+        app.logger.info("Urbanisme: using point geometry (no parcel found)")
+
+    # Step 3: PLU zone
+    plu = _get_plu_zone(geom)
+    zone_plu = ""
+    resume_plu = ""
+    url_reglement = ""
+    if plu:
+        zone_plu = plu.get("zone_plu", "")
+        url_reglement = plu.get("url_reglement", "")
+        resume_plu = _gpt_resume_plu(
+            zone_plu, plu.get("typezone", ""), plu.get("destdomi", ""),
+            plu.get("libelong", ""), ville, type_bien)
+
+    # Step 4: Servitudes
+    servitudes = _get_servitudes(geom)
+
+    if not zone_plu and not servitudes:
+        return jsonify({"ok": False, "error": f"Aucune donn\u00e9e PLU trouv\u00e9e pour {adresse}, {ville}"}), 404
+
+    result = {
+        "ok": True,
+        "zone_plu": zone_plu,
+        "resume_plu": resume_plu,
+        "url_reglement": url_reglement,
+        "servitudes": servitudes,
+        "code_insee": code_insee,
+    }
+    app.logger.info("Urbanisme result for %s: zone=%s, servitudes=%d", adresse, zone_plu, len(servitudes))
+    return jsonify(result)
