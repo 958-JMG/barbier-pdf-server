@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Barbier Immobilier - PDF Dossier de Vente v5.14
+Barbier Immobilier - PDF Dossier de Vente v5.15
 Flask app deployed on Railway.
 Routes: GET /, POST /generate-quartier, POST /dossier
 """
@@ -53,11 +53,12 @@ HEADER_H = 11 * mm
 FOOTER_H = 9 * mm
 
 # Uniform spacing constants (premium feel)
-SP_AFTER_HEADER = 5 * mm    # header bar → first section (close)
+# Rhythm: Header → title(close) → content(very tight) → BIG BREATH → next title
+SP_AFTER_HEADER = 7 * mm    # header bar → first section title
 SP_BEFORE_FOOTER = 6 * mm   # last content → footer bar
-SP_AFTER_SEC = 2 * mm       # section title bar → its content (tight)
-SP_BETWEEN_BLOCS = 12 * mm  # content → next section title (BIG breath)
-SEC_H = 8 * mm              # section title bar height
+SP_AFTER_SEC = 1.5 * mm     # section title bar bottom → content start (very tight)
+SP_BETWEEN_BLOCS = 10 * mm  # content end → next section title (breathing room)
+SEC_H = 7 * mm              # section title bar height (reduced from 8)
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -445,19 +446,19 @@ def _footer(c, n, total=3):
     c.setFont("Helvetica", 6.5)
     c.drawString(ML, 3.5 * mm,
                  "Barbier Immobilier \u2014 2 place Albert Einstein, 56000 Vannes \u2014 02.97.47.11.11 \u2014 barbierimmobilier.com")
-    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.14  " + str(n) + " / " + str(total))
+    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.15  " + str(n) + " / " + str(total))
     c.restoreState()
 
 
 def _sec(c, text, x, y, w=None):
     sw = w if w is not None else CW
     c.setFillColor(colors.HexColor("#EBF0F8"))
-    c.rect(x, y, sw, 8 * mm, fill=1, stroke=0)
+    c.rect(x, y, sw, SEC_H, fill=1, stroke=0)
     c.setFillColor(ORANGE)
-    c.rect(x, y, 3.5 * mm, 8 * mm, fill=1, stroke=0)
+    c.rect(x, y, 3.5 * mm, SEC_H, fill=1, stroke=0)
     c.setFillColor(TEAL_DARK)
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(x + 8 * mm, y + 2.5 * mm, text)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x + 8 * mm, y + 2 * mm, text)
 
 
 def _pill(c, x, y, picto_b64, label, value, w=57*mm, h=16*mm):
@@ -1568,7 +1569,7 @@ def dossier():
     real = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
     plans = [p for p in photos if _is_plan(p)]
     app.logger.info(
-        "Dossier v5.14 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
+        "Dossier v5.15 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
         ref, list(body.keys()), len(photos), len(real), len(plans))
     # Log first 80 chars of each photo to debug
     for idx, p in enumerate(photos):
