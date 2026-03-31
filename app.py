@@ -1846,6 +1846,366 @@ def mandat():
 
 
 # ---------------------------------------------------------------------------
+# AVIS DE VALEUR PDF (2 pages — document confidentiel)
+# ---------------------------------------------------------------------------
+def _avis_header(c, ref, ville, nego):
+    """Custom header for avis de valeur: logo left + title right."""
+    c.saveState()
+    # Logo top-left (icon only, compact)
+    try:
+        lw = 16 * mm
+        lh = lw * (662 / 488)
+        c.drawImage(_ir(LOGO_B64), ML, PAGE_H - 5 * mm - lh, width=lw, height=lh, mask="auto")
+    except Exception:
+        pass
+    # Title right-aligned
+    c.setFont("Helvetica-Bold", 17)
+    c.setFillColor(TEAL_DARK)
+    c.drawRightString(PAGE_W - MR, PAGE_H - 12 * mm, "AVIS DE VALEUR PROFESSIONNEL")
+    c.setFont("Helvetica", 8.5)
+    c.setFillColor(GRAY_MID)
+    subtitle = "R\u00e9f. " + str(ref) + " \u00b7 " + str(ville) + " \u00b7 " + str(nego)
+    c.drawRightString(PAGE_W - MR, PAGE_H - 18 * mm, subtitle)
+    # Separator line
+    c.setStrokeColor(GRAY_BDR)
+    c.setLineWidth(0.5)
+    c.line(ML, PAGE_H - 22 * mm, PAGE_W - MR, PAGE_H - 22 * mm)
+    c.restoreState()
+
+
+def _avis_footer(c, ref, page_n, total):
+    """Confidential footer for avis de valeur."""
+    c.saveState()
+    c.setFont("Helvetica", 6.5)
+    c.setFillColor(GRAY_MID)
+    c.drawString(ML, 4 * mm,
+                 "DOCUMENT CONFIDENTIEL \u00b7 Barbier Immobilier \u00b7 " + str(ref))
+    c.drawRightString(PAGE_W - MR, 4 * mm,
+                      "Page " + str(page_n) + " / " + str(total))
+    c.setStrokeColor(GRAY_BDR)
+    c.setLineWidth(0.3)
+    c.line(ML, 10 * mm, PAGE_W - MR, 10 * mm)
+    c.restoreState()
+
+
+def _avis_id_cell(c, label, value, x, y, w):
+    """Draw one identification cell (label + value) inside a bordered box."""
+    c.setStrokeColor(GRAY_BDR)
+    c.setLineWidth(0.3)
+    c.rect(x, y, w, 14 * mm, fill=0, stroke=1)
+    c.setFont("Helvetica", 6.5)
+    c.setFillColor(GRAY_MID)
+    c.drawString(x + 3 * mm, y + 10 * mm, str(label))
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(GRAY_DARK)
+    val = str(value) if value else "\u2014"
+    if len(val) > 30:
+        val = val[:28] + "\u2026"
+    c.drawString(x + 3 * mm, y + 3.5 * mm, val)
+
+
+def _avis_price_box(c, label, value, x, y, w, h, highlight=False):
+    """Draw a price box for valeur basse/retenue/haute."""
+    if highlight:
+        _rrect(c, x, y, w, h, r=4, fill=TEAL_DARK)
+        # "RECOMMANDE" badge
+        badge_w = 32 * mm
+        badge_h = 5.5 * mm
+        bx = x + (w - badge_w) / 2
+        by = y + h - badge_h - 2 * mm
+        _rrect(c, bx, by, badge_w, badge_h, r=2.5, fill=ORANGE)
+        c.setFont("Helvetica-Bold", 6.5)
+        c.setFillColor(WHITE)
+        c.drawCentredString(bx + badge_w / 2, by + 1.5 * mm, "\u2605 RECOMMAND\u00c9")
+        # Label
+        c.setFont("Helvetica", 7)
+        c.setFillColor(colors.HexColor("#B0D4E0"))
+        c.drawCentredString(x + w / 2, y + h - 14 * mm, label)
+        # Price
+        c.setFont("Helvetica-Bold", 18)
+        c.setFillColor(WHITE)
+        c.drawCentredString(x + w / 2, y + h / 2 - 10 * mm, _pfmt(value))
+    else:
+        _rrect(c, x, y, w, h, r=4, stroke=GRAY_BDR)
+        c.setFont("Helvetica", 7)
+        c.setFillColor(GRAY_MID)
+        c.drawCentredString(x + w / 2, y + h - 8 * mm, label)
+        c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(GRAY_DARK)
+        c.drawCentredString(x + w / 2, y + h / 2 - 6 * mm, _pfmt(value))
+
+
+def generate_avis_valeur_pdf(d):
+    """Generate a 2-page Avis de Valeur Professionnel PDF."""
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+
+    ref = d.get("reference", "")
+    ville = d.get("ville", "Vannes")
+    nego = d.get("negociateur", "Barbier Immobilier")
+    type_bien = d.get("type_bien", "")
+    adresse = d.get("adresse", "")
+    surface = d.get("surface") or 0
+    surface_t = d.get("surface_terrain") or 0
+    ref_cad = d.get("ref_cadastrale", "")
+    etat = d.get("etat_bien", "")
+    prix_min = d.get("prix_estime_min") or 0
+    prix_ret = d.get("prix_retenu") or d.get("prix") or 0
+    prix_max = d.get("prix_estime_max") or 0
+    avis_texte = d.get("avis_valeur", "")
+    annonce = d.get("description", "")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PAGE 1: Identification + Carte + Estimation
+    # ═══════════════════════════════════════════════════════════════════════
+    _avis_header(c, ref, ville, nego)
+    _avis_footer(c, ref, 1, 2)
+    cursor = PAGE_H - 26 * mm
+
+    # ── 01 — IDENTIFICATION DU BIEN ─────────────────────────────────────
+    _sec(c, "01 \u2014 IDENTIFICATION DU BIEN", ML, cursor)
+    cursor -= SEC_H + 4 * mm
+
+    # 2 rows × 3 cols of identification cells
+    cw3 = CW / 3
+    _avis_id_cell(c, "Type de bien", type_bien, ML, cursor - 14 * mm, cw3)
+    _avis_id_cell(c, "Surface habitable", (str(surface) + " m\u00b2") if surface else None, ML + cw3, cursor - 14 * mm, cw3)
+    _avis_id_cell(c, "Surface terrain", (str(surface_t) + " m\u00b2") if surface_t else None, ML + 2 * cw3, cursor - 14 * mm, cw3)
+    cursor -= 14 * mm
+    _avis_id_cell(c, "Adresse compl\u00e8te", adresse, ML, cursor - 14 * mm, cw3)
+    _avis_id_cell(c, "R\u00e9f. cadastrale", ref_cad, ML + cw3, cursor - 14 * mm, cw3)
+    _avis_id_cell(c, "\u00c9tat g\u00e9n\u00e9ral", etat, ML + 2 * cw3, cursor - 14 * mm, cw3)
+    cursor -= 14 * mm + 8 * mm
+
+    # ── 02 — LOCALISATION & ESTIMATION DE VALEUR ────────────────────────
+    _sec(c, "02 \u2014 LOCALISATION & ESTIMATION DE VALEUR", ML, cursor)
+    cursor -= SEC_H + 4 * mm
+
+    # Map (left ~60%) + Price boxes (right ~40%)
+    map_w = CW * 0.58
+    map_h = 80 * mm
+    box_col_x = ML + map_w + 5 * mm
+    box_col_w = CW - map_w - 5 * mm
+
+    # Draw map
+    map_img = None
+    try:
+        poi = _get_poi_osm(*_geocode(adresse, ville)) if _geocode(adresse, ville)[0] else []
+        gimg, glat, glon = _google_static_map(adresse, ville, poi)
+        if gimg:
+            map_img = gimg
+        else:
+            oimg, olat, olon = _osm_map(adresse, ville)
+            if oimg:
+                map_img = oimg
+    except Exception:
+        pass
+
+    map_top = cursor
+    if map_img:
+        img_buf = io.BytesIO()
+        map_img.save(img_buf, format="JPEG", quality=90)
+        img_buf.seek(0)
+        c.drawImage(ImageReader(img_buf), ML, cursor - map_h, width=map_w, height=map_h,
+                     preserveAspectRatio=True, anchor="nw")
+    else:
+        _rrect(c, ML, cursor - map_h, map_w, map_h, r=4, fill=GRAY_LIGHT, stroke=GRAY_BDR)
+        c.setFont("Helvetica", 8)
+        c.setFillColor(GRAY_MID)
+        c.drawCentredString(ML + map_w / 2, cursor - map_h / 2, "Carte non disponible")
+
+    # Address label under map
+    c.setFont("Helvetica", 7.5)
+    c.setFillColor(GRAY_DARK)
+    c.drawString(ML + 2 * mm, cursor - map_h - 5 * mm, "\u25a0 " + str(adresse))
+
+    # Price boxes (right column) — 3 boxes stacked
+    box_h = 24 * mm
+    box_gap = 4 * mm
+    box_y_top = cursor - 1 * mm
+
+    _avis_price_box(c, "VALEUR BASSE", prix_min,
+                    box_col_x, box_y_top - box_h, box_col_w, box_h, highlight=False)
+    _avis_price_box(c, "VALEUR RETENUE", prix_ret,
+                    box_col_x, box_y_top - 2 * box_h - box_gap, box_col_w, box_h, highlight=True)
+    _avis_price_box(c, "VALEUR HAUTE", prix_max,
+                    box_col_x, box_y_top - 3 * box_h - 2 * box_gap, box_col_w, box_h, highlight=False)
+
+    c.showPage()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PAGE 2: Analyse de marché + Annonce + Signatures
+    # ═══════════════════════════════════════════════════════════════════════
+    _avis_header(c, ref, ville, nego)
+    _avis_footer(c, ref, 2, 2)
+    cursor = PAGE_H - 26 * mm
+
+    # ── 04 — ANALYSE DE MARCHÉ & AVIS PROFESSIONNEL ─────────────────────
+    _sec(c, "04 \u2014 ANALYSE DE MARCH\u00c9 & AVIS PROFESSIONNEL", ML, cursor)
+    cursor -= SEC_H + 4 * mm
+
+    # Avis text in a bordered box
+    if avis_texte:
+        avis_clean = _clean(avis_texte)
+        # Box border
+        style_title = ParagraphStyle("avisTitle", fontName="Helvetica-Bold", fontSize=9.5,
+                                     leading=12, textColor=TEAL_DARK, spaceBefore=0, spaceAfter=4)
+        style_body = ParagraphStyle("avisBody", fontName="Helvetica", fontSize=8,
+                                    leading=10.5, textColor=GRAY_DARK, spaceBefore=2, spaceAfter=2)
+
+        # Parse avis text into paragraphs with subtitles
+        lines = avis_clean.split("\n")
+        text_parts = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Detect subtitles (Synthèse, Méthodologie, etc.)
+            if any(line.lower().startswith(k) for k in
+                   ["synth\u00e8se", "m\u00e9thodologie", "\u00e9valuation d\u00e9taill\u00e9e",
+                    "recommandations", "contexte", "analyse du march",
+                    "points forts", "m\u00e9thode", "conclusion"]):
+                text_parts.append(("title", line))
+            else:
+                text_parts.append(("body", line))
+
+        # First: measure total height
+        test_parts = []
+        for kind, txt in text_parts:
+            p = Paragraph(txt.replace("\n", "<br/>"), style_title if kind == "title" else style_body)
+            _, ph = p.wrap(CW - 10 * mm, 300 * mm)
+            test_parts.append((p, ph))
+        # 16mm top (box header) + 10mm bottom (attribution) + text
+        total_h = sum(ph for _, ph in test_parts) + len(test_parts) * 0.5 * mm + 28 * mm
+
+        # Cap height: leave room for annonce + signatures below
+        max_box_h = cursor - 12 * mm - 68 * mm
+        if total_h > max_box_h:
+            total_h = max_box_h
+
+        # Draw box
+        box_y = cursor - total_h
+        _rrect(c, ML, box_y, CW, total_h, r=4, stroke=GRAY_BDR)
+
+        # Section header inside box
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(TEAL_DARK)
+        c.drawString(ML + 5 * mm, cursor - 6 * mm, "ANALYSE DE MARCH\u00c9")
+        c.setFont("Helvetica", 7.5)
+        c.setFillColor(GRAY_MID)
+        c.drawString(ML + 5 * mm, cursor - 11 * mm,
+                     "Avis de valeur \u2014 " + type_bien + ", " + ville)
+
+        # Draw paragraphs (leave 10mm at bottom for attribution)
+        text_y = cursor - 16 * mm
+        attr_reserve = box_y + 10 * mm
+        for p, ph in test_parts:
+            if text_y - ph < attr_reserve:
+                break
+            p.drawOn(c, ML + 5 * mm, text_y - ph)
+            text_y -= ph + 0.5 * mm
+
+        # Attribution line at bottom of box
+        c.setFont("Helvetica-Bold", 7)
+        c.setFillColor(TEAL_DARK)
+        c.drawString(ML + 5 * mm, box_y + 4 * mm,
+                     "Barbier Immobilier \u2014 Expert immobilier commercial Morbihan \u2014 02.97.47.11.11")
+        cursor = box_y - 6 * mm
+    else:
+        c.setFont("Helvetica-Oblique", 9)
+        c.setFillColor(GRAY_MID)
+        c.drawString(ML, cursor, "Analyse de march\u00e9 non disponible.")
+        cursor -= 12 * mm
+
+    # ── ANNONCE COMMERCIALE ─────────────────────────────────────────────
+    if annonce:
+        _sec(c, "ANNONCE COMMERCIALE", ML, cursor)
+        cursor -= SEC_H + 3 * mm
+        annonce_clean = _clean(annonce)
+        style_ann = ParagraphStyle("annonce", fontName="Helvetica", fontSize=7.5,
+                                   leading=10, textColor=GRAY_DARK)
+        # Bordered box
+        pa = Paragraph(annonce_clean[:1500].replace("\n", "<br/>"), style_ann)
+        _, pah = pa.wrap(CW - 10 * mm, 60 * mm)
+        pah = min(pah, 55 * mm)
+        ann_box_h = pah + 8 * mm
+        _rrect(c, ML, cursor - ann_box_h, CW, ann_box_h, r=4, stroke=GRAY_BDR)
+        pa.drawOn(c, ML + 5 * mm, cursor - ann_box_h + 4 * mm)
+        cursor -= ann_box_h + 6 * mm
+
+    # ── 05 — SIGNATURES & VALIDATION ────────────────────────────────────
+    _sec(c, "05 \u2014 SIGNATURES & VALIDATION", ML, cursor)
+    cursor -= SEC_H + 4 * mm
+
+    sig_w = CW / 2 - 4 * mm
+    sig_h = 28 * mm
+
+    # Left: Négociateur
+    _rrect(c, ML, cursor - sig_h, sig_w, sig_h, r=3, stroke=GRAY_BDR)
+    c.setFont("Helvetica", 6.5)
+    c.setFillColor(GRAY_MID)
+    c.drawString(ML + 4 * mm, cursor - 5 * mm, "N\u00c9GOCIATEUR MANDATAIRE")
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(GRAY_DARK)
+    c.drawString(ML + 4 * mm, cursor - 11 * mm, str(nego))
+    c.setFont("Helvetica", 7)
+    c.setFillColor(GRAY_MID)
+    c.drawString(ML + 4 * mm, cursor - 18 * mm, "Signature :")
+    c.drawString(ML + 4 * mm, cursor - 23 * mm, "Date :")
+
+    # Right: Directeur
+    rx = ML + sig_w + 8 * mm
+    _rrect(c, rx, cursor - sig_h, sig_w, sig_h, r=3, stroke=GRAY_BDR)
+    c.setFont("Helvetica", 6.5)
+    c.setFillColor(GRAY_MID)
+    c.drawString(rx + 4 * mm, cursor - 5 * mm, "DIRECTEUR \u2014 BARBIER IMMOBILIER")
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(GRAY_DARK)
+    c.drawString(rx + 4 * mm, cursor - 11 * mm, "Laurent Baradu")
+    c.setFont("Helvetica", 7)
+    c.setFillColor(GRAY_MID)
+    c.drawString(rx + 4 * mm, cursor - 18 * mm, "Signature :")
+    c.drawString(rx + 4 * mm, cursor - 23 * mm, "Date :")
+
+    cursor -= sig_h + 5 * mm
+
+    # Legal disclaimer
+    disclaimer = (
+        "Document \u00e9tabli par Barbier Immobilier, agent immobilier titulaire de la carte "
+        "professionnelle Transactions sur immeubles et fonds de commerce. Ce document est "
+        "\u00e9tabli \u00e0 titre indicatif et ne constitue pas une expertise au sens de la norme MRICS. "
+        "Les valeurs sont susceptibles d\u2019\u00e9voluer en fonction des conditions du march\u00e9."
+    )
+    style_disc = ParagraphStyle("disc", fontName="Helvetica", fontSize=6, leading=7.5,
+                                textColor=GRAY_MID)
+    _rrect(c, ML, cursor - 16 * mm, CW, 16 * mm, r=3, fill=GRAY_LIGHT)
+    pd = Paragraph(disclaimer, style_disc)
+    _, pdh = pd.wrap(CW - 10 * mm, 14 * mm)
+    pd.drawOn(c, ML + 5 * mm, cursor - 14 * mm)
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+@app.route("/avis-valeur", methods=["POST"])
+def avis_valeur():
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Body JSON manquant"}), 400
+    ref = body.get("reference", "bien")
+    try:
+        pdf_buf = generate_avis_valeur_pdf(body)
+        fname = f"Avis_valeur_{ref}.pdf"
+        return send_file(pdf_buf, mimetype="application/pdf",
+                         as_attachment=True, download_name=fname)
+    except Exception as e:
+        app.logger.error("Avis valeur error: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
 # URBANISME (Cadastre + PLU + Servitudes)
 # ---------------------------------------------------------------------------
 def _geocode_urba(adresse, code_postal, ville):
