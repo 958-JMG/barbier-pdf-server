@@ -417,51 +417,115 @@ def _draw_cover(c, img, x, y, w, h):
 
 
 def _draw_poi_icon(c, cat, cx, cy, r):
+    """Draw a small vector icon inside a colored circle (already drawn by caller)."""
     c.setFillColor(WHITE)
+    c.setStrokeColor(WHITE)
     cu = cat.upper()
+    lw = max(r * 0.18, 0.8)
+    c.setLineWidth(lw)
     if "PARKING" in cu:
-        c.setFont("Helvetica-Bold", r * 1.5); c.drawCentredString(cx, cy - r * 0.5, "P")
+        # Bold P — parking standard symbol
+        c.setFont("Helvetica-Bold", r * 1.6)
+        c.drawCentredString(cx, cy - r * 0.52, "P")
     elif "TRANSPORT" in cu:
-        c.setFont("Helvetica-Bold", r * 1.3); c.drawCentredString(cx, cy - r * 0.45, "T")
+        # Simple bus: rectangle body + two wheels
+        bw, bh = r * 1.1, r * 0.85
+        c.roundRect(cx - bw / 2, cy - bh * 0.55, bw, bh, r * 0.18, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#00000040"))
+        wr = r * 0.22
+        c.circle(cx - bw * 0.28, cy - bh * 0.55 - wr * 0.1, wr, fill=1, stroke=0)
+        c.circle(cx + bw * 0.28, cy - bh * 0.55 - wr * 0.1, wr, fill=1, stroke=0)
+        c.setFillColor(WHITE)
+        c.rect(cx - bw * 0.4, cy, bw * 0.8, bh * 0.26, fill=1, stroke=0)
     elif "RESTAURATION" in cu:
-        c.setFont("Helvetica-Bold", r * 1.3); c.drawCentredString(cx, cy - r * 0.45, "R")
+        # Fork + knife shape (two vertical lines with serifs)
+        fw = r * 0.18
+        fh = r * 1.1
+        c.setLineWidth(fw)
+        # Fork (left) - line with 3 small horizontal ticks at top
+        fx = cx - r * 0.3
+        c.line(fx, cy - fh * 0.5, fx, cy + fh * 0.5)
+        for k in [0.5, 0.28, 0.06]:
+            c.line(fx - r * 0.22, cy + fh * k, fx + r * 0.22, cy + fh * k)
+        # Knife (right) - line with diagonal cut top
+        kx = cx + r * 0.3
+        c.line(kx, cy - fh * 0.5, kx, cy + fh * 0.5)
+        p = c.beginPath()
+        p.moveTo(kx, cy + fh * 0.5)
+        p.lineTo(kx + r * 0.35, cy + fh * 0.05)
+        p.lineTo(kx, cy + fh * 0.05)
+        p.close()
+        c.drawPath(p, fill=1, stroke=0)
     elif "COMMERCE" in cu:
-        c.setFont("Helvetica-Bold", r * 1.3); c.drawCentredString(cx, cy - r * 0.45, "C")
+        # Shopping bag
+        bw, bh = r * 1.0, r * 0.9
+        bx, by = cx - bw / 2, cy - bh * 0.6
+        c.roundRect(bx, by, bw, bh, r * 0.15, fill=0, stroke=1)
+        # Handle
+        c.setLineWidth(lw * 1.2)
+        hw = bw * 0.5
+        c.arc(cx - hw / 2, cy + bh * 0.3, cx + hw / 2, cy + bh * 0.7, 0, 180)
     elif "BANQUE" in cu:
-        c.setFont("Helvetica-Bold", r * 1.3); c.drawCentredString(cx, cy - r * 0.45, "B")
+        # € symbol
+        c.setFont("Helvetica-Bold", r * 1.5)
+        c.drawCentredString(cx + r * 0.05, cy - r * 0.52, "\u20ac")
     elif "SANTE" in cu:
-        c.setFont("Helvetica-Bold", r * 1.5); c.drawCentredString(cx, cy - r * 0.5, "+")
+        # Medical cross (+ shape)
+        arm = r * 0.65
+        thick = r * 0.32
+        c.rect(cx - thick / 2, cy - arm, thick, arm * 2, fill=1, stroke=0)
+        c.rect(cx - arm, cy - thick / 2, arm * 2, thick, fill=1, stroke=0)
     elif "FORMATION" in cu:
-        c.setFont("Helvetica-Bold", r * 1.3); c.drawCentredString(cx, cy - r * 0.45, "F")
+        # Book: rectangle with spine line
+        bw, bh = r * 1.0, r * 0.85
+        c.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, r * 0.1, fill=0, stroke=1)
+        c.setLineWidth(lw * 1.3)
+        c.line(cx, cy - bh / 2, cx, cy + bh / 2)
     else:
-        c.setFont("Helvetica-Bold", r * 1.3); c.drawCentredString(cx, cy - r * 0.45, "\u00b7")
+        # Generic location pin dot
+        c.circle(cx, cy, r * 0.35, fill=1, stroke=0)
 
 
 def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
     col = colors.HexColor(color_hex) if color_hex else TEAL
-    # Background
+    # Left color accent bar
+    c.setFillColor(col)
+    c.roundRect(bx, by, bw, bh, 1.5 * mm, fill=1, stroke=0)
     c.setFillColor(GRAY_LIGHT)
-    c.setStrokeColor(colors.HexColor("#D1D8E8"))
-    c.setLineWidth(0.5)
-    c.roundRect(bx, by, bw, bh, 2 * mm, fill=1, stroke=1)
+    c.roundRect(bx + 3.5 * mm, by, bw - 3.5 * mm, bh, 1.5 * mm, fill=1, stroke=0)
+    c.setFillColor(col)
+    c.rect(bx + 3.5 * mm, by, 2 * mm, bh, fill=1, stroke=0)
     # Icon circle
-    r = 5.5 * mm
-    icx = bx + r + 2 * mm
+    r = min(bh * 0.38, 5 * mm)
+    icx = bx + 3.5 * mm + r + 2.5 * mm
     icy = by + bh / 2
     c.saveState()
     c.setFillColor(col)
     c.circle(icx, icy, r, fill=1, stroke=0)
     _draw_poi_icon(c, label, icx, icy, r)
     c.restoreState()
-    # Text
-    tx = bx + r * 2 + 5 * mm
+    # Text: category label small gray, then name bold teal
+    tx = icx + r + 2.5 * mm
+    avail_w = bx + bw - tx - 2 * mm
     c.saveState()
-    c.setFillColor(colors.HexColor("#777777"))
-    c.setFont("Helvetica", 6.5)
-    c.drawString(tx, by + bh - 4.5 * mm, label.upper())
+    c.setFillColor(GRAY_MID)
+    c.setFont("Helvetica", 6)
+    cat_txt = label.upper()
+    while cat_txt and c.stringWidth(cat_txt, "Helvetica", 6) > avail_w:
+        cat_txt = cat_txt[:-1]
+    c.drawString(tx, by + bh - 3.8 * mm, cat_txt)
     c.setFillColor(TEAL_DARK)
-    c.setFont("Helvetica-Bold", 8)
-    c.drawString(tx, by + 3.5 * mm, str(valeur)[:28])
+    nom = str(valeur)
+    for fsz in [8.5, 7.5, 7, 6.5]:
+        c.setFont("Helvetica-Bold", fsz)
+        if c.stringWidth(nom, "Helvetica-Bold", fsz) <= avail_w:
+            break
+    else:
+        # Truncate if still too long
+        while nom and c.stringWidth(nom + "…", "Helvetica-Bold", 6.5) > avail_w:
+            nom = nom[:-1]
+        nom = nom + "…"
+    c.drawString(tx, by + 3 * mm, nom)
     c.restoreState()
 
 
@@ -616,72 +680,78 @@ def _page1(c, d):
 def _page2(c, d):
     _header(c, "Quartier & environnement")
 
-    # Section "Le quartier"
-    _sec(c, "Le quartier", ML, PAGE_H - 32 * mm)
+    # Section header
+    sec_y = PAGE_H - HEADER_H - 8 * mm
+    _sec(c, "Le quartier", ML, sec_y)
 
-    # Chapeau
     ville = _safe(d.get("ville"), "Vannes")
     tb = d.get("type_bien") or ""
     if tb and tb != "\u2014":
         chapeau = "Un emplacement strategique pour votre " + tb.lower() + " au c\u0153ur de " + ville + "."
     else:
         chapeau = "Un emplacement strategique au c\u0153ur de " + ville + "."
+
+    chapeau_y = sec_y - 7 * mm
     c.setFillColor(ORANGE)
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(ML, PAGE_H - 38 * mm, chapeau)
+    c.drawString(ML, chapeau_y, chapeau)
 
-    # Layout: carte+POI in the MIDDLE, text above, good spacing
-    zone_h = 70 * mm
-    col_gap = 5 * mm
-    col_w = (CW - col_gap) / 2
-    zone_bot = FOOTER_H + 12 * mm
-    zone_top = zone_bot + zone_h
-    qbot = zone_top + 12 * mm
+    # Quartier text — wraps naturally
+    texte = d.get("texte_quartier") or (
+        "Situe a " + ville + ", ce bien beneficie d'une localisation strategique "
+        "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
+        "proximite de la rocade et des axes principaux. Le secteur compte de nombreux commerces, "
+        "services et equipements a proximite immediate, offrant un environnement favorable a "
+        "l'exploitation d'une activite commerciale ou professionnelle."
+    )
 
-    # Quartier text
-    texte = d.get("texte_quartier") or ""
-    if not texte:
-        texte = (
-            "Situe a " + ville + ", ce bien beneficie d'une localisation strategique "
-            "dans un secteur economiquement actif du Morbihan. L'accessibilite est optimale grace a la "
-            "proximite de la rocade et des axes principaux. Le secteur compte de nombreux commerces, "
-            "services et equipements a proximite immediate, offrant un environnement favorable a "
-            "l'exploitation d'une activite commerciale ou professionnelle."
-        )
-
-    text_top = PAGE_H - 41 * mm
-    max_text_h = text_top - qbot
-    if max_text_h < 10 * mm:
-        max_text_h = 10 * mm
-
-    # First sentence bold, rest regular
     parts = re.split(r"(?<=[.!?])\s+", texte.strip(), maxsplit=1)
     if len(parts) == 2:
         p1 = parts[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         p2 = parts[1].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        texte_xml = "<b>" + p1 + "</b><br/><br/>" + p2
+        texte_xml = "<b>" + p1 + "</b> " + p2
     else:
-        texte_xml = texte.replace("&", "&amp;")
+        texte_xml = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    sty = ParagraphStyle("qt", fontName="Helvetica", fontSize=9, textColor=GRAY_DARK, leading=14, alignment=4)
-    p = Paragraph(texte_xml, sty)
-    _, ph = p.wrap(CW, 9999)
+    # Compute available text height: from chapeau_y down to ~half page (min 35mm)
+    # We want text to flow then map to fill the rest
+    text_top = chapeau_y - 4 * mm
+    # Reserve bottom: footer + sections + map zone minimum 80mm
+    map_min_h = 80 * mm
+    col_gap = 5 * mm
+    col_w = (CW - col_gap) / 2
+    bottom_reserved = FOOTER_H + map_min_h + 18 * mm  # sections (2x8mm) + gap
+    max_text_h = text_top - bottom_reserved
+    if max_text_h < 8 * mm:
+        max_text_h = 8 * mm
+
+    sty = ParagraphStyle("qt", fontName="Helvetica", fontSize=9.5,
+                         textColor=GRAY_DARK, leading=15, alignment=4)
+    para = Paragraph(texte_xml, sty)
+    _, ph = para.wrap(CW, max_text_h)
     if ph > max_text_h:
-        for fsz in [8, 7.5, 7]:
+        for fsz in [9, 8.5, 8, 7.5]:
             sty2 = ParagraphStyle("qt" + str(fsz), fontName="Helvetica", fontSize=fsz,
                                   textColor=GRAY_DARK, leading=fsz * 1.6, alignment=4)
-            p = Paragraph(texte_xml, sty2)
-            _, ph = p.wrap(CW, 9999)
+            para = Paragraph(texte_xml, sty2)
+            _, ph = para.wrap(CW, max_text_h)
             if ph <= max_text_h:
                 break
-    ty = text_top - ph
-    if ty < qbot:
-        ty = qbot
-    p.drawOn(c, ML, ty)
+    text_draw_y = text_top - ph
+    para.drawOn(c, ML, text_draw_y)
 
-    # Column titles
-    _sec(c, "Localisation", ML, zone_top + 2 * mm, w=col_w)
-    _sec(c, "Environnement", ML + col_w + col_gap, zone_top + 2 * mm, w=col_w)
+    # Map+POI section: from text_bottom down to footer
+    sections_top = text_draw_y - 6 * mm
+    zone_bot = FOOTER_H + 5 * mm
+    zone_h = sections_top - 10 * mm - zone_bot  # 10mm for section headers
+    if zone_h < 40 * mm:
+        zone_h = 40 * mm
+
+    zone_top = zone_bot + zone_h  # bottom edge of section headers = zone_bot + zone_h
+    sec2_y = zone_top + 1 * mm
+
+    _sec(c, "Localisation", ML, sec2_y, w=col_w)
+    _sec(c, "Environnement", ML + col_w + col_gap, sec2_y, w=col_w)
 
     # Left column: OSM map
     mx = ML
@@ -709,34 +779,48 @@ def _page2(c, d):
             c.clipPath(clip, stroke=0, fill=0)
             c.drawImage(ImageReader(buf2), mx, my, width=mw, height=mh)
             c.restoreState()
-            # Marker
+            # Marker pin
             px2 = mx + mw / 2
             py2 = my + mh / 2
+            # Pin drop shadow
+            c.setFillColor(colors.HexColor("#00000033"))
+            c.ellipse(px2 - 2.5 * mm, py2 - 1 * mm, px2 + 2.5 * mm, py2 + 0.5 * mm, fill=1, stroke=0)
+            # Pin body
             c.setFillColor(ORANGE)
-            c.circle(px2, py2, 3.5 * mm, fill=1, stroke=0)
+            c.circle(px2, py2 + 3 * mm, 3 * mm, fill=1, stroke=0)
             c.setFillColor(WHITE)
-            c.setFont("Helvetica-Bold", 8)
-            c.drawCentredString(px2, py2 - 2.5 * mm, "+")
-            # Address bubble
+            c.circle(px2, py2 + 3 * mm, 1.2 * mm, fill=1, stroke=0)
+            # Pin tail
+            p_path = c.beginPath()
+            p_path.moveTo(px2 - 2 * mm, py2 + 3 * mm)
+            p_path.lineTo(px2 + 2 * mm, py2 + 3 * mm)
+            p_path.lineTo(px2, py2 - 0.5 * mm)
+            p_path.close()
+            c.setFillColor(ORANGE)
+            c.drawPath(p_path, fill=1, stroke=0)
+            # Address chip below pin
             adr = _safe(d.get("adresse")) + ", " + _safe(d.get("ville"))
-            bwb = min(c.stringWidth(adr, "Helvetica-Bold", 6.5) + 12, mw - 8 * mm)
+            chip_w = min(c.stringWidth(adr, "Helvetica-Bold", 6) + 8 * mm, mw - 10 * mm)
+            chip_h = 7 * mm
+            chip_x = px2 - chip_w / 2
+            chip_y = py2 - 9 * mm
             c.setFillColor(WHITE)
-            c.setStrokeColor(colors.HexColor("#AAAAAA"))
-            c.setLineWidth(0.4)
-            c.roundRect(px2 - bwb / 2, py2 + 5 * mm, bwb, 8 * mm, 1 * mm, fill=1, stroke=1)
-            c.setFillColor(TEAL_DARK)
-            c.setFont("Helvetica-Bold", 6.5)
-            c.drawCentredString(px2, py2 + 8.5 * mm, adr[:50])
-            # Border
             c.setStrokeColor(colors.HexColor("#CCCCCC"))
+            c.setLineWidth(0.4)
+            c.roundRect(chip_x, chip_y, chip_w, chip_h, 1.5 * mm, fill=1, stroke=1)
+            c.setFillColor(TEAL_DARK)
+            c.setFont("Helvetica-Bold", 6)
+            c.drawCentredString(px2, chip_y + 2.2 * mm, adr[:55])
+            # Border
+            c.setStrokeColor(colors.HexColor("#BBBBBB"))
             c.setLineWidth(0.6)
             c.roundRect(mx, my, mw, mh, 3 * mm, fill=0, stroke=1)
-            # Copyright
-            c.setFillColor(colors.HexColor("#FFFFFF88"))
-            c.rect(mx, my, mw, 5 * mm, fill=1, stroke=0)
-            c.setFillColor(colors.HexColor("#666666"))
+            # OSM copyright
+            c.setFillColor(colors.HexColor("#FFFFFF99"))
+            c.rect(mx, my, mw, 4.5 * mm, fill=1, stroke=0)
+            c.setFillColor(colors.HexColor("#555555"))
             c.setFont("Helvetica", 5)
-            c.drawRightString(mx + mw - 2 * mm, my + 1.5 * mm, "\u00a9 OpenStreetMap contributors")
+            c.drawRightString(mx + mw - 2 * mm, my + 1.2 * mm, "\u00a9 OpenStreetMap contributors")
     except Exception as e:
         app.logger.error("Map draw: %s", e)
         c.setFillColor(colors.HexColor("#E8F0F4"))
@@ -750,23 +834,22 @@ def _page2(c, d):
     poi_blocks = []
     if lat and lon:
         poi_blocks = _get_poi_osm(lat, lon, radius=500)
-    # GPT fallback if Overpass returned nothing
     if not poi_blocks:
         poi_blocks = _get_poi_gpt(d.get("adresse", ""), d.get("ville", ""), d.get("type_bien", ""))
 
-    n_poi = min(len(poi_blocks), 5)
+    n_poi = min(len(poi_blocks), 6)
     if n_poi > 0:
-        poi_gap = 3 * mm
+        poi_gap = 2.5 * mm
         poi_ch = (zone_h - (n_poi - 1) * poi_gap) / n_poi
         for i, (lbl, val, col_hex) in enumerate(poi_blocks[:n_poi]):
-            by2 = zone_top - (i + 1) * poi_ch - i * poi_gap
+            by2 = my + zone_h - (i + 1) * poi_ch - i * poi_gap
             _draw_poi_card(c, poi_x, by2, col_w, poi_ch, lbl, val, col_hex)
     else:
         c.setFillColor(colors.HexColor("#E8F0F4"))
         c.roundRect(poi_x, my, col_w, mh, 3 * mm, fill=1, stroke=0)
         c.setFillColor(colors.HexColor("#AAAAAA"))
         c.setFont("Helvetica", 8)
-        c.drawCentredString(poi_x + col_w / 2, my + mh / 2, "Environnement en cours d'analyse")
+        c.drawCentredString(poi_x + col_w / 2, my + mh / 2, "Donn\u00e9es en cours d'analyse")
 
     _footer(c, 2)
 
@@ -776,58 +859,8 @@ def _page2(c, d):
 # ---------------------------------------------------------------------------
 def _page3(c, d):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
-    _sec(c, "Presentation du bien", ML, PAGE_H - 32 * mm)
 
-    # Use first line of description as title (more meaningful than type_bien)
-    desc = _clean(d.get("description", ""))
-    desc_lines = desc.split("\n")
-    titre_annonce = ""
-    desc_body = desc
-    if desc_lines:
-        titre_annonce = desc_lines[0].strip()
-        # Remove first line from body if it's a short title (< 120 chars)
-        if len(titre_annonce) < 120:
-            desc_body = "\n".join(desc_lines[1:]).strip()
-        else:
-            titre_annonce = _safe(d.get("type_bien"), "Bien immobilier")
-            desc_body = desc
-
-    # Title - editorial style
-    sty_titre = ParagraphStyle("pt", fontName="Helvetica-Bold", fontSize=11,
-                                textColor=TEAL_DARK, leading=14)
-    p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
-    _, th = p_titre.wrap(CW, 30 * mm)
-    titre_y = PAGE_H - 34 * mm - th
-    p_titre.drawOn(c, ML, titre_y)
-
-    text_y = titre_y - 3 * mm
-    desc_bot = _render_desc(c, desc_body, text_y, 42 * mm)
-    bot = desc_bot - 10 * mm
-
-    # Caracteristiques pills
-    _sec(c, "Caracteristiques", ML, bot - 2 * mm)
-    pills_data = [
-        (PICTO_SURFACE_B64, "Surface habitable", _safe(d.get("surface")) + " m\u00b2"),
-        (PICTO_TYPE_B64, "Type de bien", _safe(d.get("type_bien"))),
-        (PICTO_LIEU_B64, "Adresse", _safe(d.get("adresse"))),
-        (PICTO_VILLE_B64, "Ville", _safe(d.get("ville"))),
-    ]
-    if d.get("activite"):
-        pills_data.append((PICTO_TYPE_B64, "Activite", _safe(d.get("activite"))))
-
-    pw2 = 57 * mm
-    ph2 = 16 * mm
-    pgx = 3 * mm
-    pgy = 3 * mm
-    cols = 3
-    sy = bot - 14 * mm
-    for i, (b64, lbl, val) in enumerate(pills_data):
-        col = i % cols
-        row = i // cols
-        _pill(c, ML + col * (pw2 + pgx), sy - row * (ph2 + pgy), b64, lbl, val, pw2, ph2)
-    pb = sy - ((len(pills_data) - 1) // cols) * (ph2 + pgy) - ph2 - 3 * mm
-
-    # Financial data
+    # Pre-compute bottom blocks heights to know how much space desc can use
     loc = d.get("locataire") or ""
     lht = d.get("loyer_annuel_ht") or 0
     linit = d.get("loyer_initial_ht") or 0
@@ -836,66 +869,6 @@ def _page3(c, d):
     taxe = d.get("taxe_fonciere") or 0
     is_bail = bool(loc or lht or linit or evol or duree)
 
-    _fin_bottom = None
-    if is_bail:
-        n_col1 = sum([bool(loc), bool(lht)])
-        n_col2 = sum([bool(linit), bool(evol), bool(duree), bool(taxe)])
-        n_rows = max(n_col1, n_col2, 1)
-        bloc_h = max(14 * mm, n_rows * 11 * mm + 6 * mm)
-        _sec(c, "Donnees du bail", ML, pb)
-        fy = pb - 7 * mm
-        c.setFillColor(colors.HexColor("#EBF0F8"))
-        c.roundRect(ML, fy - bloc_h, CW, bloc_h, 2 * mm, fill=1, stroke=0)
-        c.setFillColor(ORANGE)
-        c.rect(ML, fy - bloc_h, 3 * mm, bloc_h, fill=1, stroke=0)
-
-        fcx1 = ML + 6 * mm
-        fcx2 = ML + CW / 2 + 3 * mm
-        fcy = fy - 4 * mm
-
-        def _bail_line(x, y2, label, valeur):
-            c.setFillColor(TEAL_DARK)
-            c.setFont("Helvetica-Bold", 7)
-            c.drawString(x, y2, label.upper())
-            c.setFillColor(GRAY_DARK)
-            c.setFont("Helvetica", 8.5)
-            c.drawString(x, y2 - 5 * mm, str(valeur))
-
-        if loc:
-            _bail_line(fcx1, fcy, "Locataire", loc)
-            fcy -= 11 * mm
-        if lht:
-            _bail_line(fcx1, fcy, "Loyer annuel HT", _pfmt(lht) + " HT/an")
-            fcy -= 11 * mm
-
-        fcy2 = fy - 4 * mm
-        if linit:
-            _bail_line(fcx2, fcy2, "Loyer initial", _pfmt(linit) + " HT")
-            fcy2 -= 11 * mm
-        if evol:
-            _bail_line(fcx2, fcy2, "Evolution du loyer", evol)
-            fcy2 -= 11 * mm
-        if duree:
-            _bail_line(fcx2, fcy2, "Duree du bail", duree)
-            fcy2 -= 11 * mm
-        if taxe:
-            _bail_line(fcx2, fcy2, "Taxe fonciere", _pfmt(taxe) + "/an")
-        _fin_bottom = fy - bloc_h - 4 * mm
-
-    elif taxe:
-        _sec(c, "Donnees financieres", ML, pb - 4 * mm)
-        fy = pb - 10 * mm
-        fw = CW / 2 - 1 * mm
-        c.setFillColor(colors.HexColor("#EBF0F8"))
-        c.roundRect(ML, fy - 12 * mm, fw, 12 * mm, 1.5 * mm, fill=1, stroke=0)
-        c.setFillColor(TEAL_DARK)
-        c.setFont("Helvetica", 6.5)
-        c.drawString(ML + 3 * mm, fy - 5 * mm, "TAXE FONCIERE")
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(ML + 3 * mm, fy - 10 * mm, _pfmt(taxe))
-        _fin_bottom = fy - 12 * mm - 4 * mm
-
-    # Prix block anchored above footer
     prix_brut = d.get("prix") or 0
     if not prix_brut:
         pnv = d.get("prix_net_vendeur") or 0
@@ -905,7 +878,143 @@ def _page3(c, d):
                 prix_brut = int(float(str(pnv))) + int(float(str(hnr)))
             except Exception:
                 pass
-    if prix_brut:
+    has_prix = bool(prix_brut)
+
+    # Pills height: 2 rows x 16mm + gap
+    pills_data = [
+        (PICTO_SURFACE_B64, "Surface", _safe(d.get("surface")) + " m\u00b2"),
+        (PICTO_TYPE_B64, "Type de bien", _safe(d.get("type_bien"))),
+        (PICTO_LIEU_B64, "Adresse", _safe(d.get("adresse"))),
+        (PICTO_VILLE_B64, "Ville", _safe(d.get("ville"))),
+    ]
+    if d.get("activite"):
+        pills_data.append((PICTO_TYPE_B64, "Activite", _safe(d.get("activite"))))
+    n_pill_rows = math.ceil(len(pills_data) / 3)
+    pw2 = 57 * mm; ph2 = 16 * mm; pgy = 3 * mm
+    pills_total_h = n_pill_rows * ph2 + (n_pill_rows - 1) * pgy
+
+    # Bail block height
+    if is_bail:
+        bail_items = [x for x in [loc, lht, linit, evol, duree, taxe] if x]
+        bail_h = max(20 * mm, math.ceil(len(bail_items) / 2) * 12 * mm + 6 * mm)
+    elif taxe:
+        bail_h = 14 * mm
+    else:
+        bail_h = 0
+
+    prix_block_h = 28 * mm if has_prix else 0
+
+    # How much space do we need at the bottom?
+    margin_bottom = FOOTER_H + 5 * mm
+    needed_bottom = (
+        margin_bottom
+        + (prix_block_h + 11 * mm if has_prix else 0)    # prix section
+        + (bail_h + 11 * mm if bail_h > 0 else 0)         # bail section
+        + pills_total_h + 11 * mm                          # pills section
+    )
+    desc_stop_y = needed_bottom + 4 * mm
+
+    # Section + title
+    _sec(c, "Presentation du bien", ML, PAGE_H - HEADER_H - 8 * mm)
+
+    desc = _clean(d.get("description", ""))
+    desc_lines = desc.split("\n")
+    titre_annonce = ""
+    desc_body = desc
+    if desc_lines:
+        titre_annonce = desc_lines[0].strip()
+        if len(titre_annonce) < 120:
+            desc_body = "\n".join(desc_lines[1:]).strip()
+        else:
+            titre_annonce = _safe(d.get("type_bien"), "Bien immobilier")
+            desc_body = desc
+
+    sty_titre = ParagraphStyle("pt", fontName="Helvetica-Bold", fontSize=11,
+                                textColor=TEAL_DARK, leading=14)
+    p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
+    _, th = p_titre.wrap(CW, 30 * mm)
+    titre_y = PAGE_H - HEADER_H - 20 * mm - th
+    p_titre.drawOn(c, ML, titre_y)
+
+    text_y = titre_y - 4 * mm
+    desc_bot = _render_desc(c, desc_body, text_y, 999, stop_y=desc_stop_y)
+
+    # Caracteristiques pills — placed right below description
+    pills_sec_y = desc_bot - 8 * mm
+    _sec(c, "Caract\u00e9ristiques", ML, pills_sec_y)
+    pgx = 3 * mm
+    cols = 3
+    sy = pills_sec_y - 4 * mm - ph2
+    for i, (b64, lbl, val) in enumerate(pills_data):
+        col_i = i % cols
+        row_i = i // cols
+        _pill(c, ML + col_i * (pw2 + pgx), sy - row_i * (ph2 + pgy), b64, lbl, val, pw2, ph2)
+    pills_bot = sy - (n_pill_rows - 1) * (ph2 + pgy) - 3 * mm
+
+    # Bail / financial data
+    _fin_bottom = None
+    if is_bail:
+        bail_sec_y = pills_bot - 8 * mm
+        _sec(c, "Donn\u00e9es du bail", ML, bail_sec_y)
+        fy_top = bail_sec_y - 3 * mm
+        # Build ordered list of bail items
+        bail_rows = []
+        if loc:    bail_rows.append(("Locataire", loc))
+        if lht:    bail_rows.append(("Loyer annuel HT", _pfmt(lht) + " HT/an"))
+        if linit:  bail_rows.append(("Loyer initial", _pfmt(linit) + " HT"))
+        if evol:   bail_rows.append(("Evolution loyer", str(evol)))
+        if duree:  bail_rows.append(("Dur\u00e9e du bail", str(duree)))
+        if taxe:   bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
+        # 2-column grid
+        cols2 = 2
+        col_bail_w = (CW - 4 * mm) / cols2
+        row_h = 12 * mm
+        total_rows = math.ceil(len(bail_rows) / cols2)
+        bloc_h = total_rows * row_h + 4 * mm
+        # Background
+        c.setFillColor(colors.HexColor("#EBF0F8"))
+        c.roundRect(ML, fy_top - bloc_h, CW, bloc_h, 2 * mm, fill=1, stroke=0)
+        c.setFillColor(ORANGE)
+        c.rect(ML, fy_top - bloc_h, 3 * mm, bloc_h, fill=1, stroke=0)
+        for idx2, (label, valeur) in enumerate(bail_rows):
+            col2 = idx2 % cols2
+            row2 = idx2 // cols2
+            cx2 = ML + 6 * mm + col2 * (col_bail_w + 4 * mm)
+            cy2 = fy_top - 4 * mm - row2 * row_h
+            # Label small gray
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 6.5)
+            c.drawString(cx2, cy2, label.upper())
+            # Separator line
+            c.setStrokeColor(colors.HexColor("#C0CBD8"))
+            c.setLineWidth(0.4)
+            c.line(cx2, cy2 - 1 * mm, cx2 + col_bail_w - 6 * mm, cy2 - 1 * mm)
+            # Value bold teal
+            c.setFillColor(TEAL_DARK)
+            c.setFont("Helvetica-Bold", 9)
+            c.drawString(cx2, cy2 - 6.5 * mm, str(valeur))
+        _fin_bottom = fy_top - bloc_h - 4 * mm
+
+    elif taxe:
+        bail_sec_y = pills_bot - 8 * mm
+        _sec(c, "Donn\u00e9es financi\u00e8res", ML, bail_sec_y)
+        fy = bail_sec_y - 3 * mm
+        fw = CW / 2 - 1 * mm
+        c.setFillColor(colors.HexColor("#EBF0F8"))
+        c.roundRect(ML, fy - 14 * mm, fw, 14 * mm, 1.5 * mm, fill=1, stroke=0)
+        c.setFillColor(GRAY_MID)
+        c.setFont("Helvetica", 6.5)
+        c.drawString(ML + 3 * mm, fy - 5 * mm, "TAXE FONCI\u00c8RE")
+        c.setStrokeColor(colors.HexColor("#C0CBD8"))
+        c.setLineWidth(0.4)
+        c.line(ML + 3 * mm, fy - 6 * mm, ML + fw - 3 * mm, fy - 6 * mm)
+        c.setFillColor(TEAL_DARK)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(ML + 3 * mm, fy - 12 * mm, _pfmt(taxe))
+        _fin_bottom = fy - 14 * mm - 4 * mm
+
+    # Prix block — anchored just above footer
+    if has_prix:
         try:
             prix_fai = int(float(str(prix_brut)))
             pnv_v = d.get("prix_net_vendeur") or 0
@@ -917,38 +1026,41 @@ def _page3(c, d):
                 hono_v = int(prix_fai * 0.05)
                 pnv_v = prix_fai - hono_v
 
-            bloc_h2 = 22 * mm
-            bw3 = (CW) / 3 - 2 * mm
-            hcharge = d.get("honoraires_charge") or "Acquereur"
-            if _fin_bottom is not None and _fin_bottom > 46 * mm:
-                bloc_y = max(18 * mm, _fin_bottom - bloc_h2 - 11 * mm)
-            else:
-                bloc_y = 18 * mm
+            bloc_h2 = prix_block_h
+            bw3 = CW / 3 - 2 * mm
+            hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
+            bloc_y = margin_bottom + 2 * mm
             _sec(c, "Prix", ML, bloc_y + bloc_h2 + 3 * mm)
             items = [
                 ("PRIX DE VENTE FAI", _pfmt(prix_fai), TEAL_DARK),
-                ("HONORAIRES (" + str(hcharge)[:10] + ")", _pfmt(hono_v), ORANGE),
+                ("HONORAIRES (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
                 ("PRIX NET VENDEUR", _pfmt(pnv_v), colors.HexColor("#0D5570")),
             ]
             for ip, (lbl, val, col) in enumerate(items):
                 bxp = ML + ip * (bw3 + 3 * mm)
                 c.setFillColor(col)
-                c.roundRect(bxp, bloc_y, bw3, bloc_h2, 2 * mm, fill=1, stroke=0)
+                c.roundRect(bxp, bloc_y, bw3, bloc_h2, 2.5 * mm, fill=1, stroke=0)
                 c.setFillColor(WHITE)
-                c.setFont("Helvetica", 6.5)
-                c.drawString(bxp + 3 * mm, bloc_y + bloc_h2 - 7 * mm, lbl)
-                c.setFont("Helvetica-Bold", 10)
-                c.drawString(bxp + 3 * mm, bloc_y + 6 * mm, val)
+                c.setFont("Helvetica", 6)
+                c.drawString(bxp + 4 * mm, bloc_y + bloc_h2 - 8 * mm, lbl)
+                # Horizontal rule
+                c.setStrokeColor(colors.HexColor("#FFFFFF55"))
+                c.setLineWidth(0.5)
+                c.line(bxp + 4 * mm, bloc_y + bloc_h2 - 10 * mm, bxp + bw3 - 4 * mm, bloc_y + bloc_h2 - 10 * mm)
+                c.setFont("Helvetica-Bold", 13)
+                c.drawString(bxp + 4 * mm, bloc_y + 6 * mm, val)
         except Exception as e:
             app.logger.error("Prix block: %s", e)
 
     _footer(c, 3)
 
 
-def _render_desc(c, desc_txt, start_y, max_h):
+def _render_desc(c, desc_txt, start_y, max_h, stop_y=None):
     """Render description with editorial formatting. Returns y of bottom."""
     if not desc_txt:
         return start_y
+    if stop_y is None:
+        stop_y = 18 * mm
     y = start_y
     gap = 2.5 * mm
     col_w = CW
@@ -992,7 +1104,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
                     p = Paragraph(txt, ParagraphStyle("s", fontName="Helvetica-Bold", fontSize=8.5,
                                                       textColor=TEAL_DARK, leading=13))
                 _, ph = p.wrap(col_w, 9999)
-                if y - ph < 18 * mm:
+                if y - ph < stop_y:
                     break
                 y -= ph
                 p.drawOn(c, x, y)
@@ -1005,7 +1117,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
                                                  textColor=GRAY_DARK, leading=12,
                                                  leftIndent=4*mm, firstLineIndent=-4*mm))
                     _, ph = p.wrap(col_w, 9999)
-                    if y - ph < 18 * mm:
+                    if y - ph < stop_y:
                         break
                     y -= ph
                     p.drawOn(c, x, y)
@@ -1025,7 +1137,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
                         p = Paragraph(txt, ParagraphStyle("p", fontName="Helvetica", fontSize=9,
                                                           textColor=GRAY_DARK, leading=13, alignment=4))
                     _, ph = p.wrap(col_w, 9999)
-                    if y - ph < 18 * mm:
+                    if y - ph < stop_y:
                         break
                     y -= ph
                     p.drawOn(c, x, y)
@@ -1033,7 +1145,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
     else:
         blocs = [b.strip() for b in desc_txt.split("\n\n") if b.strip()]
         for idx, bloc in enumerate(blocs):
-            if y < 18 * mm or idx >= 4:
+            if y < stop_y or idx >= 4:
                 break
             lines = [l.strip() for l in bloc.splitlines() if l.strip()]
             if not lines:
@@ -1047,7 +1159,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
                                   ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=10,
                                                  textColor=TEAL_DARK, leading=15))
                     _, ph = p.wrap(col_w, 9999)
-                    if y - ph < 18 * mm:
+                    if y - ph < stop_y:
                         break
                     y -= ph
                     p.drawOn(c, x, y)
@@ -1058,7 +1170,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
                                   ParagraphStyle("b", fontName="Helvetica", fontSize=9,
                                                  textColor=GRAY_DARK, leading=13, alignment=4))
                     _, ph = p.wrap(col_w, 9999)
-                    if y - ph < 18 * mm:
+                    if y - ph < stop_y:
                         break
                     y -= ph
                     p.drawOn(c, x, y)
@@ -1069,7 +1181,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
                                                    textColor=TEAL_DARK, leading=13))
                 _, ph = p.wrap(col_w - 6 * mm, 9999)
                 bh = ph + 4 * mm
-                if y - bh < 18 * mm:
+                if y - bh < stop_y:
                     break
                 y -= 1 * mm
                 c.setFillColor(colors.HexColor("#EBF0F8"))
@@ -1087,7 +1199,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
                                                  textColor=GRAY_DARK, leading=12,
                                                  leftIndent=4*mm, firstLineIndent=-4*mm))
                     _, ph = p.wrap(col_w, 9999)
-                    if y - ph < 18 * mm:
+                    if y - ph < stop_y:
                         break
                     y -= ph
                     p.drawOn(c, x, y)
@@ -1098,7 +1210,7 @@ def _render_desc(c, desc_txt, start_y, max_h):
                               ParagraphStyle("p2", fontName="Helvetica", fontSize=9,
                                              textColor=GRAY_DARK, leading=13, alignment=4))
                 _, ph = p.wrap(col_w, 9999)
-                if y - ph < 18 * mm:
+                if y - ph < stop_y:
                     break
                 y -= ph
                 p.drawOn(c, x, y)
@@ -1107,44 +1219,98 @@ def _render_desc(c, desc_txt, start_y, max_h):
 
 
 # ---------------------------------------------------------------------------
-# PAGE 4 — Photos
+# PAGE 4 — Photos & Plan cadastral
 # ---------------------------------------------------------------------------
 def _page_photos(c, d):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
-    _sec(c, "Photos du bien", ML, PAGE_H - 32 * mm)
+    _sec(c, "Vues du bien", ML, PAGE_H - HEADER_H - 8 * mm)
 
     photos = d.get("photos") or []
-    # Skip first photo (already on cover), take next ones
+    # Skip first photo (already on cover)
     photo_list = photos[1:] if len(photos) > 1 else photos
-    pw = CW
-    zone_top = PAGE_H - 42 * mm
+
+    zone_top = PAGE_H - HEADER_H - 20 * mm
     zone_bot = FOOTER_H + 5 * mm
-    gap = 5 * mm
+    available_h = zone_top - zone_bot
+    gap_x = 4 * mm
+    gap_y = 4 * mm
 
     if not photo_list:
         c.setFillColor(GRAY_LIGHT)
-        c.roundRect(ML, zone_bot, pw, zone_top - zone_bot, 3 * mm, fill=1, stroke=1)
+        c.roundRect(ML, zone_bot, CW, available_h, 3 * mm, fill=1, stroke=0)
         c.setFillColor(GRAY_MID)
         c.setFont("Helvetica", 10)
-        c.drawCentredString(ML + pw / 2, (zone_top + zone_bot) / 2, "Aucune photo supplementaire")
+        c.drawCentredString(ML + CW / 2, zone_bot + available_h / 2, "Aucune vue suppl\u00e9mentaire")
         _footer(c, 4, total=4)
         return
 
-    n = min(len(photo_list), 2)
-    ph_each = (zone_top - zone_bot - (n - 1) * gap) / n
+    n = min(len(photo_list), 4)
 
+    # Determine if any photo is a cadastre/PDF (was converted)
+    def _is_plan(url_or_data):
+        s = str(url_or_data or "")
+        return "cadastr" in s.lower() or s.startswith("data:application/pdf") or (
+            s.startswith("data:") and "pdf" in s.lower()[:30])
+
+    # Layout: up to 4 photos in smart grid
+    # 1 photo: full width
+    # 2 photos: 2 columns
+    # 3 photos: top full + bottom 2 cols
+    # 4 photos: 2x2 grid
+    imgs = []
+    labels = []
     for i in range(n):
-        img = _fetch_photo(photo_list[i])
-        py = zone_top - (i + 1) * ph_each - i * gap
+        p_url = photo_list[i]
+        img = _fetch_photo(p_url)
+        imgs.append(img)
+        if _is_plan(p_url):
+            labels.append("Plan cadastral")
+        else:
+            labels.append("Vue " + str(i + 2))
+
+    def _draw_photo_cell(img, lbl, bx, by, bw, bh):
         if img:
-            _draw_cover(c, img, ML, py, pw, ph_each)
+            _draw_cover(c, img, bx, by, bw, bh)
         else:
             c.setFillColor(GRAY_LIGHT)
             c.setStrokeColor(GRAY_BDR)
-            c.roundRect(ML, py, pw, ph_each, 3 * mm, fill=1, stroke=1)
+            c.setLineWidth(0.5)
+            c.roundRect(bx, by, bw, bh, 2.5 * mm, fill=1, stroke=1)
             c.setFillColor(GRAY_MID)
-            c.setFont("Helvetica", 9)
-            c.drawCentredString(ML + pw / 2, py + ph_each / 2, "Photo " + str(i + 2))
+            c.setFont("Helvetica", 8)
+            c.drawCentredString(bx + bw / 2, by + bh / 2, lbl)
+            return
+        # Label chip at bottom-left
+        chip_h = 6.5 * mm
+        chip_w = min(c.stringWidth(lbl, "Helvetica-Bold", 7) + 8 * mm, bw * 0.6)
+        c.setFillColor(colors.HexColor("#00000066"))
+        c.roundRect(bx + 2.5 * mm, by + 2.5 * mm, chip_w, chip_h, 1 * mm, fill=1, stroke=0)
+        c.setFillColor(WHITE)
+        c.setFont("Helvetica-Bold", 7)
+        c.drawString(bx + 2.5 * mm + 3 * mm, by + 2.5 * mm + 2.2 * mm, lbl)
+
+    if n == 1:
+        _draw_photo_cell(imgs[0], labels[0], ML, zone_bot, CW, available_h)
+    elif n == 2:
+        col_w = (CW - gap_x) / 2
+        _draw_photo_cell(imgs[0], labels[0], ML, zone_bot, col_w, available_h)
+        _draw_photo_cell(imgs[1], labels[1], ML + col_w + gap_x, zone_bot, col_w, available_h)
+    elif n == 3:
+        top_h = available_h * 0.55
+        bot_h = available_h - top_h - gap_y
+        col_w = (CW - gap_x) / 2
+        _draw_photo_cell(imgs[0], labels[0], ML, zone_bot + bot_h + gap_y, CW, top_h)
+        _draw_photo_cell(imgs[1], labels[1], ML, zone_bot, col_w, bot_h)
+        _draw_photo_cell(imgs[2], labels[2], ML + col_w + gap_x, zone_bot, col_w, bot_h)
+    else:
+        row_h = (available_h - gap_y) / 2
+        col_w = (CW - gap_x) / 2
+        for ri in range(2):
+            for ci in range(2):
+                idx = ri * 2 + ci
+                bx = ML + ci * (col_w + gap_x)
+                by = zone_bot + (1 - ri) * (row_h + gap_y)
+                _draw_photo_cell(imgs[idx], labels[idx], bx, by, col_w, row_h)
 
     _footer(c, 4, total=4)
 
@@ -1181,7 +1347,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.4"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.5"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
