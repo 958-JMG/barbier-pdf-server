@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.89"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.90"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1284,9 +1284,11 @@ def _page1(c, d):
     # Prix ou Loyer — détecter si c'est une location
     prix     = d.get("prix") or d.get("prix_retenu") or 0
     loyer_m  = d.get("loyer_mensuel") or 0
+    try: loyer_m = float(str(loyer_m)) if float(str(loyer_m)) > 0 else 0
+    except: loyer_m = 0
     loyer_a  = d.get("loyer_annuel") or 0
     surf     = d.get("surface")
-    # Location : loyer_mensuel présent OU statut_mandat = Location
+    # Location : loyer_mensuel présent ET > 0 OU statut_mandat = Location
     statut_mandat = str(d.get("statut_mandat") or "").lower()
     is_location = bool(loyer_m) or "location" in statut_mandat
     if is_location and not loyer_m:
@@ -1584,7 +1586,7 @@ def _page2(c, d):
     if d.get("surface_terrain"): pills.append((PICTO_SURFACE_B64,"Surface terrain",f"{_safe(d.get('surface_terrain'))} m²"))
     if d.get("annee_construct"): pills.append((PICTO_TYPE_B64,"Année construction",_safe(d.get("annee_construct"))))
     if d.get("ca_ht"):           pills.append((PICTO_SURFACE_B64,"CA HT annuel",_pfmt(d.get("ca_ht"))))
-    if d.get("loyer_annuel"):    pills.append((PICTO_SURFACE_B64,"Loyer annuel",_pfmt(d.get("loyer_annuel"))))
+    if d.get("loyer_annuel") and float(str(d.get("loyer_annuel") or 0)) > 0: pills.append((PICTO_SURFACE_B64,"Loyer annuel",_pfmt(d.get("loyer_annuel"))))
     if d.get("activite"):        pills.append((PICTO_TYPE_B64,"Activité",_safe(d.get("activite"))))
     pw, ph2, pgx, pgy = 57*_mm, 16*_mm, 3*_mm, 3*_mm; cols = 3
     sy = bot-14*_mm
