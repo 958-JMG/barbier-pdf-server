@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.91"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.92"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1589,7 +1589,7 @@ def _page2(c, d):
     if d.get("loyer_annuel") and float(str(d.get("loyer_annuel") or 0)) > 0: pills.append((PICTO_SURFACE_B64,"Loyer annuel",_pfmt(d.get("loyer_annuel"))))
     if d.get("activite"):        pills.append((PICTO_TYPE_B64,"Activité",_safe(d.get("activite"))))
     pw, ph2, pgx, pgy = 57*_mm, 16*_mm, 3*_mm, 3*_mm; cols = 3
-    sy = bot-14*_mm
+    sy = bot-10*_mm
     for i, (b64, lbl, val) in enumerate(pills):
         col = i%cols; row2 = i//cols
         _pill_picto(c, 14*_mm+col*(pw+pgx), sy-row2*(ph2+pgy), b64, lbl, val, pw, ph2)
@@ -1617,7 +1617,7 @@ def _page2(c, d):
         # 11mm par ligne + 6mm padding haut + 4mm padding bas
         _bloc_bail_h = max(14*_mm, _n_rows * 11*_mm + 10*_mm)
 
-        _fblock_top = pb - 2*_mm
+        _fblock_top = pb
         _sec(c, "Données du bail", 14*_mm, _fblock_top)
         # _fy = haut intérieur du bloc (sous le titre de section)
         _fy = _fblock_top - 7*_mm
@@ -1727,13 +1727,8 @@ def _page2(c, d):
             bloc_h = 22*_mm
             bw3 = (_W - 28*_mm) / 3 - 2*_mm
             hono_charge = d.get("honoraires_charge") or "Acquéreur"
-            # Ancrage dynamique : sous le bloc financier, minimum 18mm du bas
-            _prix_min_y = 18*_mm
-            if "_fin_bottom" in dir() and _fin_bottom is not None:
-                _prix_ideal = _fin_bottom - bloc_h - 10*_mm
-                bloc_y = max(_prix_min_y, _prix_ideal)
-            else:
-                bloc_y = _prix_min_y
+            # Ancrage fixe sécurisé : footer à 9mm + bloc 22mm + titre 11mm = 42mm min
+            bloc_y  = 18*_mm
             titre_y = bloc_y + bloc_h + 3*_mm
             _sec(c, "Prix", 14*_mm, titre_y)
             items_prix = [
