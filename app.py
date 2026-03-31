@@ -758,7 +758,7 @@ def generate_pdf(data):
 
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.93"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "4.94"})
 
 
 @app.route("/generate-pdf-by-ref", methods=["GET", "POST"])
@@ -1593,7 +1593,7 @@ def _page2(c, d):
     for i, (b64, lbl, val) in enumerate(pills):
         col = i%cols; row2 = i//cols
         _pill_picto(c, 14*_mm+col*(pw+pgx), sy-row2*(ph2+pgy), b64, lbl, val, pw, ph2)
-    pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-6*_mm
+    pb = sy-((len(pills)-1)//cols)*(ph2+pgy)-ph2-3*_mm
 
     # ── Bloc données financières (conditionnel) ──────────────────────────────
     # Champs bail locatif (nouveaux)
