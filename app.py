@@ -1577,13 +1577,18 @@ def _page_photos(c, d, page_num=4, total=4):
     _sec(c, "Photos du bien", ML, sec_y)
 
     photos = d.get("photos") or []
-    # Filter: skip first (cover) + skip PDFs/cadastre
+    plans_locaux = d.get("plans") or []
+    _plan_set = set(plans_locaux) if plans_locaux else set()
+    # Filter: skip first (cover) + skip PDFs/cadastre + skip plans locaux
     real_photos = []
     for i, p in enumerate(photos):
         if i == 0:
             continue
-        if not _is_plan(p):
-            real_photos.append(p)
+        if _is_plan(p):
+            continue
+        if p in _plan_set:
+            continue
+        real_photos.append(p)
 
     zone_top = sec_y - SEC_H - SP_AFTER_SEC
     zone_bot = FOOTER_H + SP_BEFORE_FOOTER
@@ -2043,9 +2048,14 @@ def generate_dossier_pdf(d):
 
     photos = d.get("photos") or []
     plans_locaux = d.get("plans") or []
-    # Separate real photos from cadastre/PDFs
-    real_photos = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
+    # Separate real photos from cadastre/PDFs and plans
     cadastre_photos = [p for p in photos if _is_plan(p)]
+    # When plans locaux are provided separately, exclude them from the photo page
+    # Plans are detected in cockpit by filename keywords (plan, etage, rdc, etc.)
+    # Here we deduplicate by checking if photo b64 matches any plan b64
+    _plan_set = set(plans_locaux) if plans_locaux else set()
+    real_photos = [p for i, p in enumerate(photos)
+                   if i > 0 and not _is_plan(p) and p not in _plan_set]
 
     has_photos = len(real_photos) > 0
     has_cadastre = len(cadastre_photos) > 0
@@ -2125,7 +2135,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.29"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.31"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
