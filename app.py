@@ -675,7 +675,7 @@ def _draw_poi_card(c, bx, by, bw, bh, label, valeur, color_hex):
 # ---------------------------------------------------------------------------
 # PAGE 1 — Couverture
 # ---------------------------------------------------------------------------
-def _page1(c, d):
+def _page1(c, d, page_num=1, total=3):
     # 1) Draw both backgrounds
     c.setFillColor(TEAL)
     c.rect(0, PAGE_H * 0.50, PAGE_W, PAGE_H * 0.50, fill=1, stroke=0)
@@ -814,13 +814,13 @@ def _page1(c, d):
     ref = _safe(d.get("reference"))
     c.drawString(ML, 13 * mm, "Dossier prepare par  " + neg + "  \u00b7  Ref. " + ref)
     c.restoreState()
-    _footer(c, 1)
+    _footer(c, page_num, total=total)
 
 
 # ---------------------------------------------------------------------------
 # PAGE 2 — Quartier & Localisation (50/50 carte + POI)
 # ---------------------------------------------------------------------------
-def _page2(c, d):
+def _page2(c, d, page_num=2, total=3):
     _header(c, "Quartier & environnement")
 
     # -- 1) "Pourquoi Barbier Immobilier" at TOP
@@ -1010,13 +1010,13 @@ def _page2(c, d):
             if lx > ML + CW - 20 * mm:
                 break
 
-    _footer(c, 2)
+    _footer(c, page_num, total=total)
 
 
 # ---------------------------------------------------------------------------
 # PAGE 3 — Annonce + Donnees financieres + Prix
 # ---------------------------------------------------------------------------
-def _page3(c, d):
+def _page3(c, d, page_num=3, total=3):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
 
     # ── Gather data ──
@@ -1183,7 +1183,7 @@ def _page3(c, d):
         except Exception as e:
             app.logger.error("Prix block: %s", e)
 
-    _footer(c, 3)
+    _footer(c, page_num, total=total)
 
 
 def _render_desc(c, desc_txt, start_y, max_h, stop_y=None):
@@ -1503,6 +1503,325 @@ def _page_cadastre(c, d, page_num=5, total=5):
 
 
 # ---------------------------------------------------------------------------
+# PAGE — Biens comparables (estimation mode)
+# ---------------------------------------------------------------------------
+def _page_comparables(c, d, page_num, total):
+    ville = _safe(d.get("ville"), "Vannes")
+    _header(c, "Biens comparables \u2014 " + ville)
+
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "Analyse des biens comparables", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
+
+    # Intro text
+    intro = ("S\u00e9lection des transactions les plus r\u00e9centes permettant de "
+             "positionner ce bien dans son march\u00e9 local.")
+    c.setFillColor(GRAY_DARK)
+    c.setFont("Helvetica", 8.5)
+    c.drawString(ML, cursor, intro)
+    cursor -= 8 * mm
+
+    # -- Comparable cards 2x2 grid --
+    comps = (d.get("comparables") or [])[:4]
+    while len(comps) < 4:
+        comps.append(None)
+
+    card_gap_x = 6 * mm
+    card_gap_y = 6 * mm
+    card_w = (CW - card_gap_x) / 2
+    card_h = 52 * mm
+
+    for idx in range(4):
+        col = idx % 2
+        row = idx // 2
+        cx = ML + col * (card_w + card_gap_x)
+        cy = cursor - row * (card_h + card_gap_y) - card_h
+
+        comp = comps[idx]
+        # Card border
+        _rrect(c, cx, cy, card_w, card_h, r=3, stroke=GRAY_BDR)
+
+        # Circle with number
+        circ_r = 4 * mm
+        circ_x = cx + 6 * mm
+        circ_y = cy + card_h - 8 * mm
+        c.setFillColor(TEAL_DARK)
+        c.circle(circ_x, circ_y, circ_r, fill=1, stroke=0)
+        c.setFillColor(WHITE)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawCentredString(circ_x, circ_y - 3, str(idx + 1))
+
+        # "VENDU" badge top right
+        badge_w = 16 * mm
+        badge_h = 5 * mm
+        badge_x = cx + card_w - badge_w - 4 * mm
+        badge_y = cy + card_h - 9 * mm
+        c.setFillColor(TEAL_DARK)
+        c.roundRect(badge_x, badge_y, badge_w, badge_h, 1.5 * mm, fill=1, stroke=0)
+        c.setFillColor(WHITE)
+        c.setFont("Helvetica-Bold", 6.5)
+        c.drawCentredString(badge_x + badge_w / 2, badge_y + 1.5 * mm, "VENDU")
+
+        if comp:
+            adr = comp.get("adresse") or "\u2014"
+            v = comp.get("ville") or ""
+            prix = comp.get("prix") or 0
+            surface = comp.get("surface") or 0
+            prix_m2 = comp.get("prix_m2") or 0
+            annee = comp.get("annee") or ""
+            source = comp.get("source") or "DVF"
+
+            # Address
+            c.setFillColor(GRAY_DARK)
+            c.setFont("Helvetica-Bold", 8)
+            adr_trunc = adr[:38]
+            c.drawString(cx + 5 * mm, cy + card_h - 17 * mm, adr_trunc)
+
+            # Ville
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 7)
+            c.drawString(cx + 5 * mm, cy + card_h - 22 * mm, str(v))
+
+            # Price (large, orange)
+            c.setFillColor(ORANGE)
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(cx + 5 * mm, cy + card_h - 32 * mm, _pfmt(prix))
+
+            # Price per m2
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 7.5)
+            pm2_str = _pfmt(prix_m2).replace(" \u20ac", "") + " \u20ac/m\u00b2" if prix_m2 else "\u2014"
+            c.drawString(cx + 5 * mm, cy + card_h - 38 * mm, pm2_str)
+
+            # Surface
+            surf_str = str(surface) + " m\u00b2" if surface else "\u2014"
+            c.drawString(cx + 5 * mm, cy + card_h - 43 * mm, "Surface : " + surf_str)
+
+            # Source line
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 6.5)
+            src_txt = str(source) + " " + str(annee) + " \u00b7 " + str(annee) if annee else str(source)
+            c.drawString(cx + 5 * mm, cy + 3 * mm, src_txt)
+        else:
+            # Empty card
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 10)
+            c.drawCentredString(cx + card_w / 2, cy + card_h / 2 - 6 * mm, "\u2014")
+
+    cursor -= 2 * (card_h + card_gap_y)
+
+    # -- Synthese marche --
+    cursor -= SP_BETWEEN_BLOCS
+    _sec(c, "Synth\u00e8se march\u00e9", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
+
+    # Compute averages from available comparables
+    valid = [comp for comp in comps if comp]
+    if valid:
+        avg_prix = int(sum(comp.get("prix", 0) for comp in valid) / len(valid))
+        avg_m2 = int(sum(comp.get("prix_m2", 0) for comp in valid) / len(valid))
+        annees = [comp.get("annee", 0) for comp in valid if comp.get("annee")]
+        most_recent = str(max(annees)) if annees else "\u2014"
+    else:
+        avg_prix = 0
+        avg_m2 = 0
+        most_recent = "\u2014"
+
+    box_w = (CW - 2 * 5 * mm) / 3
+    box_h = 18 * mm
+    synth_items = [
+        ("Prix moyen constat\u00e9", _pfmt(avg_prix)),
+        ("Prix moyen au m\u00b2", _pfmt(avg_m2).replace(" \u20ac", "") + " \u20ac/m\u00b2" if avg_m2 else "\u2014"),
+        ("Ann\u00e9e r\u00e9f. la + r\u00e9cente", most_recent),
+    ]
+    for i, (lbl, val) in enumerate(synth_items):
+        bx = ML + i * (box_w + 5 * mm)
+        by = cursor - box_h
+        _rrect(c, bx, by, box_w, box_h, r=3, fill=TEAL_DARK)
+        c.setFillColor(WHITE)
+        c.setFont("Helvetica", 6.5)
+        c.drawString(bx + 5 * mm, by + box_h - 6 * mm, lbl.upper())
+        c.setStrokeColor(colors.HexColor("#FFFFFF44"))
+        c.setLineWidth(0.4)
+        c.line(bx + 5 * mm, by + box_h - 8 * mm, bx + box_w - 5 * mm, by + box_h - 8 * mm)
+        c.setFillColor(WHITE)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(bx + 5 * mm, by + 4 * mm, val)
+
+    # Source line
+    cursor -= box_h + 5 * mm
+    c.setFillColor(GRAY_MID)
+    c.setFont("Helvetica", 6)
+    c.drawString(ML, cursor,
+                 "Sources : DVF (data.gouv.fr) \u2014 Mutations de valeurs fonci\u00e8res, donn\u00e9es officielles.")
+
+    _footer(c, page_num, total=total)
+
+
+# ---------------------------------------------------------------------------
+# PAGE — Notre estimation de valeur (estimation mode)
+# ---------------------------------------------------------------------------
+def _page_estimation(c, d, page_num, total):
+    ville = _safe(d.get("ville"), "Vannes")
+    _header(c, "Notre estimation de valeur \u2014 " + ville)
+
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "Positionnement prix", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
+
+    prix_min = d.get("prix_estime_min") or 0
+    prix_max = d.get("prix_estime_max") or 0
+    prix_ret = d.get("prix_retenu") or 0
+    surface = d.get("surface") or 0
+
+    # -- 3 price boxes --
+    side_w = 52 * mm
+    center_w = 62 * mm
+    gap_x = (CW - 2 * side_w - center_w) / 2
+    side_h = 42 * mm
+    center_h = 50 * mm
+
+    boxes = [
+        ("FOURCHETTE BASSE", prix_min, "Conditions d\u00e9favorables", TEAL_LIGHT, TEAL_DARK, side_w, side_h),
+        ("VALEUR ESTIM\u00c9E", prix_ret, "Recommand\u00e9e", TEAL_DARK, WHITE, center_w, center_h),
+        ("FOURCHETTE HAUTE", prix_max, "March\u00e9 porteur", TEAL_LIGHT, TEAL_DARK, side_w, side_h),
+    ]
+
+    # Vertically align boxes bottom
+    boxes_base_y = cursor - center_h
+    box_x = ML
+    for i, (label, prix, subtitle, bg, fg, bw, bh) in enumerate(boxes):
+        by = cursor - bh  # top-align center box, bottom-align sides
+        if i != 1:
+            by = boxes_base_y  # align bottom with center box
+        _rrect(c, box_x, by, bw, bh, r=4, fill=bg)
+        # Label
+        c.setFillColor(fg)
+        c.setFont("Helvetica", 6.5)
+        c.drawCentredString(box_x + bw / 2, by + bh - 8 * mm, label)
+        # Separator
+        sep_color = colors.HexColor("#FFFFFF44") if bg == TEAL_DARK else colors.HexColor("#0D557033")
+        c.setStrokeColor(sep_color)
+        c.setLineWidth(0.4)
+        c.line(box_x + 6 * mm, by + bh - 10 * mm, box_x + bw - 6 * mm, by + bh - 10 * mm)
+        # Price
+        c.setFillColor(fg if bg == TEAL_DARK else ORANGE)
+        fsz = 18 if i == 1 else 14
+        c.setFont("Helvetica-Bold", fsz)
+        c.drawCentredString(box_x + bw / 2, by + bh / 2 - 6 * mm, _pfmt(prix))
+        # Subtitle
+        c.setFillColor(fg)
+        c.setFont("Helvetica", 7)
+        c.drawCentredString(box_x + bw / 2, by + 5 * mm, subtitle)
+
+        box_x += bw + gap_x
+
+    # Green triangle below center box
+    tri_cx = ML + side_w + gap_x + center_w / 2
+    tri_y = boxes_base_y - 3 * mm
+    tri_size = 4 * mm
+    c.setFillColor(colors.HexColor("#22C55E"))
+    p = c.beginPath()
+    p.moveTo(tri_cx, tri_y)
+    p.lineTo(tri_cx - tri_size, tri_y - tri_size * 1.2)
+    p.lineTo(tri_cx + tri_size, tri_y - tri_size * 1.2)
+    p.close()
+    c.drawPath(p, fill=1, stroke=0)
+
+    # Value per m2 text
+    cursor = tri_y - tri_size * 1.2 - 5 * mm
+    try:
+        prix_m2 = int(float(prix_ret) / float(surface)) if surface else 0
+    except (ValueError, TypeError, ZeroDivisionError):
+        prix_m2 = 0
+    pm2_txt = ("Valeur estim\u00e9e au m\u00b2 : " + _pfmt(prix_m2).replace(" \u20ac", "") +
+               " \u20ac/m\u00b2 \u00b7 Surface : " + str(surface) + " m\u00b2")
+    c.setFillColor(GRAY_DARK)
+    c.setFont("Helvetica", 8.5)
+    c.drawCentredString(ML + CW / 2, cursor, pm2_txt)
+
+    # -- Pourquoi investir ici? --
+    cursor -= SP_BETWEEN_BLOCS
+    _sec(c, "Pourquoi investir ici ?", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
+
+    type_bien = _safe(d.get("type_bien"), "bien")
+    args = d.get("arguments_investissement") or [
+        {"titre": "Emplacement strat\u00e9gique",
+         "texte": "Situ\u00e9 au c\u0153ur de " + ville + ", ce " + type_bien.lower() + " b\u00e9n\u00e9ficie d'une localisation de premier choix avec une forte visibilit\u00e9."},
+        {"titre": "Dynamisme \u00e9conomique",
+         "texte": "Le secteur profite d'un tissu commercial actif et d'une demande locative soutenue dans la r\u00e9gion."},
+        {"titre": "Potentiel de valorisation",
+         "texte": "Les fondamentaux du march\u00e9 local et les projets d'am\u00e9nagement offrent un potentiel d'appr\u00e9ciation int\u00e9ressant."},
+        {"titre": "Rentabilit\u00e9 attractive",
+         "texte": "Le ratio prix/loyer de ce bien permet d'envisager un rendement comp\u00e9titif par rapport au march\u00e9."},
+    ]
+    args = args[:4]
+
+    arg_gap_x = 6 * mm
+    arg_gap_y = 5 * mm
+    arg_w = (CW - arg_gap_x) / 2
+    arg_h = 28 * mm
+    border_w = 3 * mm
+
+    for idx, arg in enumerate(args):
+        col = idx % 2
+        row = idx // 2
+        ax = ML + col * (arg_w + arg_gap_x)
+        ay = cursor - row * (arg_h + arg_gap_y) - arg_h
+
+        # Card background
+        _rrect(c, ax, ay, arg_w, arg_h, r=3, fill=GRAY_LIGHT)
+        # Left border accent
+        c.setFillColor(TEAL_DARK)
+        c.rect(ax, ay, border_w, arg_h, fill=1, stroke=0)
+
+        # Title
+        c.setFillColor(ORANGE)
+        c.setFont("Helvetica-Bold", 8.5)
+        titre = arg.get("titre", "") if isinstance(arg, dict) else str(arg)
+        c.drawString(ax + border_w + 4 * mm, ay + arg_h - 8 * mm, titre[:45])
+
+        # Body text
+        texte = arg.get("texte", "") if isinstance(arg, dict) else ""
+        if texte:
+            sty = ParagraphStyle("arg" + str(idx), fontName="Helvetica", fontSize=7,
+                                 textColor=GRAY_DARK, leading=9.5)
+            para = Paragraph(texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"), sty)
+            pw = arg_w - border_w - 8 * mm
+            _, ph = para.wrap(pw, arg_h - 12 * mm)
+            para.drawOn(c, ax + border_w + 4 * mm, ay + arg_h - 11 * mm - ph)
+
+    cursor -= 2 * (arg_h + arg_gap_y)
+
+    # -- Pourquoi cet ecart avec les DVF? --
+    cursor -= SP_BETWEEN_BLOCS
+    _sec(c, "POURQUOI CET \u00c9CART AVEC LES DVF ?", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
+
+    expl_h = 30 * mm
+    expl_y = cursor - expl_h
+    _rrect(c, ML, expl_y, CW, expl_h, r=3, stroke=GRAY_BDR)
+
+    expl_text = (
+        "Les donn\u00e9es DVF (Demandes de Valeurs Fonci\u00e8res) refl\u00e8tent les transactions "
+        "pass\u00e9es enregistr\u00e9es par les notaires. Notre estimation int\u00e8gre des facteurs "
+        "compl\u00e9mentaires : \u00e9tat du bien, travaux r\u00e9alis\u00e9s, potentiel locatif, "
+        "dynamique du march\u00e9 actuel et positionnement strat\u00e9gique. L'\u00e9cart entre la "
+        "valeur DVF et notre estimation traduit la valeur ajout\u00e9e li\u00e9e \u00e0 l'expertise "
+        "terrain et \u00e0 la connaissance fine du march\u00e9 local."
+    )
+    sty_expl = ParagraphStyle("expl", fontName="Helvetica", fontSize=7.5,
+                              textColor=GRAY_DARK, leading=11, alignment=4)
+    para_expl = Paragraph(expl_text.replace("&", "&amp;"), sty_expl)
+    pw_expl = CW - 10 * mm
+    _, ph_expl = para_expl.wrap(pw_expl, expl_h - 4 * mm)
+    para_expl.drawOn(c, ML + 5 * mm, expl_y + expl_h - 3 * mm - ph_expl)
+
+    _footer(c, page_num, total=total)
+
+
+# ---------------------------------------------------------------------------
 # PDF Generation
 # ---------------------------------------------------------------------------
 def generate_dossier_pdf(d):
@@ -1517,15 +1836,26 @@ def generate_dossier_pdf(d):
 
     has_photos = len(real_photos) > 0
     has_cadastre = len(cadastre_photos) > 0
-    total = 3 + (1 if has_photos else 0) + (1 if has_cadastre else 0)
+    is_estimation = str(d.get("mode", "")).lower() == "estimation"
+    total = 3 + (2 if is_estimation else 0) + (1 if has_photos else 0) + (1 if has_cadastre else 0)
 
-    _page1(cv, d)
+    _page1(cv, d, page_num=1, total=total)
     cv.showPage()
-    _page2(cv, d)
+    _page2(cv, d, page_num=2, total=total)
     cv.showPage()
-    _page3(cv, d)
+
+    pn = 3
+    if is_estimation:
+        _page_comparables(cv, d, page_num=pn, total=total)
+        cv.showPage()
+        pn += 1
+        _page_estimation(cv, d, page_num=pn, total=total)
+        cv.showPage()
+        pn += 1
+
+    _page3(cv, d, page_num=pn, total=total)
     cv.showPage()
-    pn = 4
+    pn += 1
     if has_photos:
         _page_photos(cv, d, page_num=pn, total=total)
         cv.showPage()
@@ -1544,7 +1874,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.25"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.26"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
