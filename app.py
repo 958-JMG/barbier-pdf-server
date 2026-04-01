@@ -2690,18 +2690,41 @@ def _get_parcelle_geometry(code_insee, section, numero):
     return None
 
 
+def _point_to_micro_polygon(geom):
+    """Convert a Point geometry to a tiny polygon (~20m buffer) for API Carto GPU
+    which does not support Point geometries."""
+    if geom.get("type") == "Point":
+        lon, lat = geom["coordinates"]
+        d = 0.0001  # ~11m
+        return {
+            "type": "Polygon",
+            "coordinates": [[[lon - d, lat - d], [lon + d, lat - d],
+                             [lon + d, lat + d], [lon - d, lat + d],
+                             [lon - d, lat - d]]]
+        }
+    return geom
+
+
 def _get_plu_zone(geom):
     """Query API Carto GPU for PLU zone info. geom is a GeoJSON geometry dict."""
     try:
         import json as _j
-        geom_str = _j.dumps(geom)
+        query_geom = _point_to_micro_polygon(geom)
+        geom_str = _j.dumps(query_geom)
         r = requests.get("https://apicarto.ign.fr/api/gpu/zone-urba",
                          params={"geom": geom_str}, timeout=20)
         r.raise_for_status()
         features = r.json().get("features", [])
         if not features:
             return None
-        props = features[0]["properties"]
+        # Pick the most specific zone (smallest area or first non-Uj)
+        best = features[0]
+        for f in features:
+            p = f.get("properties", {})
+            if p.get("typezone") in ("U", "AU", "A", "N") and p.get("libelle", "").lower() != "uj":
+                best = f
+                break
+        props = best["properties"]
         return {
             "zone_plu": props.get("libelle", ""),
             "libelong": props.get("libelong", ""),
@@ -2730,7 +2753,8 @@ SUP_LABELS = {
 def _get_servitudes(geom):
     """Query API Carto GPU for servitudes d'utilité publique."""
     import json as _j
-    geom_str = _j.dumps(geom)
+    query_geom = _point_to_micro_polygon(geom)
+    geom_str = _j.dumps(query_geom)
     servitudes = set()
     for suffix in ["assiette-sup-s", "assiette-sup-l", "assiette-sup-p"]:
         try:
