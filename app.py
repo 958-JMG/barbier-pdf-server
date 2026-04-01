@@ -417,13 +417,14 @@ def _rrect(c, x, y, w, h, r=4, fill=None, stroke=None, sw=0.6):
     c.restoreState()
 
 
-def _header(c, sub=""):
+def _header(c, sub="", prefix="DOSSIER DE PRESENTATION"):
     c.setFillColor(TEAL)
     c.rect(0, PAGE_H - HEADER_H, PAGE_W, HEADER_H, fill=1, stroke=0)
     c.saveState()
     c.setFillColor(WHITE)
     c.setFont("Helvetica-Bold", 8.5)
-    c.drawString(ML, PAGE_H - 7.5 * mm, "DOSSIER DE PRESENTATION  >  " + sub.upper()[:70])
+    header_text = prefix + ("  >  " + sub.upper()[:70] if sub else "")
+    c.drawString(ML, PAGE_H - 7.5 * mm, header_text)
     c.restoreState()
     try:
         w = 18 * mm
@@ -1969,14 +1970,13 @@ def _mandat_paraphes(c, page_num, total_content=4):
 
 
 def _mandat_paragraph(c, text, y, font="Helvetica", size=8, leading=10.5, indent=0):
-    """Draw a paragraph of text, returns new y after drawing."""
+    """Draw a paragraph of text, returns new y after drawing.
+    Always draws — never returns None. Clips if necessary."""
     style = ParagraphStyle("mp", fontName=font, fontSize=size,
                            leading=leading, textColor=GRAY_DARK,
                            leftIndent=indent)
     p = Paragraph(text.replace("\n", "<br/>"), style)
     pw, ph = p.wrap(CW - indent, 500 * mm)
-    if y - ph < FOOTER_H + 22 * mm:
-        return None, ph, p  # Signal: needs new page
     p.drawOn(c, ML + indent, y - ph)
     return y - ph - 2 * mm, 0, None
 
@@ -2000,7 +2000,7 @@ def generate_mandat_pdf(d):
     # ══════════════════════════════════════════════════════════════════════════
     # PAGE 1 — COUVERTURE
     # ══════════════════════════════════════════════════════════════════════════
-    _header(c, sub="")
+    _header(c, prefix=f"MANDAT {type_label} DE VENTE")
     _footer(c, 1, total=5)
 
     cy = PAGE_H / 2 + 40 * mm
@@ -2032,7 +2032,7 @@ def generate_mandat_pdf(d):
     # ══════════════════════════════════════════════════════════════════════════
     # PAGE 2 — PARTIES + BIEN + PRIX (Page 1 sur 4)
     # ══════════════════════════════════════════════════════════════════════════
-    _header(c, sub=f"MANDAT {type_label} DE VENTE N\u00b0 {num}")
+    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
     cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
 
     # Titre
@@ -2106,14 +2106,19 @@ def generate_mandat_pdf(d):
 
     desc = d.get("bien_description", "")
     if desc:
+        # Limiter la description pour ne pas déborder la page
+        desc_clean = desc[:500]
+        if len(desc) > 500:
+            desc_clean = desc_clean[:desc_clean.rfind(" ")] + "..."
         c.setFont("Helvetica", 7)
         c.setFillColor(GRAY_MID)
         c.drawString(ML, cursor + 3.5 * mm, "Description")
         cursor -= 1 * mm
-        style_desc = ParagraphStyle("mdesc", fontName="Helvetica", fontSize=8.5,
-                                    leading=11, textColor=GRAY_DARK)
-        pd = Paragraph(desc.replace("\n", "<br/>"), style_desc)
-        pw, ph = pd.wrap(CW - 42 * mm, 80 * mm)
+        style_desc = ParagraphStyle("mdesc", fontName="Helvetica", fontSize=8,
+                                    leading=10, textColor=GRAY_DARK)
+        pd = Paragraph(desc_clean.replace("\n", "<br/>"), style_desc)
+        pw, ph = pd.wrap(CW - 42 * mm, 60 * mm)
+        ph = min(ph, 60 * mm)  # Cap max height
         pd.drawOn(c, ML + 42 * mm, cursor - ph + 3 * mm)
         cursor -= max(ph, 8 * mm) + 2 * mm
         c.setStrokeColor(GRAY_BDR); c.setLineWidth(0.3)
@@ -2141,7 +2146,7 @@ def generate_mandat_pdf(d):
     hono_txt = ("Ces honoraires seront pay\u00e9s le jour de la signature de l\u2019acte authentique "
                 "de vente. Le taux de TVA appliqu\u00e9 aux honoraires sera le taux en vigueur \u00e0 la "
                 "date de leur exigibilit\u00e9. En cas d\u2019exercice d\u2019un droit de pr\u00e9emption ou "
-                "d\u2019une facult\u00e9 de substitution, son b\u00e9n\u00e9ficiaire sera subrог\u00e9 dans tous "
+                "d\u2019une facult\u00e9 de substitution, son b\u00e9n\u00e9ficiaire sera subrog\u00e9 dans tous "
                 "les droits et obligations de l\u2019acqu\u00e9reur. \u00c0 ce titre, il sera notamment tenu "
                 "de r\u00e9gler ces honoraires si leur paiement lui incombe.")
     cursor, _, _ = _mandat_paragraph(c, hono_txt, cursor, size=7.5, leading=9.5)
@@ -2152,7 +2157,7 @@ def generate_mandat_pdf(d):
     # ══════════════════════════════════════════════════════════════════════════
     # PAGE 3 — DUREE + CONDITIONS GENERALES (Page 2 sur 4)
     # ══════════════════════════════════════════════════════════════════════════
-    _header(c, sub=f"MANDAT {type_label} DE VENTE N\u00b0 {num}")
+    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
     cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
 
     # ── DUREE DU MANDAT ──
@@ -2221,9 +2226,17 @@ def generate_mandat_pdf(d):
                    "dispositions pour assurer la bonne conservation de ses biens et \u00e0 souscrire, "
                    "\u00e0 cette fin, toutes les assurances requises.")
     cursor, _, _ = _mandat_paragraph(c, gardien_txt, cursor, size=7.5, leading=9.5)
-    cursor -= 3 * mm
 
-    # Autorisations
+    _mandat_paraphes(c, 2, 4)
+    c.showPage()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE 4 — AUTORISATIONS + INTERDICTIONS + ACTIONS + TRACFIN (Page 3 sur 4)
+    # ══════════════════════════════════════════════════════════════════════════
+    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+
+    # Autorisations (suite conditions generales)
     auth_title = "<b>Le MANDANT autorise le MANDATAIRE :</b>"
     cursor, _, _ = _mandat_paragraph(c, auth_title, cursor, size=8, leading=10.5)
 
@@ -2244,15 +2257,7 @@ def generate_mandat_pdf(d):
     for auth in autorisations:
         cursor, _, _ = _mandat_paragraph(c, f"\u2022 {auth}", cursor, size=7.5, leading=9.5, indent=4*mm)
 
-    _mandat_paraphes(c, 2, 4)
-    c.showPage()
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 4 — INTERDICTIONS + ACTIONS + TRACFIN (Page 3 sur 4)
-    # ══════════════════════════════════════════════════════════════════════════
-    _header(c, sub=f"MANDAT {type_label} DE VENTE N\u00b0 {num}")
-    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
-
+    cursor -= 4 * mm
     bf_txt = "Le MANDANT s\u2019engage \u00e0 ex\u00e9cuter le pr\u00e9sent mandat de bonne foi."
     cursor, _, _ = _mandat_paragraph(c, f"<b>{bf_txt}</b>", cursor, size=8, leading=10.5)
     cursor -= 2 * mm
@@ -2328,7 +2333,7 @@ def generate_mandat_pdf(d):
     # ══════════════════════════════════════════════════════════════════════════
     # PAGE 5 — NON-DISCRIM + DONNEES + SIGNATURES (Page 4 sur 4)
     # ══════════════════════════════════════════════════════════════════════════
-    _header(c, sub=f"MANDAT {type_label} DE VENTE N\u00b0 {num}")
+    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
     cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
 
     # ── NON-DISCRIMINATION ──
