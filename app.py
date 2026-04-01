@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Barbier Immobilier - PDF Dossier de Vente v5.19
+Barbier Immobilier - PDF Dossier de Vente v5.20
 Flask app deployed on Railway.
 Routes: GET /, POST /generate-quartier, POST /dossier, POST /mandat, POST /avis-valeur, POST /urbanisme
 """
@@ -1940,6 +1940,7 @@ def generate_avis_valeur_pdf(d):
     Page 1: Identification + Map/Prices + Analyse de marché
     Page 2: Annonce commerciale + Signatures & Validation
     Page 3 (optional): Plan cadastral (when photos contain cadastre images)
+    v5.20 — uniform spacing, no duplicate titles, fix footer overlap
     """
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=A4)
@@ -1959,6 +1960,9 @@ def generate_avis_valeur_pdf(d):
     avis_texte = d.get("avis_valeur", "")
     annonce = d.get("description", "")
 
+    # Uniform spacing constant
+    BLOC_GAP = 7 * mm  # gap between end of block and next section title
+
     # Check for cadastre photos
     photos = d.get("photos") or []
     cadastre_imgs = []
@@ -1970,6 +1974,9 @@ def generate_avis_valeur_pdf(d):
     has_cadastre = len(cadastre_imgs) > 0
 
     total_pages = 2 + (1 if has_cadastre else 0)
+
+    # Footer uniform margin (same on all pages)
+    FOOTER_ZONE = 16 * mm  # space reserved above page bottom for footer
 
     # ═══════════════════════════════════════════════════════════════════════
     # PAGE 1: Identification + Carte/Prix + Analyse de marché
@@ -1991,7 +1998,7 @@ def generate_avis_valeur_pdf(d):
     _avis_id_cell(c, "Adresse compl\u00e8te", adresse, ML, cursor - cell_h, cw3)
     _avis_id_cell(c, "R\u00e9f. cadastrale", ref_cad, ML + cw3, cursor - cell_h, cw3)
     _avis_id_cell(c, "\u00c9tat g\u00e9n\u00e9ral", etat, ML + 2 * cw3, cursor - cell_h, cw3)
-    cursor -= cell_h + 6 * mm
+    cursor -= cell_h + BLOC_GAP
 
     # ── 02 — LOCALISATION & ESTIMATION DE VALEUR ────────────────────────
     _sec(c, "02 \u2014 LOCALISATION & ESTIMATION DE VALEUR", ML, cursor)
@@ -2047,14 +2054,11 @@ def generate_avis_valeur_pdf(d):
     _avis_price_box(c, "VALEUR HAUTE", prix_max,
                     box_col_x, box_y_top - 3 * box_h - 2 * box_gap, box_col_w, box_h, highlight=False)
 
-    cursor -= map_h + 8 * mm  # below map + address label
+    cursor -= map_h + BLOC_GAP + 2 * mm  # below map + address label + gap
 
-    # ── 03 — ANALYSE DE MARCH\u00c9 (remaining space on page 1) ─────────────
+    # ── 03 — ANALYSE DE MARCHÉ (remaining space on page 1) ─────────────
     _sec(c, "03 \u2014 ANALYSE DE MARCH\u00c9", ML, cursor)
     cursor -= SEC_H + 3 * mm
-
-    footer_margin = 14 * mm
-    analyse_bottom = footer_margin
 
     if avis_texte:
         avis_clean = _clean(avis_texte)
@@ -2064,12 +2068,16 @@ def generate_avis_valeur_pdf(d):
             ls = line.strip()
             if not ls:
                 continue
-            if ls.lower().startswith("avis de valeur"):
+            # Skip GPT duplicate titles
+            ll = ls.lower()
+            if ll.startswith("avis de valeur"):
+                continue
+            if ll.startswith("analyse de march"):
                 continue
             filtered.append(ls)
 
-        style_title = ParagraphStyle("avisT", fontName="Helvetica-Bold", fontSize=8,
-                                     leading=10, textColor=TEAL_DARK, spaceBefore=2)
+        style_title = ParagraphStyle("avisT", fontName="Helvetica-Bold", fontSize=7.5,
+                                     leading=9.5, textColor=TEAL_DARK, spaceBefore=1)
         style_body = ParagraphStyle("avisB", fontName="Helvetica", fontSize=6.5,
                                     leading=8.5, textColor=GRAY_DARK)
 
@@ -2085,36 +2093,30 @@ def generate_avis_valeur_pdf(d):
         paras = []
         for kind, txt in text_parts:
             p = Paragraph(txt, style_title if kind == "title" else style_body)
-            _, ph = p.wrap(CW - 12 * mm, 400 * mm)
+            _, ph = p.wrap(CW - 10 * mm, 400 * mm)
             paras.append((p, ph))
 
-        # Box sizing
+        # Box: just text + attribution line at bottom
         text_total = sum(ph for _, ph in paras) + len(paras) * 0.5 * mm
-        box_inner = 10 * mm + text_total + 8 * mm  # header + text + attribution
-        max_box = cursor - analyse_bottom
+        box_inner = text_total + 4 * mm + 6 * mm  # top pad + text + bottom attribution
+        max_box = cursor - FOOTER_ZONE
         box_h_analyse = min(box_inner, max_box)
         box_y = cursor - box_h_analyse
 
         _rrect(c, ML, box_y, CW, box_h_analyse, r=4, stroke=GRAY_BDR)
 
-        # Box header
-        c.setFont("Helvetica-Bold", 9); c.setFillColor(TEAL_DARK)
-        c.drawString(ML + 5 * mm, cursor - 5 * mm, "ANALYSE DE MARCH\u00c9")
-        c.setFont("Helvetica", 6.5); c.setFillColor(GRAY_MID)
-        c.drawString(ML + 5 * mm, cursor - 9 * mm, "Avis de valeur \u2014 " + type_bien + ", " + ville)
-
-        # Draw paragraphs
-        ty = cursor - 12 * mm
-        stop_y = box_y + 8 * mm
+        # Draw paragraphs directly (no inner header — section title is enough)
+        ty = cursor - 4 * mm
+        stop_y = box_y + 6 * mm
         for p, ph in paras:
             if ty - ph < stop_y:
                 break
-            p.drawOn(c, ML + 6 * mm, ty - ph)
+            p.drawOn(c, ML + 5 * mm, ty - ph)
             ty -= ph + 0.5 * mm
 
         # Attribution
         c.setFont("Helvetica-Bold", 6); c.setFillColor(TEAL_DARK)
-        c.drawString(ML + 5 * mm, box_y + 2.5 * mm,
+        c.drawString(ML + 5 * mm, box_y + 1.5 * mm,
                      "Barbier Immobilier \u2014 Expert immobilier commercial Morbihan \u2014 02.97.47.11.11")
 
     c.showPage()
@@ -2125,10 +2127,10 @@ def generate_avis_valeur_pdf(d):
     _avis_header(c, ref, ville, nego)
     _avis_footer(c, ref, 2, total_pages)
 
-    # ── Fixed bottom elements (signatures + disclaimer) ─────────────────
-    DISC_Y = 13 * mm
+    # ── Fixed bottom: disclaimer sits just above footer zone ────────────
     DISC_H = 12 * mm
-    SIG_GAP = 2 * mm
+    DISC_Y = FOOTER_ZONE  # disclaimer starts right at footer zone top
+    SIG_GAP = 4 * mm
     SIG_H = 22 * mm
 
     # ── Disclaimer ──────────────────────────────────────────────────────
@@ -2145,7 +2147,7 @@ def generate_avis_valeur_pdf(d):
     pd.wrap(CW - 10 * mm, DISC_H - 2 * mm)
     pd.drawOn(c, ML + 5 * mm, DISC_Y + 2 * mm)
 
-    # ── 05 — SIGNATURES & VALIDATION ────────────────────────────────────
+    # ── 05 — SIGNATURES & VALIDATION (above disclaimer) ────────────────
     sig_bar_y = DISC_Y + DISC_H + SIG_GAP + SIG_H + 4 * mm
     _sec(c, "05 \u2014 SIGNATURES & VALIDATION", ML, sig_bar_y)
     sig_top = sig_bar_y - SEC_H - 3 * mm
@@ -2172,12 +2174,13 @@ def generate_avis_valeur_pdf(d):
 
     # ── 04 — ANNONCE COMMERCIALE (top-down, fills above signatures) ─────
     content_top = PAGE_H - 24 * mm
-    content_bottom = sig_bar_y + SEC_H + 6 * mm
+    content_bottom = sig_bar_y + SEC_H + BLOC_GAP
 
     _sec(c, "04 \u2014 ANNONCE COMMERCIALE", ML, content_top)
     cursor = content_top - SEC_H - 3 * mm
 
     if annonce:
+        # Use the text from cockpit as-is (no generated subtitle)
         annonce_clean = _clean(annonce)
         style_ann = ParagraphStyle("ann", fontName="Helvetica", fontSize=8,
                                    leading=11, textColor=GRAY_DARK)
@@ -2189,6 +2192,7 @@ def generate_avis_valeur_pdf(d):
         box_y_ann = cursor - box_h_ann
 
         _rrect(c, ML, box_y_ann, CW, box_h_ann, r=4, stroke=GRAY_BDR)
+        # Re-wrap to fit the actual box height
         p_ann.wrap(ann_w, box_h_ann - 6 * mm)
         p_ann.drawOn(c, ML + 5 * mm, box_y_ann + 3 * mm)
     else:
@@ -2210,7 +2214,7 @@ def generate_avis_valeur_pdf(d):
         _sec(c, "06 \u2014 PLAN CADASTRAL", ML, cursor)
         cursor -= SEC_H + 4 * mm
 
-        zone_bot = 20 * mm
+        zone_bot = FOOTER_ZONE + 6 * mm
         available_h = cursor - zone_bot
         gap_y = 4 * mm
 
@@ -2261,6 +2265,7 @@ def generate_avis_valeur_pdf(d):
     c.save()
     buf.seek(0)
     return buf
+
 
 
 @app.route("/avis-valeur", methods=["POST"])
