@@ -2695,7 +2695,7 @@ def _point_to_micro_polygon(geom):
     which does not support Point geometries."""
     if geom.get("type") == "Point":
         lon, lat = geom["coordinates"]
-        d = 0.0001  # ~11m
+        d = 0.001  # ~111m — minimum for API Carto GPU to return results
         return {
             "type": "Polygon",
             "coordinates": [[[lon - d, lat - d], [lon + d, lat - d],
