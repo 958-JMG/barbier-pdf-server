@@ -1544,7 +1544,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.22"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.23"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -2176,9 +2176,30 @@ def generate_avis_valeur_pdf(d):
             if al.startswith("annonce immobili") or al.startswith("annonce commerci"):
                 continue
             ann_filtered.append(aline)
-        annonce_clean = "\n".join(ann_filtered)
 
-        p_ann = Paragraph(annonce_clean.replace("\n", "<br/>"), STYLE_BODY)
+        # Build rich HTML: bold key lines, normal body
+        ann_bold_keys = ["\u00e0 vendre", "prix de vente", "description du bien",
+                         "atouts", "surface", "adresse", "activit",
+                         "n\u00e9gociateur", "taxe fonci\u00e8re", "loyer",
+                         "ne manquez pas", "renouvellement", "dur\u00e9e",
+                         "paiement", "destination"]
+        html_parts = []
+        for aline in ann_filtered:
+            al = aline.strip()
+            if not al:
+                html_parts.append("<br/>")
+                continue
+            ll = al.lower()
+            is_bold = any(ll.startswith(k) for k in ann_bold_keys) or al.endswith(":")
+            if is_bold:
+                html_parts.append("<b>" + al + "</b>")
+            else:
+                html_parts.append(al)
+        annonce_html = "<br/>".join(html_parts)
+
+        style_ann = ParagraphStyle("ann", fontName="Helvetica", fontSize=7,
+                                   leading=9, textColor=GRAY_DARK)
+        p_ann = Paragraph(annonce_html, style_ann)
         ann_w = CW - 10 * mm
         max_ann_h = cursor - content_bottom
         _, ann_h = p_ann.wrap(ann_w, max_ann_h)
@@ -2186,8 +2207,9 @@ def generate_avis_valeur_pdf(d):
         box_y_ann = cursor - box_h_ann
 
         _rrect(c, ML, box_y_ann, CW, box_h_ann, r=4, stroke=GRAY_BDR)
-        p_ann.wrap(ann_w, box_h_ann - 6 * mm)
-        p_ann.drawOn(c, ML + 5 * mm, box_y_ann + 3 * mm)
+        # Draw from TOP of box (Paragraph draws top-down)
+        p_ann.wrap(ann_w, max_ann_h)
+        p_ann.drawOn(c, ML + 5 * mm, cursor - ann_h - 4 * mm)
     else:
         no_ann_h = 30 * mm
         _rrect(c, ML, cursor - no_ann_h, CW, no_ann_h, r=4, fill=GRAY_LIGHT, stroke=GRAY_BDR)
