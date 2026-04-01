@@ -1,0 +1,5 @@
+.DS_Store
+.claude/
+*.pdf
+test_*.pdf
+__pycache__/
