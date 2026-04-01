@@ -1803,7 +1803,7 @@ def _page_estimation(c, d, page_num, total):
     expl_y = cursor - expl_h
     _rrect(c, ML, expl_y, CW, expl_h, r=3, stroke=GRAY_BDR)
 
-    expl_text = (
+    expl_text = d.get("explication_dvf") or (
         "Les donn\u00e9es DVF (Demandes de Valeurs Fonci\u00e8res) refl\u00e8tent les transactions "
         "pass\u00e9es enregistr\u00e9es par les notaires. Notre estimation int\u00e8gre des facteurs "
         "compl\u00e9mentaires : \u00e9tat du bien, travaux r\u00e9alis\u00e9s, potentiel locatif, "
@@ -1874,7 +1874,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.26"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.27"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
