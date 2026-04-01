@@ -1544,7 +1544,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.17"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.20"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -2180,8 +2180,17 @@ def generate_avis_valeur_pdf(d):
     cursor = content_top - SEC_H - 3 * mm
 
     if annonce:
-        # Use the text from cockpit as-is (no generated subtitle)
+        # Use the text from cockpit — strip generated header lines
         annonce_clean = _clean(annonce)
+        # Remove auto-generated title lines like "Annonce immobilière - Ensemble immobilier à Carnac"
+        ann_lines = annonce_clean.split("\n")
+        ann_filtered = []
+        for aline in ann_lines:
+            al = aline.strip().lower()
+            if al.startswith("annonce immobili") or al.startswith("annonce commerci"):
+                continue
+            ann_filtered.append(aline)
+        annonce_clean = "\n".join(ann_filtered)
         style_ann = ParagraphStyle("ann", fontName="Helvetica", fontSize=8,
                                    leading=11, textColor=GRAY_DARK)
         p_ann = Paragraph(annonce_clean.replace("\n", "<br/>"), style_ann)
