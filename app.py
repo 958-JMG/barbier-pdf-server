@@ -1544,7 +1544,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.23"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.24"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -1937,10 +1937,7 @@ def _avis_price_box(c, label, value, x, y, w, h, highlight=False):
 
 def generate_avis_valeur_pdf(d):
     """Generate Avis de Valeur Professionnel PDF (2-3 pages).
-    Page 1: Identification + Map/Prices + Analyse de marché
-    Page 2: Annonce commerciale + Signatures & Validation
-    Page 3 (optional): Plan cadastral (when photos contain cadastre images)
-    v5.22 — fix address/section overlap, compact text, filter GPT attribution
+    v5.24 — 10pt text, fix annonce gap, more space before analyse
     """
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=A4)
@@ -1961,15 +1958,15 @@ def generate_avis_valeur_pdf(d):
     annonce = d.get("description", "")
 
     # ── Layout constants ────────────────────────────────────────────────
-    CONTENT_START = PAGE_H - 28 * mm   # 28mm from top (below header + gap)
-    BLOC_GAP = 8 * mm                  # uniform gap between blocks
-    FOOTER_ZONE = 18 * mm              # reserved at bottom
+    CONTENT_START = PAGE_H - 28 * mm
+    BLOC_GAP = 8 * mm
+    FOOTER_ZONE = 18 * mm
 
-    # Uniform text styles — compact, readable
-    STYLE_BODY = ParagraphStyle("avBody", fontName="Helvetica", fontSize=7,
-                                leading=9, textColor=GRAY_DARK)
-    STYLE_TITLE = ParagraphStyle("avTitle", fontName="Helvetica-Bold", fontSize=7.5,
-                                 leading=10, textColor=TEAL_DARK, spaceBefore=2,
+    # ── Text styles — 10pt body, bold titles in TEAL ────────────────────
+    STYLE_BODY = ParagraphStyle("avBody", fontName="Helvetica", fontSize=9,
+                                leading=12, textColor=GRAY_DARK)
+    STYLE_TITLE = ParagraphStyle("avTitle", fontName="Helvetica-Bold", fontSize=9.5,
+                                 leading=12.5, textColor=TEAL_DARK, spaceBefore=3,
                                  spaceAfter=1)
 
     # Check for cadastre photos
@@ -2014,7 +2011,6 @@ def generate_avis_valeur_pdf(d):
     box_col_x = ML + map_w + 5 * mm
     box_col_w = CW - map_w - 5 * mm
 
-    # Draw map
     map_img = None
     try:
         geo = _geocode(adresse, ville)
@@ -2038,11 +2034,10 @@ def generate_avis_valeur_pdf(d):
                      preserveAspectRatio=True, anchor="nw")
     else:
         _rrect(c, ML, cursor - map_h, map_w, map_h, r=4, fill=GRAY_LIGHT, stroke=GRAY_BDR)
-        c.setFont("Helvetica", 8)
-        c.setFillColor(GRAY_MID)
+        c.setFont("Helvetica", 8); c.setFillColor(GRAY_MID)
         c.drawCentredString(ML + map_w / 2, cursor - map_h / 2, "Carte non disponible")
 
-    # Price boxes (right column)
+    # Price boxes
     box_h = 21 * mm
     box_gap = 3 * mm
     _avis_price_box(c, "VALEUR BASSE", prix_min,
@@ -2052,8 +2047,8 @@ def generate_avis_valeur_pdf(d):
     _avis_price_box(c, "VALEUR HAUTE", prix_max,
                     box_col_x, cursor - 3 * box_h - 2 * box_gap, box_col_w, box_h, highlight=False)
 
-    # Move cursor below map — NO address label (was causing overlap)
-    cursor -= map_h + BLOC_GAP
+    # More space between price boxes and analyse title
+    cursor -= map_h + 10 * mm
 
     # ── 03 — ANALYSE DE MARCHÉ ──────────────────────────────────────────
     _sec(c, "03 \u2014 ANALYSE DE MARCH\u00c9", ML, cursor)
@@ -2068,7 +2063,6 @@ def generate_avis_valeur_pdf(d):
             if not ls:
                 continue
             ll = ls.lower()
-            # Skip duplicate headers and attribution lines
             if ll.startswith("avis de valeur") or ll.startswith("analyse de march"):
                 continue
             if "barbier immobilier" in ll and "expert immobilier" in ll:
@@ -2087,17 +2081,16 @@ def generate_avis_valeur_pdf(d):
             _, ph = p.wrap(CW - 10 * mm, 400 * mm)
             paras.append((p, ph))
 
-        # Box sizing
+        # Box: text fills from top
         text_total = sum(ph for _, ph in paras) + len(paras) * 0.3 * mm
-        box_inner = text_total + 3 * mm + 7 * mm  # top pad + text + bottom attrib
+        box_inner = text_total + 4 * mm + 7 * mm
         max_box = cursor - FOOTER_ZONE
         box_h_a = min(box_inner, max_box)
         box_y = cursor - box_h_a
 
         _rrect(c, ML, box_y, CW, box_h_a, r=4, stroke=GRAY_BDR)
 
-        # Draw paragraphs — compact
-        ty = cursor - 3 * mm
+        ty = cursor - 4 * mm
         stop_y = box_y + 7 * mm
         for p, ph in paras:
             if ty - ph < stop_y:
@@ -2105,7 +2098,6 @@ def generate_avis_valeur_pdf(d):
             p.drawOn(c, ML + 5 * mm, ty - ph)
             ty -= ph + 0.3 * mm
 
-        # Attribution
         c.setFont("Helvetica-Bold", 5.5); c.setFillColor(TEAL_DARK)
         c.drawString(ML + 5 * mm, box_y + 2 * mm,
                      "Barbier Immobilier \u2014 Expert immobilier commercial Morbihan \u2014 02.97.47.11.11")
@@ -2118,7 +2110,7 @@ def generate_avis_valeur_pdf(d):
     _avis_header(c, ref, ville, nego)
     _avis_footer(c, ref, 2, total_pages)
 
-    # ── Bottom section: disclaimer + signatures ─────────────────────────
+    # Bottom: disclaimer
     DISC_H = 14 * mm
     disc_y = FOOTER_ZONE
     _rrect(c, ML, disc_y, CW, DISC_H, r=3, fill=GRAY_LIGHT)
@@ -2170,46 +2162,52 @@ def generate_avis_valeur_pdf(d):
     if annonce:
         annonce_clean = _clean(annonce)
         ann_lines = annonce_clean.split("\n")
+
+        # Filter and clean — strip leading/trailing blanks
         ann_filtered = []
         for aline in ann_lines:
             al = aline.strip().lower()
             if al.startswith("annonce immobili") or al.startswith("annonce commerci"):
                 continue
             ann_filtered.append(aline)
+        # Strip leading/trailing empty lines
+        while ann_filtered and not ann_filtered[0].strip():
+            ann_filtered.pop(0)
+        while ann_filtered and not ann_filtered[-1].strip():
+            ann_filtered.pop()
 
-        # Build rich HTML: bold key lines, normal body
+        # Bold key lines for attractive formatting
         ann_bold_keys = ["\u00e0 vendre", "prix de vente", "description du bien",
-                         "atouts", "surface", "adresse", "activit",
-                         "n\u00e9gociateur", "taxe fonci\u00e8re", "loyer",
-                         "ne manquez pas", "renouvellement", "dur\u00e9e",
+                         "atouts", "surface :", "adresse :", "activit",
+                         "n\u00e9gociateur", "taxe fonci", "loyer",
+                         "ne manquez pas", "renouvellement", "dur\u00e9e :",
                          "paiement", "destination"]
-        html_parts = []
+
+        # Build paragraphs one by one (like analyse) for precise control
+        ann_paras = []
         for aline in ann_filtered:
             al = aline.strip()
             if not al:
-                html_parts.append("<br/>")
-                continue
+                continue  # skip blank lines, just add a small gap
             ll = al.lower()
             is_bold = any(ll.startswith(k) for k in ann_bold_keys) or al.endswith(":")
-            if is_bold:
-                html_parts.append("<b>" + al + "</b>")
-            else:
-                html_parts.append(al)
-        annonce_html = "<br/>".join(html_parts)
+            style = STYLE_TITLE if is_bold else STYLE_BODY
+            p = Paragraph(al, style)
+            _, ph = p.wrap(CW - 10 * mm, 400 * mm)
+            ann_paras.append((p, ph))
 
-        style_ann = ParagraphStyle("ann", fontName="Helvetica", fontSize=7,
-                                   leading=9, textColor=GRAY_DARK)
-        p_ann = Paragraph(annonce_html, style_ann)
-        ann_w = CW - 10 * mm
-        max_ann_h = cursor - content_bottom
-        _, ann_h = p_ann.wrap(ann_w, max_ann_h)
-        box_h_ann = min(ann_h + 8 * mm, max_ann_h)
-        box_y_ann = cursor - box_h_ann
+        # Box from cursor to content_bottom
+        box_h_ann = cursor - content_bottom
+        _rrect(c, ML, content_bottom, CW, box_h_ann, r=4, stroke=GRAY_BDR)
 
-        _rrect(c, ML, box_y_ann, CW, box_h_ann, r=4, stroke=GRAY_BDR)
-        # Draw from TOP of box (Paragraph draws top-down)
-        p_ann.wrap(ann_w, max_ann_h)
-        p_ann.drawOn(c, ML + 5 * mm, cursor - ann_h - 4 * mm)
+        # Draw paragraphs top-down
+        ty = cursor - 4 * mm
+        stop_y = content_bottom + 3 * mm
+        for p, ph in ann_paras:
+            if ty - ph < stop_y:
+                break
+            p.drawOn(c, ML + 5 * mm, ty - ph)
+            ty -= ph + 0.3 * mm
     else:
         no_ann_h = 30 * mm
         _rrect(c, ML, cursor - no_ann_h, CW, no_ann_h, r=4, fill=GRAY_LIGHT, stroke=GRAY_BDR)
