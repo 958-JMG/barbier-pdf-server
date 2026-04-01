@@ -1951,7 +1951,8 @@ def _mandat_draw_field(c, label, value, x, y, w, label_w=42):
 
 
 def _mandat_section(c, title, y):
-    """Draw a mandat section header. Returns y below the section bar."""
+    """Draw a mandat section header with gap above. Returns y below the section bar."""
+    y -= 3 * mm  # gap before section bar
     _sec(c, title, ML, y)
     return y - SEC_H - SP_AFTER_SEC
 
@@ -1978,11 +1979,11 @@ def _mandat_paragraph(c, text, y, font="Helvetica", size=8, leading=10.5, indent
     p = Paragraph(text.replace("\n", "<br/>"), style)
     pw, ph = p.wrap(CW - indent, 500 * mm)
     p.drawOn(c, ML + indent, y - ph)
-    return y - ph - 2 * mm, 0, None
+    return y - ph - 3 * mm, 0, None
 
 
 def generate_mandat_pdf(d):
-    """Generate a mandat de vente PDF — 5 pages (couverture + 4 pages legales)."""
+    """Generate a mandat de vente PDF — 7 pages (couverture + 6 pages legales)."""
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=A4)
 
@@ -2001,7 +2002,7 @@ def generate_mandat_pdf(d):
     # PAGE 1 — COUVERTURE
     # ══════════════════════════════════════════════════════════════════════════
     _header(c, prefix=f"MANDAT {type_label} DE VENTE")
-    _footer(c, 1, total=5)
+    _footer(c, 1, total=7)
 
     cy = PAGE_H / 2 + 40 * mm
     c.setFont("Helvetica-Bold", 22)
@@ -2030,7 +2031,7 @@ def generate_mandat_pdf(d):
     c.showPage()
 
     # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 2 — PARTIES + BIEN + PRIX (Page 1 sur 4)
+    # PAGE 2 — PARTIES (Page 1 sur 6)
     # ══════════════════════════════════════════════════════════════════════════
     _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
     cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
@@ -2075,29 +2076,46 @@ def generate_mandat_pdf(d):
     c.drawString(ML, cursor, "Le Mandataire")
     cursor -= 5 * mm
 
-    c.setFont("Helvetica", 8.5)
-    c.setFillColor(GRAY_DARK)
-    c.drawString(ML, cursor, "Barbier Immobilier \u2014 SAS au capital de 10 000 \u20ac")
-    cursor -= 4.5 * mm
-    c.drawString(ML, cursor, "2 place Albert Einstein, 56000 Vannes")
-    cursor -= 4.5 * mm
-    c.drawString(ML, cursor, "RCS Vannes \u2014 Carte CPI 5602 2018 000 029 497")
-    cursor -= 4.5 * mm
-    if nego:
-        c.drawString(ML, cursor, f"Repr\u00e9sent\u00e9 par : {nego}")
-        cursor -= 4.5 * mm
-    cursor -= 1 * mm
+    nego_display = nego or "Marina LE PALLEC"
+    mandataire_txt = (
+        "<b>barbier immobilier</b>, situ\u00e9e 2 place Albert Einstein 56000 Vannes, "
+        "t\u00e9l\u00e9phone +33297471111, adresse mail contact@barbierimmobilier.com, "
+        "exploit\u00e9e par la soci\u00e9t\u00e9 <b>RESOLIMMO</b>, SARL au capital de 10 000,0 euros, "
+        "dont le si\u00e8ge social est situ\u00e9 2 place Albert Einstein 56000 Vannes, "
+        "RCS VANNES n\u00b0 833871585, titulaire de la carte professionnelle "
+        "<b>Transactions sur immeubles et fonds de commerce</b> n\u00b0 CPI 5605 2018 000 027 030 "
+        "d\u00e9livr\u00e9e par MORBIHAN, num\u00e9ro de TVA FR93833871585, "
+        "assur\u00e9e en responsabilit\u00e9 civile professionnelle par <b>MMA ENTREPRISE</b> "
+        "dont le si\u00e8ge est sis 14 boulevard Marie et Alexandre Oyon LE MANS, "
+        "sur le territoire national sous le n\u00b0 120137405, "
+        "Adh\u00e9rente de la caisse de Garantie <b>GALIAN</b> dont le si\u00e8ge est sis "
+        "89 rue de la Bo\u00e9tie VANNES sous le n\u00b0 A11060563, "
+        "Titulaire du compte s\u00e9questre n\u00b0 00021578201 ouvert aupr\u00e8s <b>CIC VANNES</b>."
+        f"<br/><br/>Repr\u00e9sent\u00e9e par <b>{nego_display}</b>, ayant le statut de salari\u00e9, "
+        f"dument habilit\u00e9(e) \u00e0 l\u2019effet des pr\u00e9sentes,"
+    )
+    cursor, _, _ = _mandat_paragraph(c, mandataire_txt, cursor, size=7.5, leading=9.5)
+    cursor -= 2 * mm
+
     c.setFont("Helvetica", 8)
     c.setFillColor(GRAY_MID)
     c.drawString(ML, cursor, 'Ci-apr\u00e8s "l\'Agence" ou "le MANDATAIRE", D\'AUTRE PART,')
-    cursor -= 8 * mm
+    cursor -= 6 * mm
 
     # Phrase d'intro
     intro = (f"Par les pr\u00e9sentes, le MANDANT conf\u00e8re au MANDATAIRE, qui l\u2019accepte, "
              f"le MANDAT {type_label} DE VENDRE les biens ci-apr\u00e8s d\u00e9sign\u00e9s aux prix, "
              f"charges et conditions convenus.")
     cursor, _, _ = _mandat_paragraph(c, f"<b>{intro}</b>", cursor, font="Helvetica-Bold", size=8.5, leading=11)
-    cursor -= 4 * mm
+
+    _mandat_paraphes(c, 1, 6)
+    c.showPage()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE 3 — BIEN + PRIX + DUREE + CONDITIONS (Page 2 sur 6)
+    # ══════════════════════════════════════════════════════════════════════════
+    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
 
     # ── DESIGNATION DES BIENS ──
     cursor = _mandat_section(c, "D\u00c9SIGNATION DES BIENS \u00c0 VENDRE", cursor)
@@ -2106,24 +2124,22 @@ def generate_mandat_pdf(d):
 
     desc = d.get("bien_description", "")
     if desc:
-        # Limiter la description pour ne pas déborder la page
-        desc_clean = desc[:500]
-        if len(desc) > 500:
+        desc_clean = desc[:400]
+        if len(desc) > 400:
             desc_clean = desc_clean[:desc_clean.rfind(" ")] + "..."
         c.setFont("Helvetica", 7)
         c.setFillColor(GRAY_MID)
         c.drawString(ML, cursor + 3.5 * mm, "Description")
         cursor -= 1 * mm
-        style_desc = ParagraphStyle("mdesc", fontName="Helvetica", fontSize=8,
-                                    leading=10, textColor=GRAY_DARK)
+        style_desc = ParagraphStyle("mdesc", fontName="Helvetica", fontSize=7.5,
+                                    leading=9.5, textColor=GRAY_DARK)
         pd = Paragraph(desc_clean.replace("\n", "<br/>"), style_desc)
-        pw, ph = pd.wrap(CW - 42 * mm, 60 * mm)
-        ph = min(ph, 60 * mm)  # Cap max height
+        pw, ph = pd.wrap(CW - 42 * mm, 55 * mm)
+        ph = min(ph, 55 * mm)
         pd.drawOn(c, ML + 42 * mm, cursor - ph + 3 * mm)
         cursor -= max(ph, 8 * mm) + 2 * mm
         c.setStrokeColor(GRAY_BDR); c.setLineWidth(0.3)
         c.line(ML, cursor + 2 * mm, ML + fw, cursor + 2 * mm)
-    cursor -= 6 * mm
 
     # ── PRIX ET HONORAIRES ──
     cursor = _mandat_section(c, "PRIX DE VENTE \u2014 HONORAIRES", cursor)
@@ -2136,12 +2152,12 @@ def generate_mandat_pdf(d):
     cursor = _mandat_draw_field(c, "Prix net vendeur", _pfmt(prix_nv), ML, cursor, fw)
     cursor = _mandat_draw_field(c, "Honoraires", _pfmt(hono) + f" \u00e0 la charge de l\u2019{charge.lower()}", ML, cursor, fw)
     cursor = _mandat_draw_field(c, "Prix de vente FAI", _pfmt(prix_vt), ML, cursor, fw)
-    cursor -= 3 * mm
+    cursor -= 2 * mm
 
     prix_txt = ("Le prix sera r\u00e9gl\u00e9 comptant au plus tard le jour de la signature de "
                 "l\u2019acte d\u00e9finitif de vente. Le MANDANT est inform\u00e9 qu\u2019il pourra le cas "
                 "\u00e9ch\u00e9ant \u00eatre assujetti \u00e0 l\u2019imp\u00f4t sur les plus-values immobili\u00e8res.")
-    cursor, _, _ = _mandat_paragraph(c, prix_txt, cursor, size=7.5, leading=9.5)
+    cursor, _, _ = _mandat_paragraph(c, prix_txt, cursor, size=7, leading=9)
 
     hono_txt = ("Ces honoraires seront pay\u00e9s le jour de la signature de l\u2019acte authentique "
                 "de vente. Le taux de TVA appliqu\u00e9 aux honoraires sera le taux en vigueur \u00e0 la "
@@ -2149,16 +2165,7 @@ def generate_mandat_pdf(d):
                 "d\u2019une facult\u00e9 de substitution, son b\u00e9n\u00e9ficiaire sera subrog\u00e9 dans tous "
                 "les droits et obligations de l\u2019acqu\u00e9reur. \u00c0 ce titre, il sera notamment tenu "
                 "de r\u00e9gler ces honoraires si leur paiement lui incombe.")
-    cursor, _, _ = _mandat_paragraph(c, hono_txt, cursor, size=7.5, leading=9.5)
-
-    _mandat_paraphes(c, 1, 4)
-    c.showPage()
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 3 — DUREE + CONDITIONS GENERALES (Page 2 sur 4)
-    # ══════════════════════════════════════════════════════════════════════════
-    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
-    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    cursor, _, _ = _mandat_paragraph(c, hono_txt, cursor, size=7, leading=9)
 
     # ── DUREE DU MANDAT ──
     cursor = _mandat_section(c, "DUR\u00c9E DU MANDAT", cursor)
@@ -2227,11 +2234,11 @@ def generate_mandat_pdf(d):
                    "\u00e0 cette fin, toutes les assurances requises.")
     cursor, _, _ = _mandat_paragraph(c, gardien_txt, cursor, size=7.5, leading=9.5)
 
-    _mandat_paraphes(c, 2, 4)
+    _mandat_paraphes(c, 2, 6)
     c.showPage()
 
     # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 4 — AUTORISATIONS + INTERDICTIONS + ACTIONS + TRACFIN (Page 3 sur 4)
+    # PAGE 4 — AUTORISATIONS + INTERDICTIONS + CLAUSE PENALE (Page 3 sur 6)
     # ══════════════════════════════════════════════════════════════════════════
     _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
     cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
@@ -2302,12 +2309,21 @@ def generate_mandat_pdf(d):
     pp.drawOn(c, ML, cursor - pph)
     cursor -= pph + 8 * mm
 
+    _mandat_paraphes(c, 3, 6)
+    c.showPage()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE 5 — ACTIONS + REDDITION + TRACFIN + NON-DISCRIM (Page 4 sur 6)
+    # ══════════════════════════════════════════════════════════════════════════
+    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+
     # ── ACTIONS COMMERCIALES ──
     cursor = _mandat_section(c, "ACTIONS COMMERCIALES", cursor)
     actions_txt = ("Le MANDATAIRE s\u2019engage \u00e0 r\u00e9aliser \u00e0 ses frais les actions de "
                    "communication suivantes : diffusion de l\u2019annonce sur les portails "
                    "immobiliers professionnels, site internet de l\u2019agence, r\u00e9seaux sociaux, "
-                   "vitrine de l\u2019agence, prospection cibl\u00e9e aupr\u00e8s de sa base acquéreurs.")
+                   "vitrine de l\u2019agence, prospection cibl\u00e9e aupr\u00e8s de sa base acqu\u00e9reurs.")
     cursor, _, _ = _mandat_paragraph(c, actions_txt, cursor, size=8, leading=10.5)
     cursor -= 4 * mm
 
@@ -2326,15 +2342,7 @@ def generate_mandat_pdf(d):
                    "relatives au traitement du renseignement et \u00e0 l\u2019action contre les circuits "
                    "financiers clandestins et d\u00e9di\u00e9es \u00e0 la lutte contre le blanchiment d\u2019argent.")
     cursor, _, _ = _mandat_paragraph(c, tracfin_txt, cursor, size=8, leading=10.5)
-
-    _mandat_paraphes(c, 3, 4)
-    c.showPage()
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 5 — NON-DISCRIM + DONNEES + SIGNATURES (Page 4 sur 4)
-    # ══════════════════════════════════════════════════════════════════════════
-    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
-    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    cursor -= 4 * mm
 
     # ── NON-DISCRIMINATION ──
     cursor = _mandat_section(c, "ENGAGEMENT DE NON-DISCRIMINATION", cursor)
@@ -2362,7 +2370,15 @@ def generate_mandat_pdf(d):
                 "des directives et consignes, verbales ou \u00e9crites, tendant \u00e0 refuser la vente "
                 "pour des motifs discriminatoires.")
     cursor, _, _ = _mandat_paragraph(c, discrim2, cursor, size=7.5, leading=9.5)
-    cursor -= 4 * mm
+
+    _mandat_paraphes(c, 4, 6)
+    c.showPage()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE 6 — RGPD + DOMICILE + SIGNATURES (Page 5 sur 6)
+    # ══════════════════════════════════════════════════════════════════════════
+    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
 
     # ── DONNEES PERSONNELLES ──
     cursor = _mandat_section(c, "COLLECTE ET EXPLOITATION DES DONN\u00c9ES PERSONNELLES", cursor)
@@ -2413,7 +2429,52 @@ def generate_mandat_pdf(d):
     c.drawString(right_x + 4 * mm, cursor - sig_h + 4 * mm,
                  "Fait \u00e0 Vannes  le ________________")
 
-    _mandat_paraphes(c, 4, 4)
+    _mandat_paraphes(c, 5, 6)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE 7 — REGISTRE DES MANDATS (Page 6 sur 6)
+    # ══════════════════════════════════════════════════════════════════════════
+    c.showPage()
+    _header(c, sub=f"N\u00b0 {num}", prefix=f"MANDAT {type_label} DE VENTE")
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+
+    cursor = _mandat_section(c, "INSCRIPTION AU REGISTRE DES MANDATS", cursor)
+    registre_txt = ("Le pr\u00e9sent mandat sera inscrit au registre des mandats du MANDATAIRE "
+                    "sous le num\u00e9ro figurant en t\u00eate du pr\u00e9sent acte, conform\u00e9ment \u00e0 "
+                    "l\u2019article 6 de la loi n\u00b0 70-9 du 2 janvier 1970 et aux articles 72 et 73 "
+                    "du d\u00e9cret n\u00b0 72-678 du 20 juillet 1972.")
+    cursor, _, _ = _mandat_paragraph(c, registre_txt, cursor, size=8, leading=10.5)
+    cursor -= 6 * mm
+
+    # ── LOIS APPLICABLES ──
+    cursor = _mandat_section(c, "LOIS APPLICABLES", cursor)
+    lois_txt = ("Le pr\u00e9sent mandat est r\u00e9gi par les lois n\u00b0 70-9 du 2 janvier 1970 "
+                "(loi Hoguet) et son d\u00e9cret d\u2019application n\u00b0 72-678 du 20 juillet 1972, "
+                "la loi n\u00b0 2014-366 du 24 mars 2014 (loi ALUR) et la loi n\u00b0 89-462 du "
+                "6 juillet 1989.")
+    cursor, _, _ = _mandat_paragraph(c, lois_txt, cursor, size=8, leading=10.5)
+    cursor -= 6 * mm
+
+    # Mention manuscrite
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(TEAL_DARK)
+    c.drawString(ML, cursor, "Mention manuscrite obligatoire :")
+    cursor -= 6 * mm
+    c.setFont("Helvetica", 8)
+    c.setFillColor(GRAY_MID)
+    mention = ("\u00ab Lu et approuv\u00e9. Le mandant reconna\u00eet avoir re\u00e7u un exemplaire "
+               "du pr\u00e9sent mandat au moment de sa signature. \u00bb")
+    cursor, _, _ = _mandat_paragraph(c, f"<i>{mention}</i>", cursor, size=8, leading=10.5)
+    cursor -= 10 * mm
+
+    # Zone d'ecriture manuscrite
+    box_h = 30 * mm
+    _rrect(c, ML, cursor - box_h, CW, box_h, r=3, stroke=GRAY_BDR)
+    c.setFont("Helvetica", 7)
+    c.setFillColor(GRAY_MID)
+    c.drawString(ML + 4 * mm, cursor - 5 * mm, "Mention manuscrite du Mandant :")
+
+    _mandat_paraphes(c, 6, 6)
     c.showPage()
     c.save()
     buf.seek(0)
