@@ -447,7 +447,7 @@ def _footer(c, n, total=3):
     c.setFont("Helvetica", 6.5)
     c.drawString(ML, 3.5 * mm,
                  "Barbier Immobilier \u2014 2 place Albert Einstein, 56000 Vannes \u2014 02.97.47.11.11 \u2014 barbierimmobilier.com")
-    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.30  " + str(n) + " / " + str(total))
+    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.31  " + str(n) + " / " + str(total))
     c.restoreState()
 
 
@@ -1578,13 +1578,15 @@ def _page_photos(c, d, page_num=4, total=4):
 
     photos = d.get("photos") or []
     plans_locaux = d.get("plans") or []
+    cad_photos = d.get("cadastre_photos") or []
     _plan_set = set(plans_locaux) if plans_locaux else set()
-    # Filter: skip first (cover) + skip PDFs/cadastre + skip plans locaux
+    _cad_set = set(cad_photos)
+    # Filter: skip first (cover) + skip cadastre + skip plans locaux
     real_photos = []
     for i, p in enumerate(photos):
         if i == 0:
             continue
-        if _is_plan(p):
+        if p in _cad_set or _is_plan(p):
             continue
         if p in _plan_set:
             continue
@@ -1636,14 +1638,13 @@ def _page_cadastre(c, d, page_num=5, total=5):
     sec_y = PAGE_H - HEADER_H - SP_AFTER_HEADER
     _sec(c, "Plan cadastral", ML, sec_y)
 
-    photos = d.get("photos") or []
-    # Find cadastre images (PDFs)
+    # Use explicit cadastre_photos from cockpit, fallback to _is_plan detection
+    cad_photos = d.get("cadastre_photos") or [p for p in (d.get("photos") or []) if _is_plan(p)]
     cadastre_imgs = []
-    for p in photos:
-        if _is_plan(p):
-            img = _fetch_photo(p)
-            if img:
-                cadastre_imgs.append(img)
+    for p in cad_photos:
+        img = _fetch_photo(p)
+        if img:
+            cadastre_imgs.append(img)
 
     zone_top = sec_y - SEC_H - SP_AFTER_SEC
     zone_bot = FOOTER_H + 20 * mm  # extra space for parcel info
@@ -2048,14 +2049,14 @@ def generate_dossier_pdf(d):
 
     photos = d.get("photos") or []
     plans_locaux = d.get("plans") or []
-    # Separate real photos from cadastre/PDFs and plans
-    cadastre_photos = [p for p in photos if _is_plan(p)]
-    # When plans locaux are provided separately, exclude them from the photo page
-    # Plans are detected in cockpit by filename keywords (plan, etage, rdc, etc.)
-    # Here we deduplicate by checking if photo b64 matches any plan b64
+    # Cadastre photos: use explicit list from cockpit, fallback to _is_plan detection
+    cadastre_photos = d.get("cadastre_photos") or [p for p in photos if _is_plan(p)]
+    _cad_set = set(cadastre_photos)
     _plan_set = set(plans_locaux) if plans_locaux else set()
+    # Real photos = all except cover (idx 0), cadastre, and plans
     real_photos = [p for i, p in enumerate(photos)
-                   if i > 0 and not _is_plan(p) and p not in _plan_set]
+                   if i > 0 and p not in _cad_set and p not in _plan_set
+                   and not _is_plan(p)]
 
     has_photos = len(real_photos) > 0
     has_cadastre = len(cadastre_photos) > 0
@@ -2160,7 +2161,7 @@ def dossier():
     real = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
     plans = [p for p in photos if _is_plan(p)]
     app.logger.info(
-        "Dossier v5.30 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
+        "Dossier v5.31 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
         ref, list(body.keys()), len(photos), len(real), len(plans))
     # Log first 80 chars of each photo to debug
     for idx, p in enumerate(photos):
