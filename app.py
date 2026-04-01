@@ -1544,7 +1544,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.24"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.25"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -1962,7 +1962,14 @@ def generate_avis_valeur_pdf(d):
     BLOC_GAP = 8 * mm
     FOOTER_ZONE = 18 * mm
 
-    # ── Text styles — 10pt body, bold titles in TEAL ────────────────────
+    # ── Text styles ─────────────────────────────────────────────────────
+    # Analyse (page 1, espace limité) — compact 8pt
+    STYLE_ANALYSE = ParagraphStyle("avAna", fontName="Helvetica", fontSize=8,
+                                   leading=10.5, textColor=GRAY_DARK)
+    STYLE_ANALYSE_TITLE = ParagraphStyle("avAnaT", fontName="Helvetica-Bold", fontSize=8.5,
+                                         leading=11, textColor=TEAL_DARK, spaceBefore=2,
+                                         spaceAfter=0.5)
+    # Annonce (page 2, plein espace) — 9pt lisible
     STYLE_BODY = ParagraphStyle("avBody", fontName="Helvetica", fontSize=9,
                                 leading=12, textColor=GRAY_DARK)
     STYLE_TITLE = ParagraphStyle("avTitle", fontName="Helvetica-Bold", fontSize=9.5,
@@ -2077,21 +2084,21 @@ def generate_avis_valeur_pdf(d):
         paras = []
         for line in filtered:
             is_title = any(line.lower().startswith(k) for k in title_keys)
-            p = Paragraph(line, STYLE_TITLE if is_title else STYLE_BODY)
+            p = Paragraph(line, STYLE_ANALYSE_TITLE if is_title else STYLE_ANALYSE)
             _, ph = p.wrap(CW - 10 * mm, 400 * mm)
             paras.append((p, ph))
 
-        # Box: text fills from top
+        # Box: text fills from top, tight padding
         text_total = sum(ph for _, ph in paras) + len(paras) * 0.3 * mm
-        box_inner = text_total + 4 * mm + 7 * mm
+        box_inner = text_total + 3 * mm + 6 * mm
         max_box = cursor - FOOTER_ZONE
         box_h_a = min(box_inner, max_box)
         box_y = cursor - box_h_a
 
         _rrect(c, ML, box_y, CW, box_h_a, r=4, stroke=GRAY_BDR)
 
-        ty = cursor - 4 * mm
-        stop_y = box_y + 7 * mm
+        ty = cursor - 3 * mm
+        stop_y = box_y + 6 * mm
         for p, ph in paras:
             if ty - ph < stop_y:
                 break
