@@ -447,7 +447,7 @@ def _footer(c, n, total=3):
     c.setFont("Helvetica", 6.5)
     c.drawString(ML, 3.5 * mm,
                  "Barbier Immobilier \u2014 2 place Albert Einstein, 56000 Vannes \u2014 02.97.47.11.11 \u2014 barbierimmobilier.com")
-    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.29  " + str(n) + " / " + str(total))
+    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.30  " + str(n) + " / " + str(total))
     c.restoreState()
 
 
@@ -738,24 +738,26 @@ def _page1(c, d, page_num=1, total=3):
     vi = _safe(d.get("ville"), "")
     c.drawString(ML, PAGE_H - 58 * mm - yoff, (cp + " " + vi).strip())
 
-    # Price
-    prix = d.get("prix") or 0
+    # Price — show prix net vendeur when available, else prix FAI
+    pnv_cover = d.get("prix_net_vendeur") or 0
+    prix_cover = int(float(str(pnv_cover))) if pnv_cover else (d.get("prix") or 0)
+    prix_label = "PRIX NET VENDEUR" if pnv_cover else "PRIX DE VENTE FAI"
     c.setFillColor(WHITE)
     c.setFont("Helvetica-Bold", 34)
-    c.drawString(ML, PAGE_H - 84 * mm, _pfmt(prix))
+    c.drawString(ML, PAGE_H - 84 * mm, _pfmt(prix_cover))
     # Honoraires
     hono = d.get("honoraires")
     if hono:
         c.setFillColor(colors.HexColor("#FFFFFFBB"))
         c.setFont("Helvetica", 9)
-        ht = "Honoraires : " + _pfmt(hono)
+        ht = "Honoraires : " + _pfmt(hono) + " HT"
         hc = d.get("honoraires_charge", "")
         if hc:
             ht = ht + " (" + str(hc) + ")"
         c.drawString(ML, PAGE_H - 91 * mm, ht)
     c.setFillColor(WHITE)
     c.setFont("Helvetica", 9)
-    c.drawString(ML, PAGE_H - (97 if hono else 91) * mm, "PRIX DE VENTE FAI")
+    c.drawString(ML, PAGE_H - (97 if hono else 91) * mm, prix_label)
 
     # Pills: Surface, Type, Activite — drawn AFTER both backgrounds
     pills = [
@@ -795,7 +797,7 @@ def _page1(c, d, page_num=1, total=3):
         c.drawCentredString(px + pw / 2, py + 5 * mm, val)
         c.restoreState()
 
-    # Logo top-right
+    # Logo top-right (bord carré)
     try:
         lw2 = 28 * mm
         lh2 = lw2 * (662 / 488)
@@ -803,7 +805,7 @@ def _page1(c, d, page_num=1, total=3):
         ly2 = PAGE_H - lh2 - 5 * mm
         pad = 2.5 * mm
         c.setFillColor(WHITE)
-        c.roundRect(lx2 - pad, ly2 - pad, lw2 + pad * 2, lh2 + pad * 2, 3 * mm, fill=1, stroke=0)
+        c.rect(lx2 - pad, ly2 - pad, lw2 + pad * 2, lh2 + pad * 2, fill=1, stroke=0)
         c.drawImage(_ir(LOGO_B64), lx2, ly2, width=lw2, height=lh2, mask="auto")
     except Exception:
         pass
@@ -825,7 +827,7 @@ def _page2(c, d, page_num=2, total=3):
     _header(c, "Quartier & environnement")
 
     # -- 1) "Pourquoi Barbier Immobilier" at TOP
-    pourquoi_h = 26 * mm
+    pourquoi_h = 30 * mm
     pq_top = PAGE_H - HEADER_H - SP_AFTER_HEADER
     pq_bot = pq_top - pourquoi_h
     c.setFillColor(TEAL)
@@ -835,12 +837,12 @@ def _page2(c, d, page_num=2, total=3):
     c.drawString(ML + 5 * mm, pq_top - 5 * mm, "Pourquoi Barbier Immobilier ?")
     c.setFont("Helvetica", 7.5)
     lines_pq = [
-        "Plus de 30 ans d'expertise en immobilier commercial dans le Morbihan.",
+        "Plus de 35 ans d'expertise en immobilier commercial dans le Morbihan.",
         "Un accompagnement personnalis\u00e9 pour chaque projet d'investissement.",
         "Une connaissance approfondie du tissu \u00e9conomique local et des opportunit\u00e9s.",
     ]
     for i_pq, lpq in enumerate(lines_pq):
-        c.drawString(ML + 5 * mm, pq_top - 13 * mm - i_pq * 5 * mm,
+        c.drawString(ML + 5 * mm, pq_top - 14 * mm - i_pq * 6 * mm,
                      "\u2022  " + lpq)
 
     # -- 2) "Le quartier" section — SP_BETWEEN_BLOCS gap
@@ -885,7 +887,7 @@ def _page2(c, d, page_num=2, total=3):
         max_text_h = 8 * mm
 
     sty = ParagraphStyle("qt", fontName="Helvetica", fontSize=9,
-                         textColor=GRAY_DARK, leading=14, alignment=4)
+                         textColor=GRAY_DARK, leading=15, alignment=4)
     para = Paragraph(texte_xml, sty)
     _, ph = para.wrap(CW, max_text_h)
     if ph > max_text_h:
@@ -1017,7 +1019,7 @@ def _page2(c, d, page_num=2, total=3):
 # ---------------------------------------------------------------------------
 # PAGE 3 — Annonce + Donnees financieres + Prix
 # ---------------------------------------------------------------------------
-def _page3(c, d, page_num=3, total=3):
+def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
     _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
 
     # ── Gather data ──
@@ -1052,25 +1054,30 @@ def _page3(c, d, page_num=3, total=3):
     pw2 = 57 * mm; ph2 = 16 * mm; pgy = 3 * mm
     pills_total_h = n_pill_rows * ph2 + (n_pill_rows - 1) * pgy
 
-    bail_rows = []
-    if is_bail:
-        if loc:    bail_rows.append(("Locataire", loc))
-        if lht:    bail_rows.append(("Loyer annuel HT", _pfmt(lht) + " HT/an"))
-        if linit:  bail_rows.append(("Loyer initial", _pfmt(linit) + " HT"))
-        if evol:   bail_rows.append(("Evolution loyer", str(evol)))
-        if duree:  bail_rows.append(("Dur\u00e9e du bail", str(duree)))
-        if taxe:   bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
-    elif taxe:
-        bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
-    row_h_bail = 12 * mm
-    bail_bloc_h = (math.ceil(len(bail_rows) / 2) * row_h_bail + 4 * mm) if bail_rows else 0
-
-    prix_block_h = 28 * mm if has_prix else 0
+    # When bail_details is provided, bail+prix go on a dedicated page
+    if skip_bail_prix:
+        bail_rows = []
+        bail_bloc_h = 0
+        prix_block_h = 0
+        has_prix_inline = False
+    else:
+        bail_rows = []
+        if is_bail:
+            if loc:    bail_rows.append(("Locataire", loc))
+            if lht:    bail_rows.append(("Loyer annuel HT", _pfmt(lht) + " HT/an"))
+            if linit:  bail_rows.append(("Loyer initial", _pfmt(linit) + " HT"))
+            if evol:   bail_rows.append(("Evolution loyer", str(evol)))
+            if duree:  bail_rows.append(("Dur\u00e9e du bail", str(duree)))
+            if taxe:   bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
+        elif taxe:
+            bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
+        bail_bloc_h = (math.ceil(len(bail_rows) / 2) * 12 * mm + 4 * mm) if bail_rows else 0
+        prix_block_h = 28 * mm if has_prix else 0
+        has_prix_inline = has_prix
 
     # ── PRE-COMPUTE: what desc can use ──
-    # Everything below desc is: pills + bail + prix, each with (SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC) overhead
     bottom_used = FOOTER_H + SP_BEFORE_FOOTER
-    if has_prix:
+    if has_prix and not skip_bail_prix:
         bottom_used += prix_block_h + SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC
     if bail_rows:
         bottom_used += bail_bloc_h + SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC
@@ -1082,6 +1089,8 @@ def _page3(c, d, page_num=3, total=3):
     cursor -= SEC_H + SP_AFTER_SEC
 
     desc = _clean(d.get("description", ""))
+    # Filter out "augmentation" phrase if present
+    desc = re.sub(r",?\s*avec une augmentation de [0-9,.]+ ?% sur la p\u00e9riode r\u00e9cente,?", "", desc)
     desc_lines = desc.split("\n")
     titre_annonce = ""
     desc_body = desc
@@ -1118,13 +1127,13 @@ def _page3(c, d, page_num=3, total=3):
         _pill(c, ML + col_i * (pw2 + pgx), pill_y - row_i * (ph2 + pgy), b64, lbl, val, pw2, ph2)
     cursor = pill_y - (n_pill_rows - 1) * (ph2 + pgy)
 
-    # ── BLOC 3: Données du bail ──
-    if bail_rows:
+    # ── BLOC 3: Données du bail (inline, skipped when bail_details page exists) ──
+    if bail_rows and not skip_bail_prix:
+        row_h_bail = 12 * mm
         cursor -= SP_BETWEEN_BLOCS
         bail_label = "Donn\u00e9es du bail" if is_bail else "Donn\u00e9es financi\u00e8res"
         _sec(c, bail_label, ML, cursor)
         cursor -= SEC_H + SP_AFTER_SEC
-        # Background aplat
         c.setFillColor(colors.HexColor("#EBF0F8"))
         c.roundRect(ML, cursor - bail_bloc_h, CW, bail_bloc_h, 2 * mm, fill=1, stroke=0)
         cols2 = 2
@@ -1145,8 +1154,8 @@ def _page3(c, d, page_num=3, total=3):
             c.drawString(cx2, cy2 - 6.5 * mm, str(valeur))
         cursor -= bail_bloc_h
 
-    # ── BLOC 4: Prix ──
-    if has_prix:
+    # ── BLOC 4: Prix (inline, skipped when bail_details page exists) ──
+    if has_prix and not skip_bail_prix:
         try:
             prix_fai = int(float(str(prix_brut)))
             pnv_v = d.get("prix_net_vendeur") or 0
@@ -1161,28 +1170,230 @@ def _page3(c, d, page_num=3, total=3):
             cursor -= SP_BETWEEN_BLOCS
             _sec(c, "Prix", ML, cursor)
             cursor -= SEC_H + SP_AFTER_SEC
-            bw3 = CW / 3 - 2 * mm
+            # Determine layout: 3 boxes + optional rentabilité
+            taux = d.get("taux_rentabilite") or ""
+            n_boxes = 4 if taux else 3
+            bw3 = CW / n_boxes - 2 * mm
             hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
             bloc_y = cursor - prix_block_h
             items = [
-                ("PRIX DE VENTE FAI", _pfmt(prix_fai), TEAL),
-                ("HONORAIRES (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
+                ("PRIX FAI HT", _pfmt(prix_fai), TEAL),
+                ("HONORAIRES HT (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
                 ("PRIX NET VENDEUR", _pfmt(pnv_v), TEAL_DARK),
             ]
+            if taux:
+                items.append(("RENTABILIT\u00c9 BRUTE", str(taux), colors.HexColor("#2E7D32")))
             for ip, (lbl, val, col) in enumerate(items):
-                bxp = ML + ip * (bw3 + 3 * mm)
+                bxp = ML + ip * (bw3 + 2 * mm)
                 c.setFillColor(col)
                 c.roundRect(bxp, bloc_y, bw3, prix_block_h, 2.5 * mm, fill=1, stroke=0)
                 c.setFillColor(WHITE)
-                c.setFont("Helvetica", 6)
-                c.drawString(bxp + 4 * mm, bloc_y + prix_block_h - 8 * mm, lbl)
+                c.setFont("Helvetica", 5.5 if n_boxes == 4 else 6)
+                c.drawString(bxp + 3 * mm, bloc_y + prix_block_h - 8 * mm, lbl)
                 c.setStrokeColor(colors.HexColor("#FFFFFF55"))
                 c.setLineWidth(0.5)
-                c.line(bxp + 4 * mm, bloc_y + prix_block_h - 10 * mm, bxp + bw3 - 4 * mm, bloc_y + prix_block_h - 10 * mm)
-                c.setFont("Helvetica-Bold", 13)
-                c.drawString(bxp + 4 * mm, bloc_y + 6 * mm, val)
+                c.line(bxp + 3 * mm, bloc_y + prix_block_h - 10 * mm, bxp + bw3 - 3 * mm, bloc_y + prix_block_h - 10 * mm)
+                c.setFont("Helvetica-Bold", 11 if n_boxes == 4 else 13)
+                c.drawString(bxp + 3 * mm, bloc_y + 6 * mm, val)
         except Exception as e:
             app.logger.error("Prix block: %s", e)
+
+    _footer(c, page_num, total=total)
+
+
+# ---------------------------------------------------------------------------
+# PAGE — Détails du bail (dedicated page for comprehensive bail data) + Prix
+# ---------------------------------------------------------------------------
+def _page_bail_details(c, d, page_num, total):
+    """Dedicated page for extensive bail details + prix section."""
+    _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
+
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "D\u00e9tails du bail", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
+
+    bail_items = d.get("bail_details") or []
+    if not bail_items:
+        # Fallback: build from legacy fields
+        loc = d.get("locataire") or ""
+        lht = d.get("loyer_annuel_ht") or 0
+        linit = d.get("loyer_initial_ht") or 0
+        evol = d.get("evolution_loyer") or ""
+        duree = d.get("duree_bail") or ""
+        taxe = d.get("taxe_fonciere") or 0
+        if loc:   bail_items.append({"label": "Locataire", "value": loc})
+        if lht:   bail_items.append({"label": "Loyer annuel HT", "value": _pfmt(lht) + " HT/an"})
+        if linit:  bail_items.append({"label": "Loyer initial", "value": _pfmt(linit) + " HT"})
+        if evol:   bail_items.append({"label": "\u00c9volution loyer", "value": str(evol)})
+        if duree:  bail_items.append({"label": "Dur\u00e9e du bail", "value": str(duree)})
+        if taxe:   bail_items.append({"label": "Taxe fonci\u00e8re", "value": _pfmt(taxe) + "/an"})
+
+    if bail_items:
+        # Calculate heights: use paragraph wrapping for long values
+        label_w = 52 * mm
+        val_x = ML + label_w + 3 * mm
+        val_w = CW - label_w - 8 * mm
+        row_gap = 1.5 * mm
+
+        # Pre-compute row heights
+        sty_val = ParagraphStyle("bv", fontName="Helvetica-Bold", fontSize=8,
+                                 textColor=TEAL_DARK, leading=10)
+        row_heights = []
+        for item in bail_items:
+            val_txt = str(item.get("value", "")).replace("&", "&amp;").replace("<", "&lt;")
+            p = Paragraph(val_txt, sty_val)
+            _, rh = p.wrap(val_w, 200 * mm)
+            row_heights.append(max(rh + 3 * mm, 9 * mm))
+
+        total_bail_h = sum(row_heights) + len(row_heights) * row_gap + 6 * mm
+
+        # Background
+        c.setFillColor(colors.HexColor("#EBF0F8"))
+        c.roundRect(ML, cursor - total_bail_h, CW, total_bail_h, 2.5 * mm, fill=1, stroke=0)
+
+        ry = cursor - 4 * mm
+        for idx, item in enumerate(bail_items):
+            label = str(item.get("label", ""))
+            value = str(item.get("value", ""))
+            rh = row_heights[idx]
+
+            # Label (left column)
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 6.5)
+            c.drawString(ML + 5 * mm, ry - 2 * mm, label.upper())
+
+            # Separator line
+            c.setStrokeColor(colors.HexColor("#C0CBD8"))
+            c.setLineWidth(0.3)
+            c.line(ML + 5 * mm, ry - 3.5 * mm, ML + CW - 5 * mm, ry - 3.5 * mm)
+
+            # Value (right column, wrapped)
+            val_txt = value.replace("&", "&amp;").replace("<", "&lt;")
+            p = Paragraph(val_txt, sty_val)
+            _, ph = p.wrap(val_w, 200 * mm)
+            p.drawOn(c, val_x, ry - 3 * mm - ph)
+
+            ry -= rh + row_gap
+
+        cursor -= total_bail_h
+
+    # ── Prix section ──
+    prix_brut = d.get("prix") or 0
+    if not prix_brut:
+        pnv = d.get("prix_net_vendeur") or 0
+        hnr = d.get("honoraires") or 0
+        if pnv and hnr:
+            try:
+                prix_brut = int(float(str(pnv))) + int(float(str(hnr)))
+            except Exception:
+                pass
+    if prix_brut:
+        try:
+            prix_fai = int(float(str(prix_brut)))
+            pnv_v = d.get("prix_net_vendeur") or 0
+            hono_raw = d.get("honoraires") or 0
+            if pnv_v:
+                pnv_v = int(float(str(pnv_v)))
+                hono_v = int(float(str(hono_raw))) if hono_raw else (prix_fai - pnv_v)
+            else:
+                hono_v = int(prix_fai * 0.05)
+                pnv_v = prix_fai - hono_v
+
+            cursor -= SP_BETWEEN_BLOCS
+            _sec(c, "Prix", ML, cursor)
+            cursor -= SEC_H + SP_AFTER_SEC
+            taux = d.get("taux_rentabilite") or ""
+            n_boxes = 4 if taux else 3
+            prix_block_h = 28 * mm
+            bw3 = CW / n_boxes - 2 * mm
+            hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
+            bloc_y = cursor - prix_block_h
+            items = [
+                ("PRIX FAI HT", _pfmt(prix_fai), TEAL),
+                ("HONORAIRES HT (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
+                ("PRIX NET VENDEUR", _pfmt(pnv_v), TEAL_DARK),
+            ]
+            if taux:
+                items.append(("RENTABILIT\u00c9 BRUTE", str(taux), colors.HexColor("#2E7D32")))
+            for ip, (lbl, val, col) in enumerate(items):
+                bxp = ML + ip * (bw3 + 2 * mm)
+                c.setFillColor(col)
+                c.roundRect(bxp, bloc_y, bw3, prix_block_h, 2.5 * mm, fill=1, stroke=0)
+                c.setFillColor(WHITE)
+                c.setFont("Helvetica", 5.5 if n_boxes == 4 else 6)
+                c.drawString(bxp + 3 * mm, bloc_y + prix_block_h - 8 * mm, lbl)
+                c.setStrokeColor(colors.HexColor("#FFFFFF55"))
+                c.setLineWidth(0.5)
+                c.line(bxp + 3 * mm, bloc_y + prix_block_h - 10 * mm, bxp + bw3 - 3 * mm, bloc_y + prix_block_h - 10 * mm)
+                c.setFont("Helvetica-Bold", 11 if n_boxes == 4 else 13)
+                c.drawString(bxp + 3 * mm, bloc_y + 6 * mm, val)
+        except Exception as e:
+            app.logger.error("Prix block (bail page): %s", e)
+
+    _footer(c, page_num, total=total)
+
+
+# ---------------------------------------------------------------------------
+# PAGE — Plans des locaux (floor plans)
+# ---------------------------------------------------------------------------
+def _page_plans_locaux(c, d, page_num, total):
+    """Page displaying floor plans of the property."""
+    _header(c, "Plans des locaux \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
+    sec_y = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "Plans des locaux", ML, sec_y)
+
+    plans = d.get("plans") or []
+    zone_top = sec_y - SEC_H - SP_AFTER_SEC
+    zone_bot = FOOTER_H + SP_BEFORE_FOOTER
+    available_h = zone_top - zone_bot
+    gap_y = 4 * mm
+
+    if not plans:
+        c.setFillColor(GRAY_LIGHT)
+        c.roundRect(ML, zone_bot, CW, available_h, 3 * mm, fill=1, stroke=0)
+        c.setFillColor(GRAY_MID)
+        c.setFont("Helvetica", 10)
+        c.drawCentredString(ML + CW / 2, zone_bot + available_h / 2, "Plans non disponibles")
+        _footer(c, page_num, total=total)
+        return
+
+    n = min(len(plans), 2)
+    ph_each = (available_h - (n - 1) * gap_y) / n
+
+    for i in range(n):
+        img = _fetch_photo(plans[i])
+        py = zone_top - (i + 1) * ph_each - i * gap_y
+        if img:
+            try:
+                iw, ih = img.getSize() if hasattr(img, "getSize") else img.size
+                ir_ratio = iw / ih if ih > 0 else 1
+                target_r = CW / ph_each
+                if ir_ratio > target_r:
+                    dw = CW
+                    dh = CW / ir_ratio
+                else:
+                    dh = ph_each
+                    dw = ph_each * ir_ratio
+                dx = ML + (CW - dw) / 2
+                dy = py + (ph_each - dh) / 2
+                # White background + border
+                c.setFillColor(WHITE)
+                c.setStrokeColor(colors.HexColor("#CCCCCC"))
+                c.setLineWidth(0.5)
+                c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=1)
+                c.drawImage(img if hasattr(img, "getSize") else ImageReader(img), dx, dy, width=dw, height=dh, mask="auto")
+            except Exception as e:
+                app.logger.error("Plan draw: %s", e)
+                c.setFillColor(GRAY_LIGHT)
+                c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=0)
+        else:
+            c.setFillColor(GRAY_LIGHT)
+            c.setStrokeColor(GRAY_BDR)
+            c.setLineWidth(0.5)
+            c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=1)
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 9)
+            c.drawCentredString(ML + CW / 2, py + ph_each / 2, "Plan " + str(i + 1))
 
     _footer(c, page_num, total=total)
 
@@ -1831,21 +2042,48 @@ def generate_dossier_pdf(d):
     cv.setTitle("Dossier \u2014 " + str(d.get("reference", "")))
 
     photos = d.get("photos") or []
+    plans_locaux = d.get("plans") or []
     # Separate real photos from cadastre/PDFs
     real_photos = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
     cadastre_photos = [p for p in photos if _is_plan(p)]
 
     has_photos = len(real_photos) > 0
     has_cadastre = len(cadastre_photos) > 0
+    has_plans = len(plans_locaux) > 0
+    has_bail_details = bool(d.get("bail_details"))
     is_estimation = str(d.get("mode", "")).lower() == "estimation"
-    total = 3 + (2 if is_estimation else 0) + (1 if has_photos else 0) + (1 if has_cadastre else 0)
 
+    # Count total pages
+    total = 2  # cover + quartier
+    if has_cadastre:
+        total += 1
+    if is_estimation:
+        total += 2
+    total += 1  # page3 (annonce + caract\u00e9ristiques)
+    if has_bail_details:
+        total += 1
+    if has_plans:
+        total += 1
+    if has_photos:
+        total += 1
+
+    # Page 1 — Cover
     _page1(cv, d, page_num=1, total=total)
     cv.showPage()
+
+    # Page 2 — Quartier & Environnement
     _page2(cv, d, page_num=2, total=total)
     cv.showPage()
 
     pn = 3
+
+    # Page 3 — Plan cadastral (moved right after quartier per client request)
+    if has_cadastre:
+        _page_cadastre(cv, d, page_num=pn, total=total)
+        cv.showPage()
+        pn += 1
+
+    # Estimation pages (if applicable)
     if is_estimation:
         _page_comparables(cv, d, page_num=pn, total=total)
         cv.showPage()
@@ -1854,16 +2092,28 @@ def generate_dossier_pdf(d):
         cv.showPage()
         pn += 1
 
-    _page3(cv, d, page_num=pn, total=total)
+    # Annonce + Caract\u00e9ristiques (+ inline bail/prix if no bail_details)
+    _page3(cv, d, page_num=pn, total=total, skip_bail_prix=has_bail_details)
     cv.showPage()
     pn += 1
+
+    # Dedicated bail details + prix page (when bail_details provided)
+    if has_bail_details:
+        _page_bail_details(cv, d, page_num=pn, total=total)
+        cv.showPage()
+        pn += 1
+
+    # Plans des locaux (floor plans)
+    if has_plans:
+        _page_plans_locaux(cv, d, page_num=pn, total=total)
+        cv.showPage()
+        pn += 1
+
+    # Photos du bien
     if has_photos:
         _page_photos(cv, d, page_num=pn, total=total)
         cv.showPage()
         pn += 1
-    if has_cadastre:
-        _page_cadastre(cv, d, page_num=pn, total=total)
-        cv.showPage()
 
     cv.save()
     buf.seek(0)
@@ -1900,7 +2150,7 @@ def dossier():
     real = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
     plans = [p for p in photos if _is_plan(p)]
     app.logger.info(
-        "Dossier v5.29 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
+        "Dossier v5.30 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
         ref, list(body.keys()), len(photos), len(real), len(plans))
     # Log first 80 chars of each photo to debug
     for idx, p in enumerate(photos):
