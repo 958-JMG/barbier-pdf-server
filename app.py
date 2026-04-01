@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Barbier Immobilier - PDF Dossier de Vente v5.16
+Barbier Immobilier - PDF Dossier de Vente v5.19
 Flask app deployed on Railway.
-Routes: GET /, POST /generate-quartier, POST /dossier, POST /mandat, POST /urbanisme
+Routes: GET /, POST /generate-quartier, POST /dossier, POST /mandat, POST /avis-valeur, POST /urbanisme
 """
 
 import html as _html_mod
@@ -1849,27 +1849,27 @@ def mandat():
 # AVIS DE VALEUR PDF (2 pages — document confidentiel)
 # ---------------------------------------------------------------------------
 def _avis_header(c, ref, ville, nego):
-    """Custom header for avis de valeur: logo left + title right."""
+    """Custom header for avis de valeur: logo icon left + title right."""
     c.saveState()
-    # Logo top-left (icon only, compact)
+    # Logo — small icon only, avoids text overlap
     try:
-        lw = 16 * mm
-        lh = lw * (662 / 488)
+        lh = 10 * mm
+        lw = lh * (488 / 662)  # ~7.4mm wide
         c.drawImage(_ir(LOGO_B64), ML, PAGE_H - 5 * mm - lh, width=lw, height=lh, mask="auto")
     except Exception:
         pass
     # Title right-aligned
-    c.setFont("Helvetica-Bold", 17)
+    c.setFont("Helvetica-Bold", 16)
     c.setFillColor(TEAL_DARK)
-    c.drawRightString(PAGE_W - MR, PAGE_H - 12 * mm, "AVIS DE VALEUR PROFESSIONNEL")
-    c.setFont("Helvetica", 8.5)
+    c.drawRightString(PAGE_W - MR, PAGE_H - 11 * mm, "AVIS DE VALEUR PROFESSIONNEL")
+    c.setFont("Helvetica", 8)
     c.setFillColor(GRAY_MID)
     subtitle = "R\u00e9f. " + str(ref) + " \u00b7 " + str(ville) + " \u00b7 " + str(nego)
-    c.drawRightString(PAGE_W - MR, PAGE_H - 18 * mm, subtitle)
-    # Separator line
+    c.drawRightString(PAGE_W - MR, PAGE_H - 17 * mm, subtitle)
+    # Separator line at fixed 20mm from top
     c.setStrokeColor(GRAY_BDR)
     c.setLineWidth(0.5)
-    c.line(ML, PAGE_H - 22 * mm, PAGE_W - MR, PAGE_H - 22 * mm)
+    c.line(ML, PAGE_H - 20 * mm, PAGE_W - MR, PAGE_H - 20 * mm)
     c.restoreState()
 
 
@@ -1936,7 +1936,11 @@ def _avis_price_box(c, label, value, x, y, w, h, highlight=False):
 
 
 def generate_avis_valeur_pdf(d):
-    """Generate a 2-page Avis de Valeur Professionnel PDF."""
+    """Generate Avis de Valeur Professionnel PDF (2-3 pages).
+    Page 1: Identification + Map/Prices + Analyse de marché
+    Page 2: Annonce commerciale + Signatures & Validation
+    Page 3 (optional): Plan cadastral (when photos contain cadastre images)
+    """
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=A4)
 
@@ -1955,53 +1959,65 @@ def generate_avis_valeur_pdf(d):
     avis_texte = d.get("avis_valeur", "")
     annonce = d.get("description", "")
 
+    # Check for cadastre photos
+    photos = d.get("photos") or []
+    cadastre_imgs = []
+    for p in photos:
+        if _is_plan(p):
+            img = _fetch_photo(p)
+            if img:
+                cadastre_imgs.append(img)
+    has_cadastre = len(cadastre_imgs) > 0
+
+    total_pages = 2 + (1 if has_cadastre else 0)
+
     # ═══════════════════════════════════════════════════════════════════════
-    # PAGE 1: Identification + Carte + Estimation
+    # PAGE 1: Identification + Carte/Prix + Analyse de marché
     # ═══════════════════════════════════════════════════════════════════════
     _avis_header(c, ref, ville, nego)
-    _avis_footer(c, ref, 1, 2)
-    cursor = PAGE_H - 26 * mm
+    _avis_footer(c, ref, 1, total_pages)
+    cursor = PAGE_H - 24 * mm
 
     # ── 01 — IDENTIFICATION DU BIEN ─────────────────────────────────────
     _sec(c, "01 \u2014 IDENTIFICATION DU BIEN", ML, cursor)
-    cursor -= SEC_H + 4 * mm
+    cursor -= SEC_H + 3 * mm
 
-    # 2 rows × 3 cols of identification cells
     cw3 = CW / 3
-    _avis_id_cell(c, "Type de bien", type_bien, ML, cursor - 14 * mm, cw3)
-    _avis_id_cell(c, "Surface habitable", (str(surface) + " m\u00b2") if surface else None, ML + cw3, cursor - 14 * mm, cw3)
-    _avis_id_cell(c, "Surface terrain", (str(surface_t) + " m\u00b2") if surface_t else None, ML + 2 * cw3, cursor - 14 * mm, cw3)
-    cursor -= 14 * mm
-    _avis_id_cell(c, "Adresse compl\u00e8te", adresse, ML, cursor - 14 * mm, cw3)
-    _avis_id_cell(c, "R\u00e9f. cadastrale", ref_cad, ML + cw3, cursor - 14 * mm, cw3)
-    _avis_id_cell(c, "\u00c9tat g\u00e9n\u00e9ral", etat, ML + 2 * cw3, cursor - 14 * mm, cw3)
-    cursor -= 14 * mm + 8 * mm
+    cell_h = 13 * mm
+    _avis_id_cell(c, "Type de bien", type_bien, ML, cursor - cell_h, cw3)
+    _avis_id_cell(c, "Surface habitable", (str(surface) + " m\u00b2") if surface else None, ML + cw3, cursor - cell_h, cw3)
+    _avis_id_cell(c, "Surface terrain", (str(surface_t) + " m\u00b2") if surface_t else None, ML + 2 * cw3, cursor - cell_h, cw3)
+    cursor -= cell_h
+    _avis_id_cell(c, "Adresse compl\u00e8te", adresse, ML, cursor - cell_h, cw3)
+    _avis_id_cell(c, "R\u00e9f. cadastrale", ref_cad, ML + cw3, cursor - cell_h, cw3)
+    _avis_id_cell(c, "\u00c9tat g\u00e9n\u00e9ral", etat, ML + 2 * cw3, cursor - cell_h, cw3)
+    cursor -= cell_h + 6 * mm
 
     # ── 02 — LOCALISATION & ESTIMATION DE VALEUR ────────────────────────
     _sec(c, "02 \u2014 LOCALISATION & ESTIMATION DE VALEUR", ML, cursor)
-    cursor -= SEC_H + 4 * mm
+    cursor -= SEC_H + 3 * mm
 
-    # Map (left ~60%) + Price boxes (right ~40%)
     map_w = CW * 0.58
-    map_h = 80 * mm
+    map_h = 72 * mm
     box_col_x = ML + map_w + 5 * mm
     box_col_w = CW - map_w - 5 * mm
 
     # Draw map
     map_img = None
     try:
-        poi = _get_poi_osm(*_geocode(adresse, ville)) if _geocode(adresse, ville)[0] else []
-        gimg, glat, glon = _google_static_map(adresse, ville, poi)
-        if gimg:
-            map_img = gimg
-        else:
-            oimg, olat, olon = _osm_map(adresse, ville)
-            if oimg:
-                map_img = oimg
+        geo = _geocode(adresse, ville)
+        if geo and geo[0]:
+            poi = _get_poi_osm(*geo)
+            gimg, glat, glon = _google_static_map(adresse, ville, poi)
+            if gimg:
+                map_img = gimg
+            else:
+                oimg, olat, olon = _osm_map(adresse, ville)
+                if oimg:
+                    map_img = oimg
     except Exception:
         pass
 
-    map_top = cursor
     if map_img:
         img_buf = io.BytesIO()
         map_img.save(img_buf, format="JPEG", quality=90)
@@ -2015,14 +2031,14 @@ def generate_avis_valeur_pdf(d):
         c.drawCentredString(ML + map_w / 2, cursor - map_h / 2, "Carte non disponible")
 
     # Address label under map
-    c.setFont("Helvetica", 7.5)
+    c.setFont("Helvetica", 7)
     c.setFillColor(GRAY_DARK)
-    c.drawString(ML + 2 * mm, cursor - map_h - 5 * mm, "\u25a0 " + str(adresse))
+    c.drawString(ML + 2 * mm, cursor - map_h - 4 * mm, "\u25a0 " + str(adresse))
 
-    # Price boxes (right column) — 3 boxes stacked
-    box_h = 24 * mm
-    box_gap = 4 * mm
-    box_y_top = cursor - 1 * mm
+    # Price boxes (right column)
+    box_h = 22 * mm
+    box_gap = 3 * mm
+    box_y_top = cursor
 
     _avis_price_box(c, "VALEUR BASSE", prix_min,
                     box_col_x, box_y_top - box_h, box_col_w, box_h, highlight=False)
@@ -2031,145 +2047,91 @@ def generate_avis_valeur_pdf(d):
     _avis_price_box(c, "VALEUR HAUTE", prix_max,
                     box_col_x, box_y_top - 3 * box_h - 2 * box_gap, box_col_w, box_h, highlight=False)
 
+    cursor -= map_h + 8 * mm  # below map + address label
+
+    # ── 03 — ANALYSE DE MARCH\u00c9 (remaining space on page 1) ─────────────
+    _sec(c, "03 \u2014 ANALYSE DE MARCH\u00c9", ML, cursor)
+    cursor -= SEC_H + 3 * mm
+
+    footer_margin = 14 * mm
+    analyse_bottom = footer_margin
+
+    if avis_texte:
+        avis_clean = _clean(avis_texte)
+        lines = avis_clean.split("\n")
+        filtered = []
+        for line in lines:
+            ls = line.strip()
+            if not ls:
+                continue
+            if ls.lower().startswith("avis de valeur"):
+                continue
+            filtered.append(ls)
+
+        style_title = ParagraphStyle("avisT", fontName="Helvetica-Bold", fontSize=8,
+                                     leading=10, textColor=TEAL_DARK, spaceBefore=2)
+        style_body = ParagraphStyle("avisB", fontName="Helvetica", fontSize=6.5,
+                                    leading=8.5, textColor=GRAY_DARK)
+
+        title_keys = ["synth\u00e8se", "m\u00e9thodologie", "\u00e9valuation",
+                      "recommandation", "contexte", "analyse du march",
+                      "points forts", "m\u00e9thode", "conclusion"]
+
+        text_parts = []
+        for line in filtered:
+            is_title = any(line.lower().startswith(k) for k in title_keys)
+            text_parts.append(("title" if is_title else "body", line))
+
+        paras = []
+        for kind, txt in text_parts:
+            p = Paragraph(txt, style_title if kind == "title" else style_body)
+            _, ph = p.wrap(CW - 12 * mm, 400 * mm)
+            paras.append((p, ph))
+
+        # Box sizing
+        text_total = sum(ph for _, ph in paras) + len(paras) * 0.5 * mm
+        box_inner = 10 * mm + text_total + 8 * mm  # header + text + attribution
+        max_box = cursor - analyse_bottom
+        box_h_analyse = min(box_inner, max_box)
+        box_y = cursor - box_h_analyse
+
+        _rrect(c, ML, box_y, CW, box_h_analyse, r=4, stroke=GRAY_BDR)
+
+        # Box header
+        c.setFont("Helvetica-Bold", 9); c.setFillColor(TEAL_DARK)
+        c.drawString(ML + 5 * mm, cursor - 5 * mm, "ANALYSE DE MARCH\u00c9")
+        c.setFont("Helvetica", 6.5); c.setFillColor(GRAY_MID)
+        c.drawString(ML + 5 * mm, cursor - 9 * mm, "Avis de valeur \u2014 " + type_bien + ", " + ville)
+
+        # Draw paragraphs
+        ty = cursor - 12 * mm
+        stop_y = box_y + 8 * mm
+        for p, ph in paras:
+            if ty - ph < stop_y:
+                break
+            p.drawOn(c, ML + 6 * mm, ty - ph)
+            ty -= ph + 0.5 * mm
+
+        # Attribution
+        c.setFont("Helvetica-Bold", 6); c.setFillColor(TEAL_DARK)
+        c.drawString(ML + 5 * mm, box_y + 2.5 * mm,
+                     "Barbier Immobilier \u2014 Expert immobilier commercial Morbihan \u2014 02.97.47.11.11")
+
     c.showPage()
 
     # ═══════════════════════════════════════════════════════════════════════
-    # PAGE 2: Analyse de marché + Annonce + Signatures
+    # PAGE 2: Annonce commerciale + Signatures & Validation
     # ═══════════════════════════════════════════════════════════════════════
     _avis_header(c, ref, ville, nego)
-    _avis_footer(c, ref, 2, 2)
-    cursor = PAGE_H - 26 * mm
+    _avis_footer(c, ref, 2, total_pages)
 
-    # ── 04 — ANALYSE DE MARCHÉ & AVIS PROFESSIONNEL ─────────────────────
-    _sec(c, "04 \u2014 ANALYSE DE MARCH\u00c9 & AVIS PROFESSIONNEL", ML, cursor)
-    cursor -= SEC_H + 4 * mm
+    # ── Fixed bottom elements (signatures + disclaimer) ─────────────────
+    DISC_Y = 13 * mm
+    DISC_H = 12 * mm
+    SIG_GAP = 2 * mm
+    SIG_H = 22 * mm
 
-    # Avis text in a bordered box
-    if avis_texte:
-        avis_clean = _clean(avis_texte)
-        # Box border
-        style_title = ParagraphStyle("avisTitle", fontName="Helvetica-Bold", fontSize=9.5,
-                                     leading=12, textColor=TEAL_DARK, spaceBefore=0, spaceAfter=4)
-        style_body = ParagraphStyle("avisBody", fontName="Helvetica", fontSize=8,
-                                    leading=10.5, textColor=GRAY_DARK, spaceBefore=2, spaceAfter=2)
-
-        # Parse avis text into paragraphs with subtitles
-        lines = avis_clean.split("\n")
-        text_parts = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            # Detect subtitles (Synthèse, Méthodologie, etc.)
-            if any(line.lower().startswith(k) for k in
-                   ["synth\u00e8se", "m\u00e9thodologie", "\u00e9valuation d\u00e9taill\u00e9e",
-                    "recommandations", "contexte", "analyse du march",
-                    "points forts", "m\u00e9thode", "conclusion"]):
-                text_parts.append(("title", line))
-            else:
-                text_parts.append(("body", line))
-
-        # First: measure total height
-        test_parts = []
-        for kind, txt in text_parts:
-            p = Paragraph(txt.replace("\n", "<br/>"), style_title if kind == "title" else style_body)
-            _, ph = p.wrap(CW - 10 * mm, 300 * mm)
-            test_parts.append((p, ph))
-        # 16mm top (box header) + 10mm bottom (attribution) + text
-        total_h = sum(ph for _, ph in test_parts) + len(test_parts) * 0.5 * mm + 28 * mm
-
-        # Cap height: leave room for annonce + signatures below
-        max_box_h = cursor - 12 * mm - 68 * mm
-        if total_h > max_box_h:
-            total_h = max_box_h
-
-        # Draw box
-        box_y = cursor - total_h
-        _rrect(c, ML, box_y, CW, total_h, r=4, stroke=GRAY_BDR)
-
-        # Section header inside box
-        c.setFont("Helvetica-Bold", 10)
-        c.setFillColor(TEAL_DARK)
-        c.drawString(ML + 5 * mm, cursor - 6 * mm, "ANALYSE DE MARCH\u00c9")
-        c.setFont("Helvetica", 7.5)
-        c.setFillColor(GRAY_MID)
-        c.drawString(ML + 5 * mm, cursor - 11 * mm,
-                     "Avis de valeur \u2014 " + type_bien + ", " + ville)
-
-        # Draw paragraphs (leave 10mm at bottom for attribution)
-        text_y = cursor - 16 * mm
-        attr_reserve = box_y + 10 * mm
-        for p, ph in test_parts:
-            if text_y - ph < attr_reserve:
-                break
-            p.drawOn(c, ML + 5 * mm, text_y - ph)
-            text_y -= ph + 0.5 * mm
-
-        # Attribution line at bottom of box
-        c.setFont("Helvetica-Bold", 7)
-        c.setFillColor(TEAL_DARK)
-        c.drawString(ML + 5 * mm, box_y + 4 * mm,
-                     "Barbier Immobilier \u2014 Expert immobilier commercial Morbihan \u2014 02.97.47.11.11")
-        cursor = box_y - 6 * mm
-    else:
-        c.setFont("Helvetica-Oblique", 9)
-        c.setFillColor(GRAY_MID)
-        c.drawString(ML, cursor, "Analyse de march\u00e9 non disponible.")
-        cursor -= 12 * mm
-
-    # ── ANNONCE COMMERCIALE ─────────────────────────────────────────────
-    if annonce:
-        _sec(c, "ANNONCE COMMERCIALE", ML, cursor)
-        cursor -= SEC_H + 3 * mm
-        annonce_clean = _clean(annonce)
-        style_ann = ParagraphStyle("annonce", fontName="Helvetica", fontSize=7.5,
-                                   leading=10, textColor=GRAY_DARK)
-        # Bordered box
-        pa = Paragraph(annonce_clean[:1500].replace("\n", "<br/>"), style_ann)
-        _, pah = pa.wrap(CW - 10 * mm, 60 * mm)
-        pah = min(pah, 55 * mm)
-        ann_box_h = pah + 8 * mm
-        _rrect(c, ML, cursor - ann_box_h, CW, ann_box_h, r=4, stroke=GRAY_BDR)
-        pa.drawOn(c, ML + 5 * mm, cursor - ann_box_h + 4 * mm)
-        cursor -= ann_box_h + 6 * mm
-
-    # ── 05 — SIGNATURES & VALIDATION ────────────────────────────────────
-    _sec(c, "05 \u2014 SIGNATURES & VALIDATION", ML, cursor)
-    cursor -= SEC_H + 4 * mm
-
-    sig_w = CW / 2 - 4 * mm
-    sig_h = 28 * mm
-
-    # Left: Négociateur
-    _rrect(c, ML, cursor - sig_h, sig_w, sig_h, r=3, stroke=GRAY_BDR)
-    c.setFont("Helvetica", 6.5)
-    c.setFillColor(GRAY_MID)
-    c.drawString(ML + 4 * mm, cursor - 5 * mm, "N\u00c9GOCIATEUR MANDATAIRE")
-    c.setFont("Helvetica-Bold", 10)
-    c.setFillColor(GRAY_DARK)
-    c.drawString(ML + 4 * mm, cursor - 11 * mm, str(nego))
-    c.setFont("Helvetica", 7)
-    c.setFillColor(GRAY_MID)
-    c.drawString(ML + 4 * mm, cursor - 18 * mm, "Signature :")
-    c.drawString(ML + 4 * mm, cursor - 23 * mm, "Date :")
-
-    # Right: Directeur
-    rx = ML + sig_w + 8 * mm
-    _rrect(c, rx, cursor - sig_h, sig_w, sig_h, r=3, stroke=GRAY_BDR)
-    c.setFont("Helvetica", 6.5)
-    c.setFillColor(GRAY_MID)
-    c.drawString(rx + 4 * mm, cursor - 5 * mm, "DIRECTEUR \u2014 BARBIER IMMOBILIER")
-    c.setFont("Helvetica-Bold", 10)
-    c.setFillColor(GRAY_DARK)
-    c.drawString(rx + 4 * mm, cursor - 11 * mm, "Laurent Baradu")
-    c.setFont("Helvetica", 7)
-    c.setFillColor(GRAY_MID)
-    c.drawString(rx + 4 * mm, cursor - 18 * mm, "Signature :")
-    c.drawString(rx + 4 * mm, cursor - 23 * mm, "Date :")
-
-    cursor -= sig_h + 5 * mm
-
-    # Legal disclaimer
+    # ── Disclaimer ──────────────────────────────────────────────────────
     disclaimer = (
         "Document \u00e9tabli par Barbier Immobilier, agent immobilier titulaire de la carte "
         "professionnelle Transactions sur immeubles et fonds de commerce. Ce document est "
@@ -2178,12 +2140,124 @@ def generate_avis_valeur_pdf(d):
     )
     style_disc = ParagraphStyle("disc", fontName="Helvetica", fontSize=6, leading=7.5,
                                 textColor=GRAY_MID)
-    _rrect(c, ML, cursor - 16 * mm, CW, 16 * mm, r=3, fill=GRAY_LIGHT)
+    _rrect(c, ML, DISC_Y, CW, DISC_H, r=3, fill=GRAY_LIGHT)
     pd = Paragraph(disclaimer, style_disc)
-    _, pdh = pd.wrap(CW - 10 * mm, 14 * mm)
-    pd.drawOn(c, ML + 5 * mm, cursor - 14 * mm)
+    pd.wrap(CW - 10 * mm, DISC_H - 2 * mm)
+    pd.drawOn(c, ML + 5 * mm, DISC_Y + 2 * mm)
+
+    # ── 05 — SIGNATURES & VALIDATION ────────────────────────────────────
+    sig_bar_y = DISC_Y + DISC_H + SIG_GAP + SIG_H + 4 * mm
+    _sec(c, "05 \u2014 SIGNATURES & VALIDATION", ML, sig_bar_y)
+    sig_top = sig_bar_y - SEC_H - 3 * mm
+    sig_w = CW / 2 - 4 * mm
+
+    _rrect(c, ML, sig_top - SIG_H, sig_w, SIG_H, r=3, stroke=GRAY_BDR)
+    c.setFont("Helvetica", 6.5); c.setFillColor(GRAY_MID)
+    c.drawString(ML + 4 * mm, sig_top - 5 * mm, "N\u00c9GOCIATEUR MANDATAIRE")
+    c.setFont("Helvetica-Bold", 9); c.setFillColor(GRAY_DARK)
+    c.drawString(ML + 4 * mm, sig_top - 10 * mm, str(nego))
+    c.setFont("Helvetica", 7); c.setFillColor(GRAY_MID)
+    c.drawString(ML + 4 * mm, sig_top - 16 * mm, "Signature :")
+    c.drawString(ML + 4 * mm, sig_top - 21 * mm, "Date :")
+
+    rx = ML + sig_w + 8 * mm
+    _rrect(c, rx, sig_top - SIG_H, sig_w, SIG_H, r=3, stroke=GRAY_BDR)
+    c.setFont("Helvetica", 6.5); c.setFillColor(GRAY_MID)
+    c.drawString(rx + 4 * mm, sig_top - 5 * mm, "DIRECTEUR \u2014 BARBIER IMMOBILIER")
+    c.setFont("Helvetica-Bold", 9); c.setFillColor(GRAY_DARK)
+    c.drawString(rx + 4 * mm, sig_top - 10 * mm, "Laurent Baradu")
+    c.setFont("Helvetica", 7); c.setFillColor(GRAY_MID)
+    c.drawString(rx + 4 * mm, sig_top - 16 * mm, "Signature :")
+    c.drawString(rx + 4 * mm, sig_top - 21 * mm, "Date :")
+
+    # ── 04 — ANNONCE COMMERCIALE (top-down, fills above signatures) ─────
+    content_top = PAGE_H - 24 * mm
+    content_bottom = sig_bar_y + SEC_H + 6 * mm
+
+    _sec(c, "04 \u2014 ANNONCE COMMERCIALE", ML, content_top)
+    cursor = content_top - SEC_H - 3 * mm
+
+    if annonce:
+        annonce_clean = _clean(annonce)
+        style_ann = ParagraphStyle("ann", fontName="Helvetica", fontSize=8,
+                                   leading=11, textColor=GRAY_DARK)
+        p_ann = Paragraph(annonce_clean.replace("\n", "<br/>"), style_ann)
+        ann_w = CW - 10 * mm
+        max_ann_h = cursor - content_bottom
+        _, ann_h = p_ann.wrap(ann_w, max_ann_h)
+        box_h_ann = min(ann_h + 8 * mm, max_ann_h)
+        box_y_ann = cursor - box_h_ann
+
+        _rrect(c, ML, box_y_ann, CW, box_h_ann, r=4, stroke=GRAY_BDR)
+        p_ann.wrap(ann_w, box_h_ann - 6 * mm)
+        p_ann.drawOn(c, ML + 5 * mm, box_y_ann + 3 * mm)
+    else:
+        no_ann_h = 30 * mm
+        _rrect(c, ML, cursor - no_ann_h, CW, no_ann_h, r=4, fill=GRAY_LIGHT, stroke=GRAY_BDR)
+        c.setFont("Helvetica", 8); c.setFillColor(GRAY_MID)
+        c.drawCentredString(ML + CW / 2, cursor - no_ann_h / 2, "Annonce commerciale non disponible")
 
     c.showPage()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PAGE 3 (optional): Plan cadastral
+    # ═══════════════════════════════════════════════════════════════════════
+    if has_cadastre:
+        _avis_header(c, ref, ville, nego)
+        _avis_footer(c, ref, 3, total_pages)
+
+        cursor = PAGE_H - 24 * mm
+        _sec(c, "06 \u2014 PLAN CADASTRAL", ML, cursor)
+        cursor -= SEC_H + 4 * mm
+
+        zone_bot = 20 * mm
+        available_h = cursor - zone_bot
+        gap_y = 4 * mm
+
+        n = min(len(cadastre_imgs), 2)
+        ph_each = (available_h - (n - 1) * gap_y) / n
+
+        for i in range(n):
+            py = cursor - (i + 1) * ph_each - i * gap_y
+            img = cadastre_imgs[i]
+            try:
+                iw, ih = img.getSize()
+                ir_ratio = iw / ih if ih > 0 else 1
+                target_r = CW / ph_each
+                if ir_ratio > target_r:
+                    dw = CW
+                    dh = CW / ir_ratio
+                else:
+                    dh = ph_each
+                    dw = ph_each * ir_ratio
+                dx = ML + (CW - dw) / 2
+                dy = py + (ph_each - dh) / 2
+                c.setFillColor(WHITE)
+                c.setStrokeColor(colors.HexColor("#CCCCCC"))
+                c.setLineWidth(0.5)
+                c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=1)
+                c.drawImage(img, dx, dy, width=dw, height=dh, mask="auto")
+            except Exception as e:
+                app.logger.error("Avis cadastre draw: %s", e)
+                c.setFillColor(GRAY_LIGHT)
+                c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=0)
+
+        # Parcel info
+        if ref_cad or surface_t:
+            info_y = zone_bot - 6 * mm
+            c.setFillColor(colors.HexColor("#EBF0F8"))
+            c.roundRect(ML, info_y - 10 * mm, CW, 10 * mm, 1.5 * mm, fill=1, stroke=0)
+            c.setFillColor(TEAL_DARK)
+            c.setFont("Helvetica-Bold", 8)
+            infos = []
+            if ref_cad:
+                infos.append("R\u00e9f. cadastrale : " + str(ref_cad))
+            if surface_t:
+                infos.append("Surface terrain : " + str(surface_t) + " m\u00b2")
+            c.drawString(ML + 5 * mm, info_y - 6.5 * mm, "  \u00b7  ".join(infos))
+
+        c.showPage()
+
     c.save()
     buf.seek(0)
     return buf
