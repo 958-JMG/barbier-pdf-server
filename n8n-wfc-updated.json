@@ -1,0 +1,206 @@
+{
+  "name": "BARBIER — WF-C : PDF + Email final (Webhook validation)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "barbier-valider",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "182771ab-6ecd-49fa-a9f7-c8f972a520dd",
+      "name": "🔗 Webhook — Validation",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1008, 208],
+      "webhookId": "barbier-valider"
+    },
+    {
+      "parameters": {
+        "jsCode": "const recordId = $input.first().json.query?.id || '';\nif (!recordId) throw new Error('record_id manquant');\nreturn [{ json: { record_id: recordId } }];"
+      },
+      "id": "2ff75700-d062-4589-82b0-ddb11a9ea550",
+      "name": "⚙️ Extraire record_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-800, 208]
+    },
+    {
+      "parameters": {
+        "base": {"__rl": true, "value": "appscgBdxTzSPtOaZ", "mode": "id"},
+        "table": {"__rl": true, "value": "tblNKW79fSQAfZcxW", "mode": "id"},
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "a9f44bfa-7d15-4f96-af21-c4b209f19a9e",
+      "name": "📋 Airtable — Lire le bien",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [-608, 208]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst fields = item.fields || item;\nconst sel = (v) => (v && typeof v === 'object') ? v.name : (v || '');\n\nconst photoBienB64 = fields['Photo bien (base64)'] || '';\nconst photoUrl = photoBienB64 ? 'data:image/jpeg;base64,' + photoBienB64 : '';\nconst negoIds = fields['Négociateur'] || fields['Negociateur'] || [];\nconst negoId = Array.isArray(negoIds) ? (negoIds[0] || '') : '';\n\nreturn [{ json: {\n  record_id: item.id || $('⚙️ Extraire record_id').first().json.record_id,\n  reference: fields['Référence Modelo'] || '',\n  type_bien: sel(fields['Type de bien']),\n  activite: fields['Activité'] || '',\n  adresse: fields['Adresse'] || '',\n  code_postal: (fields['Code postal'] || '56000').toString(),\n  ville: sel(fields['Ville']) || 'Vannes',\n  secteur: fields['Secteur'] || '',\n  negociateur: sel(fields['Negociateur']),\n  mandat: sel(fields['Statut mandat']),\n  etat_bien: sel(fields['Etat du bien']),\n  surface: parseFloat(fields['Surface']) || 0,\n  loyer_mensuel: parseFloat(fields['Loyer mensuel']) || 0,\n  loyer_annuel: (parseFloat(fields['Loyer mensuel']) || 0) * 12,\n  loyer_annuel_m2: parseFloat(fields['Loyer annuel m2']) || 0,\n  prix_demande: parseFloat(fields['Prix de vente']) || 0,\n  ca_annuel: parseFloat(fields['CA HT annuel']) || 0,\n  ebe: parseFloat(fields['EBE']) || 0,\n  prix_estime_min: parseFloat(fields['Prix estime min']) || 0,\n  prix_estime_max: parseFloat(fields['Prix estime max']) || 0,\n  prix_retenu: parseFloat(fields['Prix retenu']) || 0,\n  honoraires_locataire: parseFloat(fields['Honoraires locataire']) || 0,\n  depot_garantie: parseFloat(fields['Dépôt de garantie']) || 0,\n  taxe_fonciere: parseFloat(fields['Taxe foncière']) || 0,\n  type_bail: sel(fields['Type de bail']),\n  pmr: sel(fields['PMR']),\n  dpe_classe: sel(fields['DPE classe']),\n  ges_classe: sel(fields['GES classe']),\n  version_portail: fields['Version portail'] || '',\n  version_email: fields['Version email'] || '',\n  avis_de_valeur: fields['Avis de valeur'] || '',\n  dvf_resume: fields['DVF résumé'] || '',\n  description_ville: fields['Description ville'] || '',\n  notes: fields['Notes internes'] || '',\n  photo_bien_url: photoUrl,\n  nego_id: negoId,\n}}];"
+      },
+      "id": "ff883f6d-5775-4d73-a420-ddf37f375ffc",
+      "name": "⚙️ Préparer payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-400, 208]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {"__rl": true, "value": "appscgBdxTzSPtOaZ", "mode": "id"},
+        "table": {"__rl": true, "value": "tblNKW79fSQAfZcxW", "mode": "id"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {"id": "={{ $json.record_id }}", "Statut pipeline": "En cours PDF"},
+          "matchingColumns": ["id"],
+          "schema": [
+            {"id": "id", "displayName": "id", "required": false, "defaultMatch": true, "display": true, "type": "string", "readOnly": true, "removed": false},
+            {"id": "Statut pipeline", "displayName": "Statut pipeline", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false}
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e1ee5859-a455-4504-a283-3d49643e35d8",
+      "name": "🔒 Marquer En cours PDF",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [-208, 208]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<html><body style='font-family:Arial,sans-serif;text-align:center;padding:60px'><div style='max-width:500px;margin:0 auto'><div style='font-size:60px'>✅</div><h1 style='color:#2E7D32'>Validation reçue !</h1><p style='color:#555;font-size:16px'>Le PDF est en cours de génération.<br>Vous recevrez le dossier complet par email dans quelques instants.</p></div></body></html>",
+        "options": {"responseHeaders": {"entries": [{"name": "Content-Type", "value": "text/html"}]}}
+      },
+      "id": "3c70952a-58ff-4538-a3a1-ad4e7aed90b1",
+      "name": "✅ Réponse HTTP",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-a6f22.up.railway.app/comparables",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { 'ville': $('⚙️ Préparer payload').first().json.ville, 'code_postal': $('⚙️ Préparer payload').first().json.code_postal, 'adresse': $('⚙️ Préparer payload').first().json.adresse, 'type_bien': $('⚙️ Préparer payload').first().json.type_bien, 'surface': $('⚙️ Préparer payload').first().json.surface, 'annee_min': 2020, 'limit': 4 } }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "new-node-comparables-001",
+      "name": "🔍 Railway — Comparables DVF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [0, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $('⚙️ Préparer payload').first().json;\nconst dvfResp = $input.first().json;\n\n// Récupère les comparables filtrés par type + surface\nconst comparables = (dvfResp.comparables || []).slice(0, 4);\nconst fourchette = dvfResp.fourchette || {};\n\n// Utilise la fourchette DVF si Airtable n'en a pas\nconst prix_min = payload.prix_estime_min || fourchette.prix_estime_min || 0;\nconst prix_max = payload.prix_estime_max || fourchette.prix_estime_max || 0;\nconst prix_ret = payload.prix_retenu || fourchette.prix_retenu || 0;\n\nreturn [{ json: {\n  ...payload,\n  comparables: comparables,\n  prix_estime_min: prix_min,\n  prix_estime_max: prix_max,\n  prix_retenu: prix_ret,\n  dvf_prix_m2_moyen: fourchette.prix_m2_moyen || 0,\n}}];"
+      },
+      "id": "new-node-merge-comps-002",
+      "name": "⚙️ Fusionner comparables + payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [208, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-a6f22.up.railway.app/dossier",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { 'reference': $json.reference, 'type_bien': $json.type_bien, 'activite': $json.activite, 'adresse': $json.adresse, 'code_postal': $json.code_postal, 'ville': $json.ville, 'secteur': $json.secteur, 'negociateur': $json.negociateur, 'mandat': $json.mandat, 'surface': $json.surface, 'loyer_mensuel': $json.loyer_mensuel, 'loyer_annuel': $json.loyer_annuel, 'prix': $json.prix_demande, 'ca_annuel': $json.ca_annuel, 'ebe': $json.ebe, 'prix_estime_min': $json.prix_estime_min, 'prix_estime_max': $json.prix_estime_max, 'prix_retenu': $json.prix_retenu, 'description': $json.version_portail, 'avis_valeur': $json.avis_de_valeur, 'dvf_resume': $json.dvf_resume, 'notes': $json.notes, 'comparables': $json.comparables, 'photos': [] } }}",
+        "options": {"response": {"response": {"responseFormat": "file"}}, "timeout": 90000}
+      },
+      "id": "997bebfc-49de-4ea5-9044-1899545631cf",
+      "name": "🏗️ Railway — Générer PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [416, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "sendTo": "jmg@958.fr",
+        "subject": "=📄 Dossier prêt — {{ $('⚙️ Préparer payload').first().json.type_bien }} {{ $('⚙️ Préparer payload').first().json.activite }} — {{ $('⚙️ Préparer payload').first().json.reference }}",
+        "message": "=<html><body style='font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:20px'><div style='background:#1B3A5C;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center'><h1 style='margin:0;font-size:20px'>🏢 BARBIER IMMOBILIER</h1><p style='opacity:0.8;margin:5px 0;font-size:13px'>Dossier validé — Réf. {{ $('⚙️ Préparer payload').first().json.reference }}</p></div><div style='border:2px solid #1B3A5C;border-top:none;padding:25px;border-radius:0 0 8px 8px'><h2 style='color:#2E7D32'>✅ Dossier prêt</h2><p><strong>Type :</strong> {{ $('⚙️ Préparer payload').first().json.type_bien }} — {{ $('⚙️ Préparer payload').first().json.activite }}<br><strong>Adresse :</strong> {{ $('⚙️ Préparer payload').first().json.adresse }}, {{ $('⚙️ Préparer payload').first().json.ville }}<br><strong>Négociateur :</strong> {{ $('⚙️ Préparer payload').first().json.negociateur }}</p><h2 style='color:#1B3A5C'>💰 Estimation ({{ $('⚙️ Fusionner comparables + payload').first().json.comparables.length }} comparables DVF)</h2><p><strong>Fourchette :</strong> {{ $('⚙️ Fusionner comparables + payload').first().json.prix_estime_min }} € — {{ $('⚙️ Fusionner comparables + payload').first().json.prix_estime_max }} €<br><strong>Prix recommandé :</strong> {{ $('⚙️ Fusionner comparables + payload').first().json.prix_retenu }} €</p><h2 style='color:#1B3A5C'>✍️ Annonce portail</h2><p style='background:#f5f5f5;padding:12px;border-radius:6px;font-size:13px'>{{ $('⚙️ Préparer payload').first().json.version_portail }}</p></div></body></html>",
+        "options": {"appendAttribution": false, "attachmentsUi": {"attachmentsBinary": [{}]}}
+      },
+      "id": "7ae00b79-925b-474e-b985-7942dce2eb97",
+      "name": "📧 Gmail — Email dossier final",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [624, 400],
+      "webhookId": "bb266902-d283-425b-92a6-de3b2764abf6"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {"__rl": true, "value": "appscgBdxTzSPtOaZ", "mode": "id"},
+        "table": {"__rl": true, "value": "tblNKW79fSQAfZcxW", "mode": "id"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {"id": "={{ $('⚙️ Préparer payload').first().json.record_id }}", "Statut pipeline": "Terminé"},
+          "matchingColumns": ["id"],
+          "schema": [
+            {"id": "id", "displayName": "id", "required": false, "defaultMatch": true, "display": true, "type": "string", "readOnly": true, "removed": false},
+            {"id": "Statut pipeline", "displayName": "Statut pipeline", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false}
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "1cb18e21-e289-477d-bb2b-1d60d6a2dc0b",
+      "name": "✅ Airtable — Marquer Terminé",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [832, 400]
+    }
+  ],
+  "connections": {
+    "🔗 Webhook — Validation": {
+      "main": [[{"node": "⚙️ Extraire record_id", "type": "main", "index": 0}]]
+    },
+    "⚙️ Extraire record_id": {
+      "main": [[{"node": "📋 Airtable — Lire le bien", "type": "main", "index": 0}]]
+    },
+    "📋 Airtable — Lire le bien": {
+      "main": [[{"node": "⚙️ Préparer payload", "type": "main", "index": 0}]]
+    },
+    "⚙️ Préparer payload": {
+      "main": [[{"node": "🔒 Marquer En cours PDF", "type": "main", "index": 0}]]
+    },
+    "🔒 Marquer En cours PDF": {
+      "main": [[
+        {"node": "✅ Réponse HTTP", "type": "main", "index": 0},
+        {"node": "🔍 Railway — Comparables DVF", "type": "main", "index": 0}
+      ]]
+    },
+    "🔍 Railway — Comparables DVF": {
+      "main": [[{"node": "⚙️ Fusionner comparables + payload", "type": "main", "index": 0}]]
+    },
+    "⚙️ Fusionner comparables + payload": {
+      "main": [[{"node": "🏗️ Railway — Générer PDF", "type": "main", "index": 0}]]
+    },
+    "🏗️ Railway — Générer PDF": {
+      "main": [[{"node": "📧 Gmail — Email dossier final", "type": "main", "index": 0}]]
+    },
+    "📧 Gmail — Email dossier final": {
+      "main": [[{"node": "✅ Airtable — Marquer Terminé", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

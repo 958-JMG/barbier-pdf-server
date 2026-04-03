@@ -1692,7 +1692,7 @@ def _page_cadastre(c, d, page_num=5, total=5):
             c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=0)
 
     # Parcel info at bottom
-    ref_cad = d.get("reference_cadastrale") or ""
+    ref_cad = d.get("reference_cadastrale") or d.get("ref_cadastrale") or ""
     parcelle = d.get("parcelle") or ""
     section = d.get("section_cadastrale") or ""
     surface_terrain = d.get("surface_terrain") or ""
@@ -1813,12 +1813,19 @@ def _page_comparables(c, d, page_num, total):
 
             # Surface
             surf_str = str(surface) + " m\u00b2" if surface else "\u2014"
-            c.drawString(cx + 5 * mm, cy + card_h - 43 * mm, "Surface : " + surf_str)
+            c.drawString(cx + 5 * mm, cy + card_h - 38 * mm, "Surface : " + surf_str)
+
+            # Type de bien
+            type_comp = comp.get("type_bien") or ""
+            if type_comp:
+                c.setFillColor(TEAL)
+                c.setFont("Helvetica", 6.5)
+                c.drawString(cx + 5 * mm, cy + card_h - 43 * mm, str(type_comp))
 
             # Source line
             c.setFillColor(GRAY_MID)
             c.setFont("Helvetica", 6.5)
-            src_txt = str(source) + " " + str(annee) + " \u00b7 " + str(annee) if annee else str(source)
+            src_txt = str(source) + " " + str(annee) if annee else str(source)
             c.drawString(cx + 5 * mm, cy + 3 * mm, src_txt)
         else:
             # Empty card
@@ -2062,7 +2069,10 @@ def generate_dossier_pdf(d):
     has_cadastre = len(cadastre_photos) > 0
     has_plans = len(plans_locaux) > 0
     has_bail_details = bool(d.get("bail_details"))
-    is_estimation = str(d.get("mode", "")).lower() == "estimation"
+    is_estimation = (str(d.get("mode", "")).lower() == "estimation"
+                      or bool(d.get("comparables"))
+                      or bool(d.get("prix_estime_min"))
+                      or bool(d.get("prix_retenu")))
 
     # Count total pages
     total = 2  # cover + quartier
@@ -3007,7 +3017,14 @@ def generate_avis_valeur_pdf(d):
         paras = []
         for line in filtered:
             is_title = any(line.lower().startswith(k) for k in title_keys)
-            p = Paragraph(line, STYLE_ANALYSE_TITLE if is_title else STYLE_ANALYSE)
+            # Convert markdown **bold** → <b>bold</b> for reportlab
+            line_html = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", line)
+            # Convert markdown bullet lines (- text, • text, ✓ text, △ text)
+            for bullet in ("- ", "• ", "✓ ", "△ "):
+                if line_html.startswith(bullet):
+                    line_html = "•\u00a0\u00a0" + line_html[len(bullet):]
+                    break
+            p = Paragraph(line_html, STYLE_ANALYSE_TITLE if is_title else STYLE_ANALYSE)
             _, ph = p.wrap(CW - 10 * mm, 400 * mm)
             paras.append((p, ph))
 
@@ -3390,6 +3407,235 @@ def _gpt_resume_plu(zone, typezone, destdomi, libelong, ville, type_bien):
         return libelong or f"Zone {zone}"
 
 
+# ---------------------------------------------------------------------------
+# COMPARABLES — Recherche DVF intelligente (API Cerema + reverse geocode)
+# ---------------------------------------------------------------------------
+# Mapping type de bien → codtypbien DVF Cerema
+_TYPE_DVF_MAP = {
+    "local commercial":    "14",
+    "bureau":              "14",
+    "bureaux":             "14",
+    "commerce":            "14",
+    "entrepot":            "14",
+    "entrepôt":            "14",
+    "atelier":             "14",
+    "activité":            "14",
+    "local industriel":    "14",
+    "local professionnel": "14",
+    "appartement":         "121",
+    "studio":              "121",
+    "maison":              "111",
+    "terrain":             "21",
+}
+
+
+def _dvf_code_for_type(type_bien):
+    """Return Cerema codtypbien from a free-text property type."""
+    t = (type_bien or "").strip().lower()
+    for key, code in _TYPE_DVF_MAP.items():
+        if key in t:
+            return code
+    return "14"  # default to Activité (commercial)
+
+
+def _reverse_geocode_parcelle(idpar):
+    """Get address from a cadastre parcel ID like '56260000DH0211'."""
+    try:
+        code_insee = idpar[:5]
+        prefix = idpar[5:8]
+        section = idpar[8:10]
+        numero = idpar[10:]
+        r = requests.get(
+            "https://apicarto.ign.fr/api/cadastre/parcelle",
+            params={"code_insee": code_insee, "section": section, "numero": numero},
+            timeout=10)
+        r.raise_for_status()
+        feats = r.json().get("features", [])
+        if feats:
+            props = feats[0].get("properties", {})
+            # Try to get centroid for reverse geocoding
+            geom = feats[0].get("geometry", {})
+            coords = None
+            if geom.get("type") == "Polygon":
+                pts = geom["coordinates"][0]
+                lon = sum(p[0] for p in pts) / len(pts)
+                lat = sum(p[1] for p in pts) / len(pts)
+                coords = (lon, lat)
+            elif geom.get("type") == "MultiPolygon":
+                pts = geom["coordinates"][0][0]
+                lon = sum(p[0] for p in pts) / len(pts)
+                lat = sum(p[1] for p in pts) / len(pts)
+                coords = (lon, lat)
+            if coords:
+                rg = requests.get(
+                    "https://api-adresse.data.gouv.fr/reverse/",
+                    params={"lon": coords[0], "lat": coords[1]},
+                    timeout=8)
+                rg.raise_for_status()
+                rf = rg.json().get("features", [])
+                if rf:
+                    p = rf[0].get("properties", {})
+                    return p.get("name", ""), p.get("city", ""), coords
+    except Exception:
+        pass
+    return "", "", None
+
+
+@app.route("/comparables", methods=["POST"])
+def comparables():
+    """Recherche de biens comparables via l'API DVF Cerema.
+
+    Body JSON:
+      - code_insee (str, optional): code INSEE commune — if missing, geocoded from ville
+      - ville (str): commune
+      - code_postal (str): code postal
+      - type_bien (str): type de bien (bureau, local commercial, appartement...)
+      - surface (int): surface du bien en m²
+      - rayon_communes (list[str], optional): codes INSEE voisins à inclure
+      - annee_min (int, optional): année minimum (default: 3 ans en arrière)
+      - limit (int, optional): max comparables renvoyés (default: 6)
+    """
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"ok": False, "error": "Body JSON manquant"}), 400
+
+    ville = body.get("ville", "Vannes")
+    cp = body.get("code_postal", "56000")
+    type_bien = body.get("type_bien", "Local commercial")
+    surface = int(body.get("surface") or 0)
+    annee_min = int(body.get("annee_min") or 2021)
+    limit = min(int(body.get("limit") or 6), 10)
+
+    # Resolve code_insee
+    code_insee = body.get("code_insee", "")
+    if not code_insee:
+        geo = _geocode_urba(body.get("adresse", ""), cp, ville)
+        if geo:
+            _, _, code_insee = geo
+    if not code_insee:
+        return jsonify({"ok": False, "error": "Impossible de résoudre le code INSEE"}), 400
+
+    # Surface filter: ±50% of target surface, min 40m²
+    if surface > 0:
+        sbatmin = max(40, int(surface * 0.5))
+        sbatmax = int(surface * 1.5)
+    else:
+        sbatmin = 40
+        sbatmax = 5000
+
+    codtypbien = _dvf_code_for_type(type_bien)
+
+    # Query Cerema DVF API
+    communes = body.get("rayon_communes") or [code_insee]
+    if code_insee not in communes:
+        communes.append(code_insee)
+
+    all_mutations = []
+    for cinsee in communes[:5]:  # max 5 communes
+        try:
+            params = {
+                "code_insee": cinsee,
+                "nature_mutation": "Vente",
+                "codtypbien": codtypbien,
+                "sbatmin": sbatmin,
+                "sbatmax": sbatmax,
+                "anneemut_min": annee_min,
+                "page_size": 50,
+                "ordering": "-datemut",
+            }
+            r = requests.get(
+                "https://apidf-preprod.cerema.fr/dvf_opendata/mutations/",
+                params=params, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+            all_mutations.extend(data.get("results", []))
+        except Exception as e:
+            app.logger.error("DVF Cerema %s: %s", cinsee, e)
+
+    if not all_mutations:
+        return jsonify({"ok": True, "comparables": [],
+                        "message": "Aucune transaction comparable trouvée"}), 200
+
+    # Score and rank by relevance (surface proximity + recency)
+    scored = []
+    for m in all_mutations:
+        s_bati = float(m.get("sbati") or 0)
+        if s_bati <= 0:
+            continue
+        prix = float(m.get("valeurfonc") or 0)
+        if prix <= 0:
+            continue
+        annee = m.get("anneemut", 2020)
+        # Surface proximity score (1.0 = perfect match, 0 = far)
+        if surface > 0:
+            ratio = min(s_bati, surface) / max(s_bati, surface)
+        else:
+            ratio = 0.5
+        # Recency bonus (more recent = better)
+        recency = (annee - annee_min + 1) / 6
+        score = ratio * 0.7 + min(recency, 1.0) * 0.3
+        scored.append((score, m, s_bati, prix))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:limit]
+
+    # Enrich with addresses via reverse geocode (from parcel IDs)
+    results = []
+    for score, m, s_bati, prix in top:
+        adresse = ""
+        ville_comp = ""
+        parcels = m.get("l_idparmut") or m.get("l_idpar") or []
+        if parcels:
+            adresse, ville_comp, _ = _reverse_geocode_parcelle(parcels[0])
+
+        prix_m2 = int(prix / s_bati) if s_bati > 0 else 0
+        results.append({
+            "adresse": adresse or "Adresse non disponible",
+            "ville": ville_comp or ville,
+            "prix": int(prix),
+            "surface": int(s_bati),
+            "prix_m2": prix_m2,
+            "annee": m.get("anneemut", ""),
+            "type_bien": m.get("libtypbien", type_bien),
+            "source": "DVF",
+            "score": round(score, 2),
+        })
+
+    # Compute fourchette from comparables
+    prix_m2_list = [c["prix_m2"] for c in results if c["prix_m2"] > 0]
+    if prix_m2_list and surface > 0:
+        avg_m2 = sum(prix_m2_list) / len(prix_m2_list)
+        min_m2 = min(prix_m2_list)
+        max_m2 = max(prix_m2_list)
+        fourchette = {
+            "prix_estime_min": int(min_m2 * surface),
+            "prix_estime_max": int(max_m2 * surface),
+            "prix_retenu": int(avg_m2 * surface),
+            "prix_m2_moyen": int(avg_m2),
+            "prix_m2_min": int(min_m2),
+            "prix_m2_max": int(max_m2),
+        }
+    else:
+        fourchette = {}
+
+    app.logger.info(
+        "Comparables for %s %s: %d found, %d returned, surface=%d, type=%s",
+        ville, code_insee, len(all_mutations), len(results), surface, codtypbien)
+
+    return jsonify({
+        "ok": True,
+        "comparables": results,
+        "fourchette": fourchette,
+        "meta": {
+            "code_insee": code_insee,
+            "type_dvf": codtypbien,
+            "surface_range": f"{sbatmin}-{sbatmax} m²",
+            "annee_min": annee_min,
+            "total_mutations": len(all_mutations),
+        }
+    })
+
+
 @app.route("/urbanisme", methods=["POST"])
 def urbanisme():
     body = request.get_json(silent=True)
@@ -3409,14 +3655,34 @@ def urbanisme():
     lon, lat, code_insee = geo
     app.logger.info("Urbanisme: geocoded %s %s -> INSEE %s (%s, %s)", adresse, ville, code_insee, lon, lat)
 
-    # Step 2: Get parcel geometry (from cadastre ref or point fallback)
+    # Step 2: Get parcel geometry (from cadastre ref or point/reverse lookup)
     geom = None
+    found_ref_cadastrale = ref_cad  # will be enriched if found via reverse
     if ref_cad:
         _, section, numero = _parse_ref_cadastrale(ref_cad)
         if section and numero:
             geom = _get_parcelle_geometry(code_insee, section, numero)
 
-    # Fallback: use point geometry from geocoding
+    # Fallback: reverse-lookup parcelle from GPS coordinates
+    if not geom:
+        try:
+            r_cad = requests.get(
+                "https://apicarto.ign.fr/api/cadastre/parcelle",
+                params={"lon": lon, "lat": lat}, timeout=15)
+            r_cad.raise_for_status()
+            feats = r_cad.json().get("features", [])
+            if feats:
+                props = feats[0].get("properties", {})
+                geom = feats[0]["geometry"]
+                sec = props.get("section", "")
+                num = props.get("numero", "")
+                com = props.get("com_abs", "000")
+                if sec and num:
+                    found_ref_cadastrale = f"{com} {sec} {num}".strip()
+                    app.logger.info("Urbanisme: reverse-lookup found parcelle %s", found_ref_cadastrale)
+        except Exception as e:
+            app.logger.error("Cadastre reverse-lookup: %s", e)
+
     if not geom:
         geom = {"type": "Point", "coordinates": [lon, lat]}
         app.logger.info("Urbanisme: using point geometry (no parcel found)")
@@ -3446,6 +3712,7 @@ def urbanisme():
         "url_reglement": url_reglement,
         "servitudes": servitudes,
         "code_insee": code_insee,
+        "ref_cadastrale": found_ref_cadastrale,
     }
     app.logger.info("Urbanisme result for %s: zone=%s, servitudes=%d", adresse, zone_plu, len(servitudes))
     return jsonify(result)
