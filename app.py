@@ -3664,13 +3664,21 @@ def urbanisme():
             geom = _get_parcelle_geometry(code_insee, section, numero)
 
     # Fallback: reverse-lookup parcelle from GPS coordinates
+    # IMPORTANT: API Carto IGN requires geom GeoJSON, NOT lon/lat params
+    # (lon/lat without geom returns random parcels matching section/numero from all France)
     if not geom:
         try:
+            import json as _json
+            point_geom = _json.dumps({"type": "Point", "coordinates": [lon, lat]})
             r_cad = requests.get(
                 "https://apicarto.ign.fr/api/cadastre/parcelle",
-                params={"lon": lon, "lat": lat}, timeout=15)
+                params={"geom": point_geom, "code_insee": code_insee},
+                timeout=15)
             r_cad.raise_for_status()
             feats = r_cad.json().get("features", [])
+            # Filter to parcels actually in the target commune
+            feats = [f for f in feats
+                     if f.get("properties", {}).get("code_insee", "") == code_insee]
             if feats:
                 props = feats[0].get("properties", {})
                 geom = feats[0]["geometry"]
