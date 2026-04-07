@@ -1646,8 +1646,25 @@ def _page_cadastre(c, d, page_num=5, total=5):
         if img:
             cadastre_imgs.append(img)
 
+    # Parcel info data
+    ref_cad = d.get("reference_cadastrale") or d.get("ref_cadastrale") or ""
+    parcelle = d.get("parcelle") or ""
+    section = d.get("section_cadastrale") or ""
+    surface_terrain = d.get("surface_terrain") or ""
+    has_info = bool(ref_cad or parcelle or section or surface_terrain)
+
+    # Reserve clean space for parcel info block ABOVE footer
+    INFO_BAR_H = 8 * mm
+    INFO_GAP = 1.5 * mm
+    INFO_MARGIN_BOTTOM = 5 * mm   # gap between info bar and footer
+    INFO_MARGIN_TOP = 5 * mm      # gap between plan and info block
+    if has_info:
+        info_block_h = SEC_H + INFO_GAP + INFO_BAR_H
+        zone_bot = FOOTER_H + INFO_MARGIN_BOTTOM + info_block_h + INFO_MARGIN_TOP
+    else:
+        zone_bot = FOOTER_H + 8 * mm
+
     zone_top = sec_y - SEC_H - SP_AFTER_SEC
-    zone_bot = FOOTER_H + 20 * mm  # extra space for parcel info
     available_h = zone_top - zone_bot
     gap_y = 4 * mm
 
@@ -1657,55 +1674,46 @@ def _page_cadastre(c, d, page_num=5, total=5):
         c.setFillColor(GRAY_MID)
         c.setFont("Helvetica", 10)
         c.drawCentredString(ML + CW / 2, zone_bot + available_h / 2, "Plan cadastral non disponible")
-        _footer(c, page_num, total=total)
-        return
+    else:
+        # Display cadastre images — full width, stacked
+        n = min(len(cadastre_imgs), 2)
+        ph_each = (available_h - (n - 1) * gap_y) / n
 
-    # Display cadastre images — full width, stacked
-    n = min(len(cadastre_imgs), 2)
-    ph_each = (available_h - (n - 1) * gap_y) / n
+        for i in range(n):
+            py = zone_top - (i + 1) * ph_each - i * gap_y
+            img = cadastre_imgs[i]
+            try:
+                iw, ih = img.getSize()
+                ir_ratio = iw / ih if ih > 0 else 1
+                target_r = CW / ph_each
+                if ir_ratio > target_r:
+                    dw = CW
+                    dh = CW / ir_ratio
+                else:
+                    dh = ph_each
+                    dw = ph_each * ir_ratio
+                dx = ML + (CW - dw) / 2
+                dy = py + (ph_each - dh) / 2
+                # White background
+                c.setFillColor(WHITE)
+                c.setStrokeColor(colors.HexColor("#CCCCCC"))
+                c.setLineWidth(0.5)
+                c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=1)
+                c.drawImage(img, dx, dy, width=dw, height=dh, mask="auto")
+            except Exception as e:
+                app.logger.error("Cadastre draw: %s", e)
+                c.setFillColor(GRAY_LIGHT)
+                c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=0)
 
-    for i in range(n):
-        py = zone_top - (i + 1) * ph_each - i * gap_y
-        # For cadastre, draw with white background + border (no cover-crop)
-        img = cadastre_imgs[i]
-        try:
-            iw, ih = img.getSize()
-            ir_ratio = iw / ih if ih > 0 else 1
-            target_r = CW / ph_each
-            if ir_ratio > target_r:
-                dw = CW
-                dh = CW / ir_ratio
-            else:
-                dh = ph_each
-                dw = ph_each * ir_ratio
-            dx = ML + (CW - dw) / 2
-            dy = py + (ph_each - dh) / 2
-            # White background
-            c.setFillColor(WHITE)
-            c.setStrokeColor(colors.HexColor("#CCCCCC"))
-            c.setLineWidth(0.5)
-            c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=1)
-            c.drawImage(img, dx, dy, width=dw, height=dh, mask="auto")
-        except Exception as e:
-            app.logger.error("Cadastre draw: %s", e)
-            c.setFillColor(GRAY_LIGHT)
-            c.roundRect(ML, py, CW, ph_each, 3 * mm, fill=1, stroke=0)
-
-    # Parcel info at bottom
-    ref_cad = d.get("reference_cadastrale") or d.get("ref_cadastrale") or ""
-    parcelle = d.get("parcelle") or ""
-    section = d.get("section_cadastrale") or ""
-    surface_terrain = d.get("surface_terrain") or ""
-    if ref_cad or parcelle or section or surface_terrain:
-        info_y = zone_bot - 14 * mm
-        _sec(c, "Informations parcelle", ML, info_y + 2 * mm)
+    # Parcel info block — positioned cleanly above footer
+    if has_info:
+        bar_y = FOOTER_H + INFO_MARGIN_BOTTOM
+        title_y = bar_y + INFO_BAR_H + INFO_GAP
+        _sec(c, "Informations parcelle", ML, title_y)
         c.setFillColor(colors.HexColor("#EBF0F8"))
-        c.roundRect(ML, info_y - 12 * mm, CW, 12 * mm, 1.5 * mm, fill=1, stroke=0)
-        ix = ML + 5 * mm
-        c.setFillColor(GRAY_MID)
-        c.setFont("Helvetica", 6.5)
+        c.roundRect(ML, bar_y, CW, INFO_BAR_H, 1.5 * mm, fill=1, stroke=0)
         c.setFillColor(TEAL_DARK)
-        c.setFont("Helvetica-Bold", 8)
+        c.setFont("Helvetica-Bold", 9)
         infos = []
         if ref_cad:
             infos.append("R\u00e9f. cadastrale : " + str(ref_cad))
@@ -1715,7 +1723,8 @@ def _page_cadastre(c, d, page_num=5, total=5):
             infos.append("Section : " + str(section))
         if surface_terrain:
             infos.append("Surface terrain : " + str(surface_terrain) + " m\u00b2")
-        c.drawString(ix, info_y - 7 * mm, "  \u00b7  ".join(infos))
+        c.drawString(ML + 5 * mm, bar_y + INFO_BAR_H / 2 - 1.2 * mm,
+                     "  \u00b7  ".join(infos))
 
     _footer(c, page_num, total=total)
 
