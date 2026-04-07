@@ -1820,16 +1820,16 @@ def _page_comparables(c, d, page_num, total):
             pm2_str = _pfmt(prix_m2).replace(" \u20ac", "") + " \u20ac/m\u00b2" if prix_m2 else "\u2014"
             c.drawString(cx + 5 * mm, cy + card_h - 38 * mm, pm2_str)
 
-            # Surface
+            # Surface (+ type de bien sur la même ligne)
             surf_str = str(surface) + " m\u00b2" if surface else "\u2014"
-            c.drawString(cx + 5 * mm, cy + card_h - 38 * mm, "Surface : " + surf_str)
-
-            # Type de bien
-            type_comp = comp.get("type_bien") or ""
+            type_comp = (comp.get("type_bien") or "").strip()
             if type_comp:
-                c.setFillColor(TEAL)
-                c.setFont("Helvetica", 6.5)
-                c.drawString(cx + 5 * mm, cy + card_h - 43 * mm, str(type_comp))
+                # Tronquer le type si trop long pour tenir dans la carte
+                t_short = type_comp[:22]
+                line = "Surface : " + surf_str + "  \u00b7  " + t_short
+            else:
+                line = "Surface : " + surf_str
+            c.drawString(cx + 5 * mm, cy + card_h - 43 * mm, line)
 
             # Source line
             c.setFillColor(GRAY_MID)
