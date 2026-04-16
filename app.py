@@ -364,33 +364,79 @@ def _get_poi_gpt(adresse, ville, type_bien):
     return []
 
 
+def _haversine_km(lat1, lon1, lat2, lon2):
+    """Distance orthodromique entre 2 points (km). Formule haversine standard."""
+    import math
+    if None in (lat1, lon1, lat2, lon2):
+        return float("inf")
+    try:
+        lat1, lon1, lat2, lon2 = map(float, (lat1, lon1, lat2, lon2))
+    except (TypeError, ValueError):
+        return float("inf")
+    R = 6371.0  # rayon Terre km
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
 def _gpt_quartier(adresse, ville, type_bien):
+    """Texte de présentation ville & quartier. Double-paragraphe, spécifique à l'adresse.
+    Retry 1× si la sortie est < 120 mots (signe d'échec GPT)."""
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
+        app.logger.warning("GPT quartier: OPENAI_API_KEY manquante — fallback")
         return ""
     v = ville or "Vannes"
     a = adresse or v
+    tb = type_bien or "Local commercial"
     prompt = (
         "Tu es un expert en immobilier commercial dans le Golfe du Morbihan (Bretagne Sud).\n"
-        "Redige un texte de presentation du secteur, destine a un acquereur.\n\n"
-        "Secteur : " + a + ", " + v + " (Morbihan, 56)\n"
-        "Type de bien : " + (type_bien or "Local commercial") + "\n\n"
-        "5 a 6 phrases riches (160-220 mots), texte continu, sans titre ni liste.\n"
-        "Aborde : attractivite economique, le secteur, accessibilite, environnement commercial, pourquoi strategique.\n"
-        "Ton : editorial, valorisant. Pas de formule vague."
+        "Tu rédiges un texte de présentation en DEUX paragraphes distincts, destiné à un acquéreur "
+        "d'un " + tb.lower() + " situé au " + a + ", " + v + " (Morbihan).\n\n"
+        "FORMAT STRICT :\n"
+        "Paragraphe 1 — LA VILLE (80-100 mots) : dynamique économique de " + v + ", démographie, "
+        "attractivité, position dans le Golfe du Morbihan. Cite 1 ou 2 éléments concrets (port, "
+        "université, zones d'activité, tourisme…).\n\n"
+        "Paragraphe 2 — LE QUARTIER (100-140 mots) : cible précisément la rue ou le secteur de "
+        "l'adresse '" + a + "'. Parle du TYPE de quartier (centre historique, péricentre commerçant, "
+        "zone d'activité, quartier résidentiel, proximité gare/port…), du tissu commercial environnant, "
+        "de l'accessibilité (parkings, transports, axes), et de la pertinence pour un " + tb.lower() + ".\n\n"
+        "RÈGLES :\n"
+        "- Texte continu, pas de titre, pas de liste, pas de phrase vague.\n"
+        "- Sépare les deux paragraphes par une ligne vide.\n"
+        "- Évite les formules creuses ('emplacement stratégique', 'cadre privilégié') sans justification.\n"
+        "- Nomme la rue ou le secteur concerné au moins une fois dans le paragraphe 2."
     )
-    try:
-        resp = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
-            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": 500, "temperature": 0.65},
-            timeout=30)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        app.logger.error("GPT quartier: %s", e)
-        return ""
+
+    def _call():
+        try:
+            resp = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
+                json={"model": "gpt-4o-mini",
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": 700, "temperature": 0.55},
+                timeout=30)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            app.logger.error("GPT quartier call: %s", e)
+            return ""
+
+    out = _call()
+    # Retry 1× si sortie trop courte (signe d'échec ou troncature)
+    if out and len(out.split()) < 120:
+        app.logger.warning("GPT quartier: sortie trop courte (%d mots), retry", len(out.split()))
+        out2 = _call()
+        if out2 and len(out2.split()) >= len(out.split()):
+            out = out2
+    if not out:
+        app.logger.error("GPT quartier: FALLBACK utilisé (API indisponible ou vide)")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +493,7 @@ def _footer(c, n, total=3):
     c.setFont("Helvetica", 6.5)
     c.drawString(ML, 3.5 * mm,
                  "Barbier Immobilier \u2014 2 place Albert Einstein, 56000 Vannes \u2014 02.97.47.11.11 \u2014 barbierimmobilier.com")
-    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.31  " + str(n) + " / " + str(total))
+    c.drawRightString(PAGE_W - MR, 3.5 * mm, "v5.32  " + str(n) + " / " + str(total))
     c.restoreState()
 
 
@@ -739,15 +785,29 @@ def _page1(c, d, page_num=1, total=3):
     c.drawString(ML, PAGE_H - 58 * mm - yoff, (cp + " " + vi).strip())
 
     # Price — show prix net vendeur when available, else prix FAI
+    # En mode estimation (show_honoraires=False), on affiche uniquement la valeur estimée sans distinction FAI/net
+    show_hono = d.get("show_honoraires", True)
+    is_estim = (str(d.get("mode", "")).lower() == "estimation")
     pnv_cover = d.get("prix_net_vendeur") or 0
     prix_cover = int(float(str(pnv_cover))) if pnv_cover else (d.get("prix") or 0)
-    prix_label = "PRIX NET VENDEUR" if pnv_cover else "PRIX DE VENTE FAI"
+    if is_estim and not show_hono:
+        # En estimation sans honoraires : afficher la valeur estimée (prix_retenu) si dispo
+        prix_retenu = d.get("prix_retenu")
+        if prix_retenu:
+            try:
+                prix_cover = int(float(str(prix_retenu)))
+            except (ValueError, TypeError):
+                pass
+        prix_label = "VALEUR ESTIMÉE"
+    else:
+        prix_label = "PRIX NET VENDEUR" if pnv_cover else "PRIX DE VENTE FAI"
     c.setFillColor(WHITE)
     c.setFont("Helvetica-Bold", 34)
     c.drawString(ML, PAGE_H - 84 * mm, _pfmt(prix_cover))
-    # Honoraires
+    # Honoraires (masqués si show_honoraires=False)
     hono = d.get("honoraires")
-    if hono:
+    display_hono = hono and show_hono
+    if display_hono:
         c.setFillColor(colors.HexColor("#FFFFFFBB"))
         c.setFont("Helvetica", 9)
         ht = "Honoraires : " + _pfmt(hono) + " HT"
@@ -757,7 +817,7 @@ def _page1(c, d, page_num=1, total=3):
         c.drawString(ML, PAGE_H - 91 * mm, ht)
     c.setFillColor(WHITE)
     c.setFont("Helvetica", 9)
-    c.drawString(ML, PAGE_H - (97 if hono else 91) * mm, prix_label)
+    c.drawString(ML, PAGE_H - (97 if display_hono else 91) * mm, prix_label)
 
     # Pills: Surface, Type, Activite — drawn AFTER both backgrounds
     pills = [
@@ -1171,16 +1231,24 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
             _sec(c, "Prix", ML, cursor)
             cursor -= SEC_H + SP_AFTER_SEC
             # Determine layout: 3 boxes + optional rentabilité
+            # Si show_honoraires=False (mode estimation), n'afficher que PRIX FAI (pas honoraires ni net vendeur)
+            show_hono3 = d.get("show_honoraires", True)
             taux = d.get("taux_rentabilite") or ""
-            n_boxes = 4 if taux else 3
+            if show_hono3:
+                n_boxes = 4 if taux else 3
+            else:
+                n_boxes = 2 if taux else 1
             bw3 = CW / n_boxes - 2 * mm
             hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
             bloc_y = cursor - prix_block_h
-            items = [
-                ("PRIX FAI HT", _pfmt(prix_fai), TEAL),
-                ("HONORAIRES HT (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
-                ("PRIX NET VENDEUR", _pfmt(pnv_v), TEAL_DARK),
-            ]
+            if show_hono3:
+                items = [
+                    ("PRIX FAI HT", _pfmt(prix_fai), TEAL),
+                    ("HONORAIRES HT (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
+                    ("PRIX NET VENDEUR", _pfmt(pnv_v), TEAL_DARK),
+                ]
+            else:
+                items = [("VALEUR ESTIMÉE", _pfmt(prix_fai), TEAL_DARK)]
             if taux:
                 items.append(("RENTABILIT\u00c9 BRUTE", str(taux), colors.HexColor("#2E7D32")))
             for ip, (lbl, val, col) in enumerate(items):
@@ -1302,17 +1370,25 @@ def _page_bail_details(c, d, page_num, total):
             cursor -= SP_BETWEEN_BLOCS
             _sec(c, "Prix", ML, cursor)
             cursor -= SEC_H + SP_AFTER_SEC
+            # Si show_honoraires=False (mode estimation), n'afficher que la valeur sans détail
+            show_hono_b = d.get("show_honoraires", True)
             taux = d.get("taux_rentabilite") or ""
-            n_boxes = 4 if taux else 3
+            if show_hono_b:
+                n_boxes = 4 if taux else 3
+            else:
+                n_boxes = 2 if taux else 1
             prix_block_h = 28 * mm
             bw3 = CW / n_boxes - 2 * mm
             hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
             bloc_y = cursor - prix_block_h
-            items = [
-                ("PRIX FAI HT", _pfmt(prix_fai), TEAL),
-                ("HONORAIRES HT (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
-                ("PRIX NET VENDEUR", _pfmt(pnv_v), TEAL_DARK),
-            ]
+            if show_hono_b:
+                items = [
+                    ("PRIX FAI HT", _pfmt(prix_fai), TEAL),
+                    ("HONORAIRES HT (" + str(hcharge)[:12] + ")", _pfmt(hono_v), ORANGE),
+                    ("PRIX NET VENDEUR", _pfmt(pnv_v), TEAL_DARK),
+                ]
+            else:
+                items = [("VALEUR ESTIMÉE", _pfmt(prix_fai), TEAL_DARK)]
             if taux:
                 items.append(("RENTABILIT\u00c9 BRUTE", str(taux), colors.HexColor("#2E7D32")))
             for ip, (lbl, val, col) in enumerate(items):
@@ -1723,6 +1799,10 @@ def _page_cadastre(c, d, page_num=5, total=5):
             infos.append("Section : " + str(section))
         if surface_terrain:
             infos.append("Surface terrain : " + str(surface_terrain) + " m\u00b2")
+        # PLU : priorité saisie manuelle (plu_manuel), sinon zone PLU Airtable
+        plu_txt = (d.get("plu_manuel") or "").strip() or (d.get("Zone PLU") or d.get("zone_plu") or "").strip()
+        if plu_txt:
+            infos.append("PLU : " + plu_txt[:60])
         c.drawString(ML + 5 * mm, bar_y + INFO_BAR_H / 2 - 1.2 * mm,
                      "  \u00b7  ".join(infos))
 
@@ -2056,6 +2136,129 @@ def _page_estimation(c, d, page_num, total):
 
 
 # ---------------------------------------------------------------------------
+# PAGE — Estimation LOYER (page optionnelle, mode estimation)
+# ---------------------------------------------------------------------------
+def _page_estimation_loyer(c, d, page_num, total):
+    ville = _safe(d.get("ville"), "Vannes")
+    _header(c, "Estimation de loyer — " + ville)
+
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "Loyer mensuel recommandé", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
+
+    try:
+        loyer_min = int(float(str(d.get("loyer_min") or 0)))
+    except (ValueError, TypeError):
+        loyer_min = 0
+    try:
+        loyer_max = int(float(str(d.get("loyer_max") or 0)))
+    except (ValueError, TypeError):
+        loyer_max = 0
+    try:
+        loyer_retenu = int(float(str(d.get("loyer_retenu") or 0)))
+    except (ValueError, TypeError):
+        loyer_retenu = 0
+    surface = d.get("surface") or 0
+
+    # 3 price boxes (même style que l'estimation vente)
+    side_w = 52 * mm
+    center_w = 62 * mm
+    gap_x = (CW - 2 * side_w - center_w) / 2
+    side_h = 42 * mm
+    center_h = 50 * mm
+
+    boxes = [
+        ("LOYER MIN",     loyer_min,    "/mois HT",  TEAL_LIGHT, TEAL_DARK, side_w, side_h),
+        ("LOYER RECOMMANDÉ", loyer_retenu, "/mois HT", TEAL_DARK, WHITE, center_w, center_h),
+        ("LOYER MAX",     loyer_max,    "/mois HT",  TEAL_LIGHT, TEAL_DARK, side_w, side_h),
+    ]
+
+    boxes_base_y = cursor - center_h
+    box_x = ML
+    for i, (label, val, subtitle, bg, fg, bw, bh) in enumerate(boxes):
+        by = cursor - bh
+        if i != 1:
+            by = boxes_base_y
+        _rrect(c, box_x, by, bw, bh, r=4, fill=bg)
+        c.setFillColor(fg)
+        c.setFont("Helvetica", 6.5)
+        c.drawCentredString(box_x + bw / 2, by + bh - 8 * mm, label)
+        sep_color = colors.HexColor("#FFFFFF44") if bg == TEAL_DARK else colors.HexColor("#0D557033")
+        c.setStrokeColor(sep_color)
+        c.setLineWidth(0.4)
+        c.line(box_x + 6 * mm, by + bh - 10 * mm, box_x + bw - 6 * mm, by + bh - 10 * mm)
+        c.setFillColor(fg if bg == TEAL_DARK else ORANGE)
+        fsz = 18 if i == 1 else 14
+        c.setFont("Helvetica-Bold", fsz)
+        c.drawCentredString(box_x + bw / 2, by + bh / 2 - 6 * mm, _pfmt(val))
+        c.setFillColor(fg)
+        c.setFont("Helvetica", 7)
+        c.drawCentredString(box_x + bw / 2, by + 5 * mm, subtitle)
+        box_x += bw + gap_x
+
+    # Loyer au m² + annuel
+    cursor = boxes_base_y - 8 * mm
+    if loyer_retenu and surface:
+        try:
+            loyer_m2 = int(loyer_retenu / float(surface))
+        except (ValueError, TypeError, ZeroDivisionError):
+            loyer_m2 = 0
+        loyer_annuel = loyer_retenu * 12
+        sub_txt = (
+            "Loyer au m² : " + _pfmt(loyer_m2).replace(" €", "") + " €/m²/mois · "
+            "Loyer annuel HT : " + _pfmt(loyer_annuel) + " HT/an · "
+            "Surface : " + str(surface) + " m²")
+        c.setFillColor(GRAY_DARK)
+        c.setFont("Helvetica", 8.5)
+        c.drawCentredString(ML + CW / 2, cursor, sub_txt)
+        cursor -= 6 * mm
+
+    # Rendement brut (si prix_retenu dispo)
+    prix_retenu = d.get("prix_retenu") or 0
+    try:
+        prix_retenu = float(prix_retenu)
+    except (ValueError, TypeError):
+        prix_retenu = 0
+    if loyer_retenu and prix_retenu > 0:
+        loyer_annuel = loyer_retenu * 12
+        rendement = (loyer_annuel / prix_retenu) * 100
+        cursor -= SP_BETWEEN_BLOCS
+        _sec(c, "Rendement brut estimé", ML, cursor)
+        cursor -= SEC_H + SP_AFTER_SEC
+        rend_box_h = 20 * mm
+        rend_y = cursor - rend_box_h
+        _rrect(c, ML, rend_y, CW, rend_box_h, r=3, fill=colors.HexColor("#F0FDF4"), stroke=colors.HexColor("#22C55E"))
+        c.setFillColor(colors.HexColor("#15803D"))
+        c.setFont("Helvetica-Bold", 22)
+        c.drawCentredString(ML + CW / 2, rend_y + rend_box_h / 2 - 2, f"{rendement:.2f} %")
+        c.setFillColor(GRAY_DARK)
+        c.setFont("Helvetica", 8)
+        c.drawCentredString(ML + CW / 2, rend_y + 4 * mm,
+                            "Loyer annuel HT / Prix d'acquisition estimé (hors charges, taxes et vacance locative)")
+        cursor = rend_y - SP_BETWEEN_BLOCS
+
+    # Méthodologie
+    cursor -= 2 * mm
+    _sec(c, "Méthodologie", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC
+    meth_h = 28 * mm
+    meth_y = cursor - meth_h
+    _rrect(c, ML, meth_y, CW, meth_h, r=3, stroke=GRAY_BDR)
+    meth_text = d.get("loyer_methodologie") or (
+        "Estimation fondée sur notre connaissance du marché local de la location commerciale, "
+        "les pratiques tarifaires du secteur, et le positionnement du bien (emplacement, surface, "
+        "état, type d'activité compatible). Cette fourchette est indicative et devra être confirmée "
+        "par les conditions de marché au moment de la commercialisation.")
+    sty = ParagraphStyle("meth", fontName="Helvetica", fontSize=7.5,
+                         textColor=GRAY_DARK, leading=11, alignment=4)
+    para = Paragraph(meth_text.replace("&", "&amp;"), sty)
+    _, ph = para.wrap(CW - 10 * mm, meth_h - 4 * mm)
+    para.drawOn(c, ML + 5 * mm, meth_y + meth_h - 3 * mm - ph)
+
+    _footer(c, page_num, total=total)
+
+
+# ---------------------------------------------------------------------------
 # PDF Generation
 # ---------------------------------------------------------------------------
 def generate_dossier_pdf(d):
@@ -2082,6 +2285,8 @@ def generate_dossier_pdf(d):
                       or bool(d.get("comparables"))
                       or bool(d.get("prix_estime_min"))
                       or bool(d.get("prix_retenu")))
+    include_loyer = bool(d.get("include_loyer")) and (
+        d.get("loyer_retenu") or d.get("loyer_min") or d.get("loyer_max"))
 
     # Count total pages
     total = 2  # cover + quartier
@@ -2089,6 +2294,8 @@ def generate_dossier_pdf(d):
         total += 1
     if is_estimation:
         total += 2
+    if include_loyer:
+        total += 1
     total += 1  # page3 (annonce + caract\u00e9ristiques)
     if has_bail_details:
         total += 1
@@ -2121,6 +2328,11 @@ def generate_dossier_pdf(d):
         _page_estimation(cv, d, page_num=pn, total=total)
         cv.showPage()
         pn += 1
+        # Estimation loyer (page optionnelle)
+        if include_loyer:
+            _page_estimation_loyer(cv, d, page_num=pn, total=total)
+            cv.showPage()
+            pn += 1
 
     # Annonce + Caract\u00e9ristiques (+ inline bail/prix if no bail_details)
     _page3(cv, d, page_num=pn, total=total, skip_bail_prix=has_bail_details)
@@ -2155,7 +2367,7 @@ def generate_dossier_pdf(d):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def health():
-    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.31"})
+    return jsonify({"service": "Barbier PDF Generator", "status": "ok", "version": "5.32"})
 
 
 @app.route("/generate-quartier", methods=["POST"])
@@ -2180,7 +2392,7 @@ def dossier():
     real = [p for i, p in enumerate(photos) if i > 0 and not _is_plan(p)]
     plans = [p for p in photos if _is_plan(p)]
     app.logger.info(
-        "Dossier v5.31 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
+        "Dossier v5.32 for %s — keys: %s — photos total=%d, real=%d, cadastre=%d",
         ref, list(body.keys()), len(photos), len(real), len(plans))
     # Log first 80 chars of each photo to debug
     for idx, p in enumerate(photos):
@@ -3510,19 +3722,32 @@ def comparables():
 
     ville = body.get("ville", "Vannes")
     cp = body.get("code_postal", "56000")
+    adresse = body.get("adresse", "")
     type_bien = body.get("type_bien", "Local commercial")
     surface = int(body.get("surface") or 0)
     annee_min = int(body.get("annee_min") or 2021)
     limit = min(int(body.get("limit") or 6), 10)
+    # Rayon km autour de l'adresse pour filtrer les comparables
+    # (0 ou absent = pas de filtre, toute la commune comme avant)
+    try:
+        rayon_km = float(body.get("rayon_km") or 0)
+    except (ValueError, TypeError):
+        rayon_km = 0
 
-    # Resolve code_insee
+    # Resolve code_insee + lat/lon du bien (pour filtre rayon)
     code_insee = body.get("code_insee", "")
-    if not code_insee:
-        geo = _geocode_urba(body.get("adresse", ""), cp, ville)
-        if geo:
-            _, _, code_insee = geo
+    ref_lat = None
+    ref_lon = None
+    geo = _geocode_urba(adresse, cp, ville)
+    if geo:
+        ref_lon, ref_lat, insee_g = geo
+        if not code_insee:
+            code_insee = insee_g
     if not code_insee:
         return jsonify({"ok": False, "error": "Impossible de résoudre le code INSEE"}), 400
+    if rayon_km > 0 and (ref_lat is None or ref_lon is None):
+        app.logger.warning("Comparables: rayon_km=%s demandé mais géocodage a échoué — rayon ignoré", rayon_km)
+        rayon_km = 0
 
     # Surface filter: ±50% of target surface, min 40m²
     if surface > 0:
@@ -3565,7 +3790,7 @@ def comparables():
         return jsonify({"ok": True, "comparables": [],
                         "message": "Aucune transaction comparable trouvée"}), 200
 
-    # Score and rank by relevance (surface proximity + recency)
+    # Score and rank by relevance (surface proximity + recency + distance si rayon_km)
     scored = []
     for m in all_mutations:
         s_bati = float(m.get("sbati") or 0)
@@ -3575,31 +3800,57 @@ def comparables():
         if prix <= 0:
             continue
         annee = m.get("anneemut", 2020)
-        # Surface proximity score (1.0 = perfect match, 0 = far)
+
+        # Distance (si rayon_km actif) — via lat/lon du point de mutation Cerema
+        dist_km = None
+        if rayon_km > 0 and ref_lat is not None:
+            mlat = m.get("latitude") or m.get("lat")
+            mlon = m.get("longitude") or m.get("lon")
+            if mlat is not None and mlon is not None:
+                dist_km = _haversine_km(ref_lat, ref_lon, mlat, mlon)
+
+        # Surface proximity score
         if surface > 0:
             ratio = min(s_bati, surface) / max(s_bati, surface)
         else:
             ratio = 0.5
-        # Recency bonus (more recent = better)
+        # Recency bonus
         recency = (annee - annee_min + 1) / 6
         score = ratio * 0.7 + min(recency, 1.0) * 0.3
-        scored.append((score, m, s_bati, prix))
+        scored.append((score, m, s_bati, prix, dist_km))
+
+    # Filtre rayon : applique le seuil si dist_km connue
+    # Élargit automatiquement à rayon_km * 2 si < 3 résultats passent le filtre
+    elargissement = False
+    applied_rayon = rayon_km
+    if rayon_km > 0:
+        inside = [s for s in scored if s[4] is not None and s[4] <= rayon_km]
+        if len(inside) < 3:
+            applied_rayon = rayon_km * 2
+            inside = [s for s in scored if s[4] is not None and s[4] <= applied_rayon]
+            elargissement = True
+            app.logger.info("Comparables: rayon %.1f km < 3 résultats, élargi à %.1f km", rayon_km, applied_rayon)
+        if inside:
+            scored = inside
+        else:
+            app.logger.warning("Comparables: aucune mutation avec lat/lon dans le rayon %.1f km, désactivation du filtre", rayon_km)
+            applied_rayon = 0
 
     scored.sort(key=lambda x: x[0], reverse=True)
     top = scored[:limit]
 
     # Enrich with addresses via reverse geocode (from parcel IDs)
     results = []
-    for score, m, s_bati, prix in top:
-        adresse = ""
+    for score, m, s_bati, prix, dist_km in top:
+        adresse_c = ""
         ville_comp = ""
         parcels = m.get("l_idparmut") or m.get("l_idpar") or []
         if parcels:
-            adresse, ville_comp, _ = _reverse_geocode_parcelle(parcels[0])
+            adresse_c, ville_comp, _ = _reverse_geocode_parcelle(parcels[0])
 
         prix_m2 = int(prix / s_bati) if s_bati > 0 else 0
         results.append({
-            "adresse": adresse or "Adresse non disponible",
+            "adresse": adresse_c or "Adresse non disponible",
             "ville": ville_comp or ville,
             "prix": int(prix),
             "surface": int(s_bati),
@@ -3608,6 +3859,7 @@ def comparables():
             "type_bien": m.get("libtypbien", type_bien),
             "source": "DVF",
             "score": round(score, 2),
+            "distance_km": round(dist_km, 2) if dist_km is not None else None,
         })
 
     # Compute fourchette from comparables
@@ -3641,6 +3893,8 @@ def comparables():
             "surface_range": f"{sbatmin}-{sbatmax} m²",
             "annee_min": annee_min,
             "total_mutations": len(all_mutations),
+            "rayon_km": applied_rayon,
+            "elargissement": elargissement,
         }
     })
 
@@ -3704,8 +3958,21 @@ def urbanisme():
         geom = {"type": "Point", "coordinates": [lon, lat]}
         app.logger.info("Urbanisme: using point geometry (no parcel found)")
 
-    # Step 3: PLU zone
-    plu = _get_plu_zone(geom)
+    # Step 3: PLU zone — retry 2× avec backoff 1s
+    import time as _time
+    plu = None
+    last_plu_error = None
+    for attempt in range(2):
+        try:
+            plu = _get_plu_zone(geom)
+            if plu:
+                break
+        except Exception as e:
+            last_plu_error = str(e)
+            app.logger.warning("PLU attempt %d failed: %s", attempt + 1, e)
+        if attempt == 0:
+            _time.sleep(1.0)
+
     zone_plu = ""
     resume_plu = ""
     url_reglement = ""
@@ -3716,11 +3983,36 @@ def urbanisme():
             zone_plu, plu.get("typezone", ""), plu.get("destdomi", ""),
             plu.get("libelong", ""), ville, type_bien)
 
-    # Step 4: Servitudes
-    servitudes = _get_servitudes(geom)
+    # Step 4: Servitudes — retry 2× aussi
+    servitudes = []
+    for attempt in range(2):
+        try:
+            servitudes = _get_servitudes(geom) or []
+            break
+        except Exception as e:
+            app.logger.warning("Servitudes attempt %d failed: %s", attempt + 1, e)
+            if attempt == 0:
+                _time.sleep(1.0)
 
+    # Si aucune donnée : retour 200 avec message d'erreur lisible
+    # (au lieu de 404 opaque) pour que le cockpit affiche un champ de saisie manuelle
     if not zone_plu and not servitudes:
-        return jsonify({"ok": False, "error": f"Aucune donn\u00e9e PLU trouv\u00e9e pour {adresse}, {ville}"}), 404
+        msg = (last_plu_error or
+               "L'API IGN (apicarto) n'a retourné aucune zone PLU ni servitude pour cette adresse. "
+               "Possibles causes : parcelle mal identifiée, PLU communal non encore numérisé, "
+               "ou panne temporaire IGN. Vous pouvez saisir les infos manuellement.")
+        app.logger.info("Urbanisme: aucune donnée IGN pour %s, %s — fallback manuel", adresse, ville)
+        return jsonify({
+            "ok": True,
+            "plu": None,
+            "zone_plu": "",
+            "resume_plu": "",
+            "url_reglement": "",
+            "servitudes": [],
+            "code_insee": code_insee,
+            "ref_cadastrale": found_ref_cadastrale,
+            "error_message": msg,
+        })
 
     result = {
         "ok": True,
