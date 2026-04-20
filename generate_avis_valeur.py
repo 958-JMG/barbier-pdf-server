@@ -47,7 +47,7 @@ TEST_DATA = {
     "Ville": "Vannes",
     "Code postal": "56000",
     "Prix": 385000,
-    "Negociateur": "Maïwen Le Gall",
+    "Negociateur": "Maiwenn Le Gall",
     "Prix sans décote": 410000,
     "Prix avec décote": 365000,
     "Prix estime min": 350000,
