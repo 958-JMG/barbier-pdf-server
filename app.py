@@ -3726,7 +3726,7 @@ def comparables():
     type_bien = body.get("type_bien", "Local commercial")
     surface = int(body.get("surface") or 0)
     annee_min = int(body.get("annee_min") or 2021)
-    limit = min(int(body.get("limit") or 6), 10)
+    limit = min(int(body.get("limit") or 6), 25)
     # Rayon km autour de l'adresse pour filtrer les comparables
     # (0 ou absent = pas de filtre, toute la commune comme avant)
     try:
@@ -3844,22 +3844,33 @@ def comparables():
     for score, m, s_bati, prix, dist_km in top:
         adresse_c = ""
         ville_comp = ""
+        lat_c = m.get("latitude") or m.get("lat")
+        lon_c = m.get("longitude") or m.get("lon")
         parcels = m.get("l_idparmut") or m.get("l_idpar") or []
+        parcelle_id = parcels[0] if parcels else ""
         if parcels:
-            adresse_c, ville_comp, _ = _reverse_geocode_parcelle(parcels[0])
+            adresse_c, ville_comp, coords = _reverse_geocode_parcelle(parcels[0])
+            if coords and (lat_c is None or lon_c is None):
+                lon_c, lat_c = coords
 
         prix_m2 = int(prix / s_bati) if s_bati > 0 else 0
+        annee_mut = m.get("anneemut", "")
+        comp_id = f"{parcelle_id}:{annee_mut}:{int(prix)}" if parcelle_id else f"dvf:{annee_mut}:{int(prix)}:{int(s_bati)}"
         results.append({
+            "id": comp_id,
             "adresse": adresse_c or "Adresse non disponible",
             "ville": ville_comp or ville,
             "prix": int(prix),
             "surface": int(s_bati),
             "prix_m2": prix_m2,
-            "annee": m.get("anneemut", ""),
+            "annee": annee_mut,
             "type_bien": m.get("libtypbien", type_bien),
             "source": "DVF",
             "score": round(score, 2),
             "distance_km": round(dist_km, 2) if dist_km is not None else None,
+            "lat": round(float(lat_c), 6) if lat_c is not None else None,
+            "lng": round(float(lon_c), 6) if lon_c is not None else None,
+            "parcelle_id": parcelle_id,
         })
 
     # Compute fourchette from comparables
@@ -3895,6 +3906,8 @@ def comparables():
             "total_mutations": len(all_mutations),
             "rayon_km": applied_rayon,
             "elargissement": elargissement,
+            "ref_lat": round(float(ref_lat), 6) if ref_lat is not None else None,
+            "ref_lng": round(float(ref_lon), 6) if ref_lon is not None else None,
         }
     })
 
