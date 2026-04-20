@@ -2056,7 +2056,7 @@ def _page_estimation(c, d, page_num, total):
 
     # -- Pourquoi investir ici? --
     cursor -= SP_BETWEEN_BLOCS
-    _sec(c, "Pourquoi investir ici ?", ML, cursor)
+    _sec(c, "Points d'attention à prendre en compte", ML, cursor)
     cursor -= SEC_H + SP_AFTER_SEC
 
     type_bien = _safe(d.get("type_bien"), "bien")
@@ -2138,6 +2138,55 @@ def _page_estimation(c, d, page_num, total):
 # ---------------------------------------------------------------------------
 # PAGE — Estimation LOYER (page optionnelle, mode estimation)
 # ---------------------------------------------------------------------------
+def _page_avis_valeur(c, d, page_num, total):
+    """Page dédiée à l'avis de valeur rédigé par l'agent (champ Airtable
+    'Avis de valeur'). Rendu en paragraphes, avec détection auto des titres
+    de sections type "1) Contexte", "2) Analyse", etc."""
+    import re as _re
+    avis = _safe(d.get("avis_valeur"), "").strip()
+    if not avis:
+        return
+
+    _header(c, "Avis de valeur détaillé")
+
+    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _sec(c, "Avis de valeur", ML, cursor)
+    cursor -= SEC_H + SP_AFTER_SEC + 2 * mm
+
+    sty_body = ParagraphStyle(
+        "avisBody",
+        fontName="Helvetica",
+        fontSize=9.5,
+        leading=13.5,
+        spaceAfter=6,
+        textColor=GRAY_DARK,
+    )
+    sty_title = ParagraphStyle(
+        "avisTitle",
+        fontName="Helvetica-Bold",
+        fontSize=10.5,
+        leading=14,
+        spaceAfter=4,
+        spaceBefore=6,
+        textColor=TEAL_DARK,
+    )
+
+    min_y = 22 * mm  # marge basse pour ne pas déborder sur le footer
+    for line in [l.strip() for l in _re.split(r"\n", avis) if l.strip()]:
+        escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        is_title = bool(_re.match(r"^\d+[\)\.\-]\s", line)) or (
+            len(line) < 60 and line.endswith(":")
+        )
+        p = Paragraph(escaped, sty_title if is_title else sty_body)
+        _, ph = p.wrap(CW, 20)
+        if cursor - ph < min_y:
+            break  # on tronque proprement pour tenir sur 1 page
+        p.drawOn(c, ML, cursor - ph)
+        cursor -= ph + (sty_title.spaceAfter if is_title else sty_body.spaceAfter)
+
+    _footer(c, page_num, total)
+
+
 def _page_estimation_loyer(c, d, page_num, total):
     ville = _safe(d.get("ville"), "Vannes")
     _header(c, "Estimation de loyer — " + ville)
@@ -2281,6 +2330,7 @@ def generate_dossier_pdf(d):
     has_cadastre = len(cadastre_photos) > 0
     has_plans = len(plans_locaux) > 0
     has_bail_details = bool(d.get("bail_details"))
+    has_avis_valeur = bool(_safe(d.get("avis_valeur"), "").strip())
     is_estimation = (str(d.get("mode", "")).lower() == "estimation"
                       or bool(d.get("comparables"))
                       or bool(d.get("prix_estime_min"))
@@ -2294,6 +2344,8 @@ def generate_dossier_pdf(d):
         total += 1
     if is_estimation:
         total += 2
+    if has_avis_valeur:
+        total += 1
     if include_loyer:
         total += 1
     total += 1  # page3 (annonce + caract\u00e9ristiques)
@@ -2328,6 +2380,11 @@ def generate_dossier_pdf(d):
         _page_estimation(cv, d, page_num=pn, total=total)
         cv.showPage()
         pn += 1
+        # Avis de valeur détaillé (page optionnelle, juste après l'estimation)
+        if has_avis_valeur:
+            _page_avis_valeur(cv, d, page_num=pn, total=total)
+            cv.showPage()
+            pn += 1
         # Estimation loyer (page optionnelle)
         if include_loyer:
             _page_estimation_loyer(cv, d, page_num=pn, total=total)
