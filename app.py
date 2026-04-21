@@ -784,9 +784,19 @@ def _page1(c, d, page_num=1, total=3):
     vi = _safe(d.get("ville"), "")
     c.drawString(ML, PAGE_H - 58 * mm - yoff, (cp + " " + vi).strip())
 
+    # Propriétaires (optionnel, sous l'adresse) — contrôlé par show_owners côté cockpit
+    if d.get("show_owners"):
+        owners_lbl = _safe(d.get("proprietaires_label"), "")
+        if owners_lbl:
+            c.setFillColor(colors.HexColor("#FFFFFFCC"))
+            c.setFont("Helvetica-Oblique", 10)
+            c.drawString(ML, PAGE_H - 66 * mm - yoff, "Propriétaires : " + owners_lbl)
+            c.setFillColor(WHITE)
+
     # Price — show prix net vendeur when available, else prix FAI
     # En mode estimation (show_honoraires=False), on affiche uniquement la valeur estimée sans distinction FAI/net
     show_hono = d.get("show_honoraires", True)
+    show_prix_fai = bool(d.get("show_prix_fai", False))
     is_estim = (str(d.get("mode", "")).lower() == "estimation")
     pnv_cover = d.get("prix_net_vendeur") or 0
     prix_cover = int(float(str(pnv_cover))) if pnv_cover else (d.get("prix") or 0)
@@ -799,8 +809,11 @@ def _page1(c, d, page_num=1, total=3):
             except (ValueError, TypeError):
                 pass
         prix_label = "VALEUR ESTIMÉE"
+    elif pnv_cover:
+        prix_label = "PRIX NET VENDEUR"
     else:
-        prix_label = "PRIX NET VENDEUR" if pnv_cover else "PRIX DE VENTE FAI"
+        # Mention FAI optionnelle (décochée par défaut côté cockpit)
+        prix_label = "PRIX DE VENTE FAI" if show_prix_fai else "PRIX DE VENTE"
     c.setFillColor(WHITE)
     c.setFont("Helvetica-Bold", 34)
     c.drawString(ML, PAGE_H - 84 * mm, _pfmt(prix_cover))
