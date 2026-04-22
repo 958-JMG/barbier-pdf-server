@@ -1,0 +1,30 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+venv
+.env
+.env.*
+.DS_Store
+._*
+.vscode
+.idea
+*.swp
+README.md
+docs/
+# Exclure les PDF de test stockés dans le repo
+test_*.pdf
+test_output*.pdf
+Dossier_VF*.pdf
+Avis_valeur_VF*.pdf
+# Exclure les configs n8n (elles sont dans le repo pour référence mais pas utiles en runtime)
+n8n-*.json
+.claude
+.deploy_trigger
+Dockerfile
+.dockerignore

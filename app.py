@@ -187,7 +187,12 @@ def _geocode(adresse, ville):
     return None, None
 
 
-GOOGLE_MAPS_KEY = os.environ.get("GOOGLE_MAPS_KEY", "AIzaSyBBmTUkFXvCLMZqfCk26o6axikt98SY058")
+GOOGLE_MAPS_KEY = os.environ.get("GOOGLE_MAPS_KEY", "").strip()
+if not GOOGLE_MAPS_KEY:
+    # No hard-coded fallback — fail gracefully to OSM tiles.
+    app.logger.warning(
+        "GOOGLE_MAPS_KEY not set — Google Static Maps disabled, OSM fallback active."
+    )
 
 # Google Maps marker colors per POI category
 _GM_MARKER_COLORS = {
