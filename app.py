@@ -325,8 +325,12 @@ def _google_static_map(adresse, ville, poi_list, w=640, h=400, zoom=16):
 
 
 def _get_poi_gpt(adresse, ville, type_bien):
-    """Fallback: ask GPT for nearby POI when Overpass fails."""
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    """Fallback: ask Claude Haiku for nearby POI when Overpass fails.
+
+    Migré d'OpenAI gpt-4o-mini → Anthropic Claude Haiku (2026-04-23).
+    Nom de fonction conservé par compatibilité avec les appelants.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         return []
     prompt = (
@@ -343,12 +347,21 @@ def _get_poi_gpt(adresse, ville, type_bien):
                   "Formation": "#5C3A1B"}
     try:
         resp = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
-            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": 300, "temperature": 0.1},
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": os.environ.get("ANTHROPIC_MODEL_POI", "claude-haiku-4-5"),
+                "max_tokens": 300,
+                "temperature": 0.1,
+                "messages": [{"role": "user", "content": prompt}],
+            },
             timeout=20)
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        content = resp.json().get("content", [])
+        raw = "".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
         match = re.search(r"\[.*?\]", raw, re.DOTALL)
         if match:
             items = json.loads(match.group(0))
@@ -360,7 +373,7 @@ def _get_poi_gpt(adresse, ville, type_bien):
                     results.append((cat, nom[:28], cat_colors.get(cat, "#16708B"), 0, 0))
             return results
     except Exception as e:
-        app.logger.error("POI GPT fallback: %s", e)
+        app.logger.error("POI Claude fallback: %s", e)
     return []
 
 
@@ -385,10 +398,14 @@ def _haversine_km(lat1, lon1, lat2, lon2):
 
 def _gpt_quartier(adresse, ville, type_bien):
     """Texte de présentation ville & quartier. Double-paragraphe, spécifique à l'adresse.
-    Retry 1× si la sortie est < 120 mots (signe d'échec GPT)."""
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    Retry 1× si la sortie est < 120 mots (signe d'échec LLM).
+
+    Migré d'OpenAI gpt-4o-mini → Anthropic Claude Haiku (2026-04-23).
+    Nom de fonction conservé par compatibilité avec les appelants.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
-        app.logger.warning("GPT quartier: OPENAI_API_KEY manquante — fallback")
+        app.logger.warning("Claude quartier: ANTHROPIC_API_KEY manquante — fallback")
         return ""
     v = ville or "Vannes"
     a = adresse or v
@@ -411,31 +428,40 @@ def _gpt_quartier(adresse, ville, type_bien):
         "- Évite les formules creuses ('emplacement stratégique', 'cadre privilégié') sans justification.\n"
         "- Nomme la rue ou le secteur concerné au moins une fois dans le paragraphe 2."
     )
+    model = os.environ.get("ANTHROPIC_MODEL_QUARTIER", "claude-haiku-4-5")
 
     def _call():
         try:
             resp = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
-                json={"model": "gpt-4o-mini",
-                      "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": 700, "temperature": 0.55},
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 700,
+                    "temperature": 0.55,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
                 timeout=30)
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"].strip()
+            content = resp.json().get("content", [])
+            return "".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
         except Exception as e:
-            app.logger.error("GPT quartier call: %s", e)
+            app.logger.error("Claude quartier call: %s", e)
             return ""
 
     out = _call()
     # Retry 1× si sortie trop courte (signe d'échec ou troncature)
     if out and len(out.split()) < 120:
-        app.logger.warning("GPT quartier: sortie trop courte (%d mots), retry", len(out.split()))
+        app.logger.warning("Claude quartier: sortie trop courte (%d mots), retry", len(out.split()))
         out2 = _call()
         if out2 and len(out2.split()) >= len(out.split()):
             out = out2
     if not out:
-        app.logger.error("GPT quartier: FALLBACK utilisé (API indisponible ou vide)")
+        app.logger.error("Claude quartier: FALLBACK utilisé (API indisponible ou vide)")
     return out
 
 
@@ -3673,8 +3699,9 @@ def _get_servitudes(geom):
 
 
 def _gpt_resume_plu(zone, typezone, destdomi, libelong, ville, type_bien):
-    """Use GPT to generate a human-readable PLU summary."""
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    """Resumé PLU via Claude Haiku (migré d'OpenAI 2026-04-23).
+    Nom de fonction conservé par compatibilité avec les appelants."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         return libelong or f"Zone {zone}"
     prompt = (
@@ -3686,15 +3713,24 @@ def _gpt_resume_plu(zone, typezone, destdomi, libelong, ville, type_bien):
     )
     try:
         resp = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
-            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": 400, "temperature": 0.5},
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": os.environ.get("ANTHROPIC_MODEL_PLU", "claude-haiku-4-5"),
+                "max_tokens": 400,
+                "temperature": 0.5,
+                "messages": [{"role": "user", "content": prompt}],
+            },
             timeout=25)
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        content = resp.json().get("content", [])
+        return "".join(b.get("text", "") for b in content if b.get("type") == "text").strip() or (libelong or f"Zone {zone}")
     except Exception as e:
-        app.logger.error("GPT resume PLU: %s", e)
+        app.logger.error("Claude resume PLU: %s", e)
         return libelong or f"Zone {zone}"
 
 
