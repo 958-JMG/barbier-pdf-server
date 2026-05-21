@@ -41,4 +41,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8080/ || exit 1
 
 # Timeout 120s pour les générations de dossier PDF (peuvent être longues)
-CMD ["sh", "-c", "gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --timeout 120 --log-level info --forwarded-allow-ips='*'"]
+# --threads 4 + worker-class gthread : workers I/O bound (Anthropic + DVF + ReportLab IO)
+# --preload : app chargée une fois puis fork → -30% RAM
+CMD ["sh", "-c", "gunicorn app:app --bind 0.0.0.0:${PORT:-8080} \
+  --workers 2 --threads 4 --worker-class gthread \
+  --timeout 120 --keep-alive 5 --preload \
+  --log-level info --forwarded-allow-ips='*'"]
