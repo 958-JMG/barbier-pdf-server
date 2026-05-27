@@ -93,6 +93,118 @@ def _safe(v, fb="\u2014"):
     return str(v)
 
 
+# \u2500\u2500\u2500 Conversion HTML \u2192 blocs ReportLab \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# Les contenus IA (avis de valeur, pr\u00e9sentation ville) arrivent d\u00e9sormais en HTML
+# (<h2>, <h3>, <p>, <strong>, <em>, <ul><li>). ReportLab Paragraph supporte un mini
+# XML (<b>, <i>, <br/>, etc.) mais pas les balises de bloc. Ces helpers parsent
+# le HTML et \u00e9mettent une liste de tuples (kind, text_for_paragraph) o\u00f9 text est
+# d\u00e9j\u00e0 nettoy\u00e9/converti au markup ReportLab.
+
+from html.parser import HTMLParser as _HTMLParser
+
+
+_INLINE_MAP = {
+    "strong": ("<b>", "</b>"),
+    "b":      ("<b>", "</b>"),
+    "em":     ("<i>", "</i>"),
+    "i":      ("<i>", "</i>"),
+    "u":      ("<u>", "</u>"),
+    "br":     ("<br/>", ""),
+}
+_BLOCK_TAGS = {"h1", "h2", "h3", "h4", "p", "li", "ul", "ol"}
+
+
+class _HtmlBlockParser(_HTMLParser):
+    """Parse un HTML simple et \u00e9met une liste de tuples (kind, text_rl) :
+      - kind \u2208 {"h1","h2","h3","h4","p","li"}
+      - text_rl = texte inline d\u00e9j\u00e0 converti en markup ReportLab (<b>,<i>,<br/>),
+        avec les caract\u00e8res <>& dans le texte \u00e9chapp\u00e9s en entit\u00e9s XML.
+    Les <ul>/<ol> ne sont pas \u00e9mis directement \u2014 chaque <li> ressort en bloc
+    avec une puce ajout\u00e9e. Le HTML non reconnu est trait\u00e9 en <p>."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.blocks = []
+        self._cur_kind = None
+        self._cur_buf = []
+
+    def _flush(self):
+        if self._cur_kind is None:
+            return
+        text = "".join(self._cur_buf).strip()
+        if text:
+            if self._cur_kind == "li":
+                text = "\u2022 " + text
+            self.blocks.append((self._cur_kind, text))
+        self._cur_kind = None
+        self._cur_buf = []
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in _BLOCK_TAGS:
+            self._flush()
+            if tag in ("ul", "ol"):
+                return  # conteneurs, on attend les <li>
+            self._cur_kind = tag
+            self._cur_buf = []
+            return
+        if tag in _INLINE_MAP:
+            self._cur_buf.append(_INLINE_MAP[tag][0])
+            return
+        # tag non g\u00e9r\u00e9 (div, span, etc.) \u2192 ignor\u00e9, on garde le contenu
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in _BLOCK_TAGS:
+            if tag in ("ul", "ol"):
+                return
+            self._flush()
+            return
+        if tag in _INLINE_MAP and _INLINE_MAP[tag][1]:
+            self._cur_buf.append(_INLINE_MAP[tag][1])
+
+    def handle_startendtag(self, tag, attrs):
+        # <br/>
+        if tag.lower() == "br":
+            self._cur_buf.append("<br/>")
+
+    def handle_data(self, data):
+        # \u00c9chappement XML pour ReportLab Paragraph
+        safe = data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if self._cur_kind is None:
+            # Texte hors bloc \u2192 on l'ouvre en paragraphe implicite
+            self._cur_kind = "p"
+            self._cur_buf = []
+        self._cur_buf.append(safe)
+
+
+def _html_to_blocks(html_str):
+    """Parse un fragment HTML et retourne une liste (kind, text_rl). Tol\u00e9rant aux
+    HTML mal form\u00e9s. Si l'entr\u00e9e ne contient aucune balise, retourne un seul bloc 'p'."""
+    if not html_str:
+        return []
+    s = str(html_str).strip()
+    if not s:
+        return []
+    # Si pas de balise HTML d\u00e9tect\u00e9e, traiter comme texte plat
+    if "<" not in s:
+        safe = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return [("p", safe)]
+    # Nettoie les fences markdown ```html ... ``` au cas o\u00f9 Claude en met
+    s = re.sub(r"^```(?:html)?\s*", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"```\s*$", "", s).strip()
+    parser = _HtmlBlockParser()
+    try:
+        parser.feed(s)
+        parser._flush()
+    except Exception:
+        # Fallback : strip toutes balises et retourner texte plat
+        plain = re.sub(r"<[^>]+>", " ", s)
+        safe = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return [("p", safe)]
+    return parser.blocks
+
+
 def _ir(b64):
     return ImageReader(io.BytesIO(_b64.b64decode(b64)))
 
@@ -948,14 +1060,6 @@ def _page2(c, d, page_num=2, total=3):
         "l'exploitation d'une activit\u00e9 commerciale ou professionnelle."
     )
 
-    parts = re.split(r"(?<=[.!?])\s+", texte.strip(), maxsplit=1)
-    if len(parts) == 2:
-        p1 = parts[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        p2 = parts[1].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        texte_xml = "<b>" + p1 + "</b> " + p2
-    else:
-        texte_xml = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
     text_top = chapeau_y - 5 * mm
     # Reserve: map zone (min 75mm) + section header (10mm) + footer
     map_min_h = 75 * mm
@@ -964,20 +1068,77 @@ def _page2(c, d, page_num=2, total=3):
     if max_text_h < 8 * mm:
         max_text_h = 8 * mm
 
-    sty = ParagraphStyle("qt", fontName="Helvetica", fontSize=9,
-                         textColor=GRAY_DARK, leading=15, alignment=4)
-    para = Paragraph(texte_xml, sty)
-    _, ph = para.wrap(CW, max_text_h)
-    if ph > max_text_h:
-        for fsz in [8.5, 8, 7.5, 7]:
-            sty2 = ParagraphStyle("qt" + str(fsz), fontName="Helvetica", fontSize=fsz,
-                                  textColor=GRAY_DARK, leading=fsz * 1.55, alignment=4)
-            para = Paragraph(texte_xml, sty2)
-            _, ph = para.wrap(CW, max_text_h)
-            if ph <= max_text_h:
+    # Si le texte contient du HTML produit par l'IA (Description ville Claude),
+    # le parser en blocs structurés (h2/h3/p/li/strong) et émettre plusieurs
+    # Paragraph avec cursor avancing. Sinon (texte plat), comportement historique
+    # (1ère phrase en gras dans 1 Paragraph).
+    if "<" in (texte or ""):
+        blocks = _html_to_blocks(texte)
+        # Essai successif de tailles de font pour rentrer dans max_text_h
+        fitted = False
+        for fsz in [9, 8.5, 8, 7.5, 7]:
+            sty_p = ParagraphStyle(
+                f"qtp{fsz}", fontName="Helvetica", fontSize=fsz, leading=fsz*1.55,
+                spaceAfter=3, textColor=GRAY_DARK, alignment=4,
+            )
+            sty_h = ParagraphStyle(
+                f"qth{fsz}", fontName="Helvetica-Bold", fontSize=fsz+1.5, leading=(fsz+1.5)*1.3,
+                spaceBefore=3, spaceAfter=2, textColor=TEAL_DARK,
+            )
+            sty_h3 = ParagraphStyle(
+                f"qth3{fsz}", fontName="Helvetica-Bold", fontSize=fsz+0.5, leading=(fsz+0.5)*1.3,
+                spaceBefore=2, spaceAfter=1.5, textColor=TEAL_DARK,
+            )
+            sty_li = ParagraphStyle(
+                f"qtli{fsz}", fontName="Helvetica", fontSize=fsz, leading=fsz*1.45,
+                spaceAfter=1.5, leftIndent=8, textColor=GRAY_DARK,
+            )
+            style_for = {"h1": sty_h, "h2": sty_h, "h3": sty_h3, "h4": sty_h3,
+                         "p": sty_p, "li": sty_li}
+            paragraphs = []
+            total_h = 0
+            for kind, text_rl in blocks:
+                sty = style_for.get(kind, sty_p)
+                p = Paragraph(text_rl, sty)
+                _, ph_ = p.wrap(CW, 20)
+                paragraphs.append((p, ph_, sty.spaceAfter))
+                total_h += ph_ + sty.spaceAfter
+            if total_h <= max_text_h:
+                fitted = True
                 break
-    text_draw_y = text_top - ph
-    para.drawOn(c, ML, text_draw_y)
+        # Render (au pire avec fsz=7 si overflow — on tronque proprement)
+        cursor_qt = text_top
+        bottom_limit = text_top - max_text_h
+        for p, ph_, sa in paragraphs:
+            if cursor_qt - ph_ < bottom_limit:
+                break
+            p.drawOn(c, ML, cursor_qt - ph_)
+            cursor_qt -= ph_ + sa
+        text_draw_y = cursor_qt
+    else:
+        # Texte plat historique : 1ère phrase en gras
+        parts = re.split(r"(?<=[.!?])\s+", texte.strip(), maxsplit=1)
+        if len(parts) == 2:
+            p1 = parts[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            p2 = parts[1].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            texte_xml = "<b>" + p1 + "</b> " + p2
+        else:
+            texte_xml = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        sty = ParagraphStyle("qt", fontName="Helvetica", fontSize=9,
+                             textColor=GRAY_DARK, leading=15, alignment=4)
+        para = Paragraph(texte_xml, sty)
+        _, ph = para.wrap(CW, max_text_h)
+        if ph > max_text_h:
+            for fsz in [8.5, 8, 7.5, 7]:
+                sty2 = ParagraphStyle("qt" + str(fsz), fontName="Helvetica", fontSize=fsz,
+                                      textColor=GRAY_DARK, leading=fsz * 1.55, alignment=4)
+                para = Paragraph(texte_xml, sty2)
+                _, ph = para.wrap(CW, max_text_h)
+                if ph <= max_text_h:
+                    break
+        text_draw_y = text_top - ph
+        para.drawOn(c, ML, text_draw_y)
 
     # -- 3) Localisation & Environnement — single full-width map with POI markers
     zone_bot = FOOTER_H + SP_BEFORE_FOOTER
@@ -2158,9 +2319,9 @@ def _page_estimation(c, d, page_num, total):
 # ---------------------------------------------------------------------------
 def _page_avis_valeur(c, d, page_num, total):
     """Page dédiée à l'avis de valeur rédigé par l'agent (champ Airtable
-    'Avis de valeur'). Rendu en paragraphes, avec détection auto des titres
-    de sections type "1) Contexte", "2) Analyse", etc."""
-    import re as _re
+    'Avis de valeur'). Parse le HTML produit par Claude (h2/h3/p/strong/ul/li)
+    et émet les Paragraph ReportLab avec les styles correspondants.
+    Compat texte plat (non-HTML) : un seul bloc 'p'."""
     avis = _safe(d.get("avis_valeur"), "").strip()
     if not avis:
         return
@@ -2172,35 +2333,38 @@ def _page_avis_valeur(c, d, page_num, total):
     cursor -= SEC_H + SP_AFTER_SEC + 2 * mm
 
     sty_body = ParagraphStyle(
-        "avisBody",
-        fontName="Helvetica",
-        fontSize=9.5,
-        leading=13.5,
-        spaceAfter=6,
-        textColor=GRAY_DARK,
+        "avisBody", fontName="Helvetica", fontSize=9.5, leading=13.5,
+        spaceAfter=6, textColor=GRAY_DARK,
     )
-    sty_title = ParagraphStyle(
-        "avisTitle",
-        fontName="Helvetica-Bold",
-        fontSize=10.5,
-        leading=14,
-        spaceAfter=4,
-        spaceBefore=6,
-        textColor=TEAL_DARK,
+    sty_li = ParagraphStyle(
+        "avisLi", fontName="Helvetica", fontSize=9.5, leading=13,
+        spaceAfter=2, leftIndent=10, textColor=GRAY_DARK,
     )
+    sty_h2 = ParagraphStyle(
+        "avisH2", fontName="Helvetica-Bold", fontSize=12, leading=15,
+        spaceAfter=4, spaceBefore=8, textColor=TEAL_DARK,
+    )
+    sty_h3 = ParagraphStyle(
+        "avisH3", fontName="Helvetica-Bold", fontSize=10.5, leading=14,
+        spaceAfter=3, spaceBefore=6, textColor=TEAL_DARK,
+    )
+    sty_h4 = ParagraphStyle(
+        "avisH4", fontName="Helvetica-Bold", fontSize=9.8, leading=13,
+        spaceAfter=2, spaceBefore=4, textColor=TEAL_DARK,
+    )
+    style_for = {"h1": sty_h2, "h2": sty_h2, "h3": sty_h3, "h4": sty_h4,
+                 "p": sty_body, "li": sty_li}
 
     min_y = 22 * mm  # marge basse pour ne pas déborder sur le footer
-    for line in [l.strip() for l in _re.split(r"\n", avis) if l.strip()]:
-        escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        is_title = bool(_re.match(r"^\d+[\)\.\-]\s", line)) or (
-            len(line) < 60 and line.endswith(":")
-        )
-        p = Paragraph(escaped, sty_title if is_title else sty_body)
+    blocks = _html_to_blocks(avis)
+    for kind, text_rl in blocks:
+        sty = style_for.get(kind, sty_body)
+        p = Paragraph(text_rl, sty)
         _, ph = p.wrap(CW, 20)
         if cursor - ph < min_y:
             break  # on tronque proprement pour tenir sur 1 page
         p.drawOn(c, ML, cursor - ph)
-        cursor -= ph + (sty_title.spaceAfter if is_title else sty_body.spaceAfter)
+        cursor -= ph + sty.spaceAfter
 
     _footer(c, page_num, total)
 
