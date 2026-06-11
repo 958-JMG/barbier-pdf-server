@@ -283,17 +283,57 @@ def _fetch_photo(url_or_data):
     return None
 
 
+def _norm_city(s):
+    """Normalise un nom de commune pour comparaison (sans accents, casse, espaces)."""
+    if not s:
+        return ""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(s))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return s.strip().lower()
+
+
 def _geocode(adresse, ville):
+    """Géocode via la BAN (api-adresse.data.gouv.fr).
+
+    Priorise un résultat situé dans la commune `ville` pour éviter de tomber
+    sur une rue homonyme dans une autre ville (ex. "rue du Docteur Emile Roux"
+    qui existe à Fresnes 94 alors que le bien est à Vannes). Retourne
+    (lat, lon) ou (None, None) — avec un log d'alerte si rien de crédible,
+    plutôt qu'une carte silencieusement fausse.
+    """
     try:
         import urllib.parse
-        q = urllib.parse.quote(str(adresse) + ", " + str(ville) + ", France")
+        q = urllib.parse.quote(str(adresse or "") + " " + str(ville or "") + " France")
         r = requests.get(
-            "https://api-adresse.data.gouv.fr/search/?q=" + q + "&limit=1",
+            "https://api-adresse.data.gouv.fr/search/?q=" + q + "&limit=8",
             headers={"User-Agent": "BarbierImmo/1.0"}, timeout=10)
-        feats = r.json().get("features", [])
-        if feats:
-            lon, lat = feats[0]["geometry"]["coordinates"]
-            return float(lat), float(lon)
+        feats = r.json().get("features", []) or []
+        if not feats:
+            app.logger.warning("Geocode: aucun resultat pour %r / %r", adresse, ville)
+            return None, None
+        ville_norm = _norm_city(ville)
+        # 1) Priorité : meilleur résultat situé dans la commune demandée.
+        if ville_norm:
+            for f in feats:
+                if _norm_city(f.get("properties", {}).get("city")) == ville_norm:
+                    lon, lat = f["geometry"]["coordinates"]
+                    return float(lat), float(lon)
+            # Ville demandée mais aucun résultat dans cette commune : on refuse
+            # plutôt que d'afficher une carte dans la mauvaise ville.
+            top = feats[0].get("properties", {})
+            app.logger.warning(
+                "Geocode: aucun match dans %r pour %r — resultat ecarte: %r (%s)",
+                ville, adresse, top.get("city"), top.get("label"))
+            return None, None
+        # 2) Pas de ville fournie : top résultat seulement s'il est crédible.
+        top = feats[0]
+        score = top.get("properties", {}).get("score", 0)
+        if score < 0.4:
+            app.logger.warning("Geocode: score trop bas (%.2f) pour %r", score, adresse)
+            return None, None
+        lon, lat = top["geometry"]["coordinates"]
+        return float(lat), float(lon)
     except Exception as e:
         app.logger.error("Geocode: %s", e)
     return None, None
