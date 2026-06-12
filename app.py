@@ -3912,6 +3912,15 @@ def _gpt_resume_plu(zone, typezone, destdomi, libelong, ville, type_bien):
 # ---------------------------------------------------------------------------
 # COMPARABLES — Recherche DVF intelligente (API Cerema + reverse geocode)
 # ---------------------------------------------------------------------------
+# Endpoint des mutations DVF open-data. On passe par un relais n8n
+# (webhook → HTTP Request → Cerema) car l'IP egress du container Scaleway fr-par
+# est bloquée par Cerema (apidf-preprod.cerema.fr → timeout 20s) ; n8n relaie
+# depuis une IP non bloquée. Le webhook transmet tels quels les query params à
+# Cerema et renvoie le JSON {count, results} d'origine.
+# Rollback (appel direct, KO depuis Scaleway) :
+#   "https://apidf-preprod.cerema.fr/dvf_opendata/mutations/"
+_DVF_MUTATIONS_URL = "https://jmg958.app.n8n.cloud/webhook/dvf-mutations"
+
 # Mapping type de bien → codtypbien DVF Cerema
 _TYPE_DVF_MAP = {
     "local commercial":    "14",
@@ -4059,7 +4068,7 @@ def comparables():
                 "ordering": "-datemut",
             }
             r = requests.get(
-                "https://apidf-preprod.cerema.fr/dvf_opendata/mutations/",
+                _DVF_MUTATIONS_URL,
                 params=params, timeout=20)
             r.raise_for_status()
             data = r.json()
