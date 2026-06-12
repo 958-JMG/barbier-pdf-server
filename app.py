@@ -2582,17 +2582,19 @@ def generate_dossier_pdf(d):
     _page1(cv, d, page_num=1, total=total)
     cv.showPage()
 
-    # Page 2 — Quartier & Environnement
-    _page2(cv, d, page_num=2, total=total)
-    cv.showPage()
+    pn = 2
 
-    pn = 3
-
-    # Page 3 — Plan cadastral (moved right after quartier per client request)
+    # Plan cadastral d'abord (demande cliente : carte après le cadastre
+    # pour une ligne de présentation cohérente)
     if has_cadastre:
         _page_cadastre(cv, d, page_num=pn, total=total)
         cv.showPage()
         pn += 1
+
+    # Quartier & Environnement (carte/localisation) — placé après le cadastre
+    _page2(cv, d, page_num=pn, total=total)
+    cv.showPage()
+    pn += 1
 
     # Estimation pages (if applicable)
     if is_estimation:
