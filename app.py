@@ -4067,12 +4067,24 @@ def comparables():
                 "page_size": 50,
                 "ordering": "-datemut",
             }
-            r = requests.get(
-                _DVF_MUTATIONS_URL,
-                params=params, timeout=20)
-            r.raise_for_status()
-            data = r.json()
-            all_mutations.extend(data.get("results", []))
+            # Cerema est par moments très lent : timeout 30s (> les 25s du node
+            # n8n) + 1 nouvelle tentative, la lenteur étant transitoire.
+            data = None
+            for attempt in range(2):
+                try:
+                    r = requests.get(
+                        _DVF_MUTATIONS_URL,
+                        params=params, timeout=30)
+                    r.raise_for_status()
+                    data = r.json()
+                    break
+                except Exception as e:
+                    app.logger.warning(
+                        "DVF Cerema %s tentative %d/2: %s", cinsee, attempt + 1, e)
+            if data is not None:
+                all_mutations.extend(data.get("results", []))
+            else:
+                app.logger.error("DVF Cerema %s: echec apres 2 tentatives", cinsee)
         except Exception as e:
             app.logger.error("DVF Cerema %s: %s", cinsee, e)
 
