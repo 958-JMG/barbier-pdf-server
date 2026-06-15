@@ -8,6 +8,7 @@ Routes: GET /, POST /generate-quartier, POST /dossier, POST /mandat, POST /avis-
 import html as _html_mod
 import io
 import json
+import datetime as _dt
 import math
 import os
 import re
@@ -4054,39 +4055,55 @@ def comparables():
     if code_insee not in communes:
         communes.append(code_insee)
 
+    # ⚠️ Cerema (via le relais n8n) IGNORE le paramètre `ordering` et plafonne
+    # chaque réponse à `page_size` lignes, renvoyées de la PLUS ANCIENNE à la plus
+    # récente. Une requête unique `anneemut_min=2021&page_size=50` ne ramenait donc
+    # QUE les 50 mutations 2021 (les plus vieilles), en jetant 2022→année courante
+    # (vérifié 2026-06-15 : 526 mutations matchaient le filtre, on n'en voyait que
+    # les 50 de 2021). → On interroge ANNÉE PAR ANNÉE en descendant (année
+    # courante → annee_min) avec `anneemut_max`, en cumulant, pour garantir des
+    # comparables RÉCENTS. Arrêt anticipé dès qu'on a de la matière (MIN_POOL).
+    annee_courante = _dt.date.today().year
+    annee_haute = max(annee_courante, annee_min)
+    MIN_POOL = max(60, limit * 5)
+
+    def _fetch_cerema_year(cinsee, year):
+        """Un appel relais pour une commune + une année précise (timeout + 1 retry)."""
+        params = {
+            "code_insee": cinsee,
+            "nature_mutation": "Vente",
+            "codtypbien": codtypbien,
+            "sbatmin": sbatmin,
+            "sbatmax": sbatmax,
+            "anneemut_min": year,
+            "anneemut_max": year,
+            "page_size": 50,
+        }
+        # Cerema est par moments très lent : timeout 30s (> les 25s du node n8n)
+        # + 1 nouvelle tentative, la lenteur étant transitoire.
+        for attempt in range(2):
+            try:
+                r = requests.get(_DVF_MUTATIONS_URL, params=params, timeout=30)
+                r.raise_for_status()
+                return r.json().get("results", [])
+            except Exception as e:
+                app.logger.warning(
+                    "DVF Cerema %s annee=%s tentative %d/2: %s",
+                    cinsee, year, attempt + 1, e)
+        app.logger.error("DVF Cerema %s annee=%s: echec apres 2 tentatives", cinsee, year)
+        return []
+
     all_mutations = []
     for cinsee in communes[:5]:  # max 5 communes
-        try:
-            params = {
-                "code_insee": cinsee,
-                "nature_mutation": "Vente",
-                "codtypbien": codtypbien,
-                "sbatmin": sbatmin,
-                "sbatmax": sbatmax,
-                "anneemut_min": annee_min,
-                "page_size": 50,
-                "ordering": "-datemut",
-            }
-            # Cerema est par moments très lent : timeout 30s (> les 25s du node
-            # n8n) + 1 nouvelle tentative, la lenteur étant transitoire.
-            data = None
-            for attempt in range(2):
-                try:
-                    r = requests.get(
-                        _DVF_MUTATIONS_URL,
-                        params=params, timeout=30)
-                    r.raise_for_status()
-                    data = r.json()
-                    break
-                except Exception as e:
-                    app.logger.warning(
-                        "DVF Cerema %s tentative %d/2: %s", cinsee, attempt + 1, e)
-            if data is not None:
-                all_mutations.extend(data.get("results", []))
-            else:
-                app.logger.error("DVF Cerema %s: echec apres 2 tentatives", cinsee)
-        except Exception as e:
-            app.logger.error("DVF Cerema %s: %s", cinsee, e)
+        # Bound global des appels : une fois le pool rempli, on arrête.
+        # (NB : si le filtre rayon multi-communes est un jour réactivé, revoir cet
+        #  arrêt pour garantir l'équité entre communes — cf. paquet "fix rayon".)
+        if len(all_mutations) >= MIN_POOL:
+            break
+        for year in range(annee_haute, annee_min - 1, -1):
+            all_mutations.extend(_fetch_cerema_year(cinsee, year))
+            if len(all_mutations) >= MIN_POOL:
+                break
 
     if not all_mutations:
         return jsonify({"ok": True, "comparables": [],
