@@ -34,6 +34,34 @@ app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 
 # ---------------------------------------------------------------------------
+# Garde d'authentification service-à-service (cockpit → PDF).
+# TOLÉRANT par conception : tant que la variable secrète PDF_API_TOKEN n'est PAS
+# définie sur ce conteneur, toutes les requêtes passent (comportement actuel
+# inchangé). Une fois le secret posé (sur le cockpit ET ici), seules les requêtes
+# portant `Authorization: Bearer <PDF_API_TOKEN>` sont acceptées — ce qui ferme
+# l'endpoint public (api-pdf.958.fr) à tout appelant non autorisé.
+# Rollout sans coupure : 1) poser le secret côté cockpit (il l'envoie, ici on ne
+# vérifie pas encore) → 2) poser le même secret ici (vérif activée, cockpit envoie
+# déjà). Le "/" (health) reste toujours ouvert.
+PDF_API_TOKEN = os.environ.get("PDF_API_TOKEN", "").strip()
+_PUBLIC_PATHS = {"/", "/favicon.ico"}
+
+
+@app.before_request
+def _require_service_token():
+    if request.method == "OPTIONS":
+        return None
+    if request.path in _PUBLIC_PATHS:
+        return None
+    if not PDF_API_TOKEN:
+        return None  # phase tolérante : aucun token configuré → on laisse passer
+    auth = request.headers.get("Authorization", "")
+    if auth == f"Bearer {PDF_API_TOKEN}":
+        return None
+    app.logger.warning("PDF auth refusée: %s %s", request.method, request.path)
+    return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+# ---------------------------------------------------------------------------
 # Charte graphique (couleurs extraites du logo)
 # ---------------------------------------------------------------------------
 TEAL      = colors.HexColor("#16708B")
