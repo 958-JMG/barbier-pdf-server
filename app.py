@@ -4118,6 +4118,13 @@ def comparables():
         prix = float(m.get("valeurfonc") or 0)
         if prix <= 0:
             continue
+        # Écrêtage des €/m² aberrants : sous 500 €/m² on est sur du parking / cellier /
+        # terrain / dépendance mal typé en "commercial" (pas un vrai local) ; au-dessus de
+        # 15000 €/m² c'est une anomalie de saisie. On les exclut pour ne pas polluer la
+        # fourchette d'estimation présentée au client.
+        pm2 = prix / s_bati
+        if pm2 < 500 or pm2 > 15000:
+            continue
         annee = m.get("anneemut", 2020)
 
         # Distance (si rayon_km actif) — via lat/lon du point de mutation Cerema
