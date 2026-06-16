@@ -4227,19 +4227,23 @@ def comparables():
             "parcelle_id": parcelle_id,
         })
 
-    # Compute fourchette from comparables
-    prix_m2_list = [c["prix_m2"] for c in results if c["prix_m2"] > 0]
+    # Compute fourchette from comparables.
+    # Fourchette = MÉDIANE €/m² ±10% × surface (et non min/max brut, qui donnait des
+    # écarts inexploitables — ex. 2 M→7 M — dès qu'un comparable atypique entrait dans
+    # le pool). La médiane est robuste aux extrêmes ; min/max restent exposés à titre
+    # informatif. Décision JMG 2026-06-16.
+    prix_m2_list = sorted(c["prix_m2"] for c in results if c["prix_m2"] > 0)
     if prix_m2_list and surface > 0:
-        avg_m2 = sum(prix_m2_list) / len(prix_m2_list)
-        min_m2 = min(prix_m2_list)
-        max_m2 = max(prix_m2_list)
+        n = len(prix_m2_list)
+        med_m2 = (prix_m2_list[n // 2] if n % 2
+                  else (prix_m2_list[n // 2 - 1] + prix_m2_list[n // 2]) / 2)
         fourchette = {
-            "prix_estime_min": int(min_m2 * surface),
-            "prix_estime_max": int(max_m2 * surface),
-            "prix_retenu": int(avg_m2 * surface),
-            "prix_m2_moyen": int(avg_m2),
-            "prix_m2_min": int(min_m2),
-            "prix_m2_max": int(max_m2),
+            "prix_estime_min": int(med_m2 * 0.9 * surface),
+            "prix_estime_max": int(med_m2 * 1.1 * surface),
+            "prix_retenu": int(med_m2 * surface),
+            "prix_m2_moyen": int(med_m2),
+            "prix_m2_min": int(min(prix_m2_list)),
+            "prix_m2_max": int(max(prix_m2_list)),
         }
     else:
         fourchette = {}
