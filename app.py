@@ -1082,6 +1082,125 @@ def _page1(c, d, page_num=1, total=3):
 # ---------------------------------------------------------------------------
 # PAGE 2 — Quartier & Localisation (50/50 carte + POI)
 # ---------------------------------------------------------------------------
+def _quartier_text(d):
+    """Texte quartier (Description ville HTML de Claude) ou défaut générique."""
+    ville = _safe(d.get("ville"), "Vannes")
+    return d.get("texte_quartier") or (
+        "Situé a " + ville + ", ce bien bénéficie d'une localisation stratégique "
+        "dans un secteur économiquement actif du Morbihan. L'accessibilité est optimale grâce a la "
+        "proximité de la rocade et des axes principaux. Le secteur compte de nombreux commerces, "
+        "services et équipements a proximité immédiate, offrant un environnement favorable a "
+        "l'exploitation d'une activité commerciale ou professionnelle."
+    )
+
+
+def _quartier_zone():
+    """Géométrie de la zone texte quartier sur la page 2 (carte réservée en dessous)."""
+    pq_top = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    pq_bot = pq_top - 30 * mm
+    quartier_sec_y = pq_bot - SP_BETWEEN_BLOCS
+    chapeau_y = quartier_sec_y - SEC_H - SP_AFTER_SEC
+    text_top = chapeau_y - 5 * mm
+    bottom_reserved = FOOTER_H + SP_BEFORE_FOOTER + 75 * mm + SP_BETWEEN_BLOCS + SEC_H
+    return text_top, max(8 * mm, text_top - bottom_reserved)
+
+
+def _quartier_style_for(fsz):
+    sty_p = ParagraphStyle(f"qtp{fsz}", fontName="Helvetica", fontSize=fsz, leading=fsz*1.55,
+                           spaceAfter=3, textColor=GRAY_DARK, alignment=4)
+    sty_h = ParagraphStyle(f"qth{fsz}", fontName="Helvetica-Bold", fontSize=fsz+1.5,
+                           leading=(fsz+1.5)*1.3, spaceBefore=3, spaceAfter=2, textColor=TEAL_DARK)
+    sty_h3 = ParagraphStyle(f"qth3{fsz}", fontName="Helvetica-Bold", fontSize=fsz+0.5,
+                            leading=(fsz+0.5)*1.3, spaceBefore=2, spaceAfter=1.5, textColor=TEAL_DARK)
+    sty_li = ParagraphStyle(f"qtli{fsz}", fontName="Helvetica", fontSize=fsz, leading=fsz*1.45,
+                            spaceAfter=1.5, leftIndent=8, textColor=GRAY_DARK)
+    return {"h1": sty_h, "h2": sty_h, "h3": sty_h3, "h4": sty_h3, "p": sty_p, "li": sty_li}, sty_p
+
+
+def _quartier_split(d):
+    """(fsz, page1_blocks, overflow_blocks) pour la description quartier HTML.
+    Page 1 garde la carte (zone réduite) ; ce qui ne tient pas part sur une page
+    'Le quartier (suite)' au lieu d'être tronqué. Police lisible (>=8, plus de 7pt).
+    Si pas de HTML → (None, None, [])."""
+    texte = _quartier_text(d)
+    if "<" not in (texte or ""):
+        return None, None, []
+    blocks = _html_to_blocks(texte)
+    text_top, max_h = _quartier_zone()
+    for fsz in (9, 8.5, 8):  # tout sur page 1 si ça rentre
+        style_for, sty_p = _quartier_style_for(fsz)
+        total_h = sum(Paragraph(t, style_for.get(k, sty_p)).wrap(CW, 20)[1]
+                      + style_for.get(k, sty_p).spaceAfter for k, t in blocks)
+        if total_h <= max_h:
+            return fsz, blocks, []
+    # Ne rentre pas : police lisible 8.5, on remplit page 1 puis overflow → page (suite).
+    fsz = 8.5
+    style_for, sty_p = _quartier_style_for(fsz)
+    cursor, bottom_limit, split = text_top, text_top - max_h, len(blocks)
+    for i, (k, t) in enumerate(blocks):
+        sty = style_for.get(k, sty_p)
+        ph = Paragraph(t, sty).wrap(CW, 20)[1]
+        if cursor - ph < bottom_limit:
+            split = i
+            break
+        cursor -= ph + sty.spaceAfter
+    return fsz, blocks[:split], blocks[split:]
+
+
+def _quartier_suite_geom():
+    top_y = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - 2 * mm
+    min_y = FOOTER_H + SP_BEFORE_FOOTER + 3 * mm
+    return top_y, min_y
+
+
+def _count_quartier_suite(blocks):
+    """Nombre de pages pour l'overflow quartier (mesure AVANT rendu → total correct)."""
+    if not blocks:
+        return 0
+    style_for, sty_p = _quartier_style_for(9)
+    top_y, min_y = _quartier_suite_geom()
+    pages, cursor, fresh = 1, top_y, True
+    for k, t in blocks:
+        sty = style_for.get(k, sty_p)
+        ph = Paragraph(t, sty).wrap(CW, 20)[1]
+        if cursor - ph < min_y and not fresh:
+            pages += 1
+            cursor = top_y
+            fresh = True
+        cursor -= ph + sty.spaceAfter
+        fresh = False
+    return pages
+
+
+def _draw_quartier_suite(c, blocks, page_num, total):
+    """Rend l'overflow de la description quartier sur page(s) 'Le quartier (suite)'.
+    Retourne le nombre de pages dessinées (l'appelant fait le showPage final)."""
+    style_for, sty_p = _quartier_style_for(9)
+    top_y, min_y = _quartier_suite_geom()
+
+    def _open():
+        _header(c, "Quartier & environnement")
+        _sec(c, "Le quartier (suite)", ML, PAGE_H - HEADER_H - SP_AFTER_HEADER)
+        return top_y
+
+    pages, cursor, fresh = 1, _open(), True
+    for k, t in blocks:
+        sty = style_for.get(k, sty_p)
+        p = Paragraph(t, sty)
+        ph = p.wrap(CW, 20)[1]
+        if cursor - ph < min_y and not fresh:
+            _footer(c, page_num + pages - 1, total)
+            c.showPage()
+            pages += 1
+            cursor = _open()
+            fresh = True
+        p.drawOn(c, ML, cursor - ph)
+        cursor -= ph + sty.spaceAfter
+        fresh = False
+    _footer(c, page_num + pages - 1, total)
+    return pages
+
+
 def _page2(c, d, page_num=2, total=3):
     _header(c, "Quartier & environnement")
 
@@ -1121,13 +1240,7 @@ def _page2(c, d, page_num=2, total=3):
     c.drawString(ML, chapeau_y, chapeau)
 
     # Quartier text
-    texte = d.get("texte_quartier") or (
-        "Situ\u00e9 a " + ville + ", ce bien b\u00e9n\u00e9ficie d'une localisation strat\u00e9gique "
-        "dans un secteur \u00e9conomiquement actif du Morbihan. L'accessibilit\u00e9 est optimale gr\u00e2ce a la "
-        "proximit\u00e9 de la rocade et des axes principaux. Le secteur compte de nombreux commerces, "
-        "services et \u00e9quipements a proximit\u00e9 imm\u00e9diate, offrant un environnement favorable a "
-        "l'exploitation d'une activit\u00e9 commerciale ou professionnelle."
-    )
+    texte = _quartier_text(d)
 
     text_top = chapeau_y - 5 * mm
     # Reserve: map zone (min 75mm) + section header (10mm) + footer
@@ -1142,47 +1255,21 @@ def _page2(c, d, page_num=2, total=3):
     # Paragraph avec cursor avancing. Sinon (texte plat), comportement historique
     # (1ère phrase en gras dans 1 Paragraph).
     if "<" in (texte or ""):
-        blocks = _html_to_blocks(texte)
-        # Essai successif de tailles de font pour rentrer dans max_text_h
-        fitted = False
-        for fsz in [9, 8.5, 8, 7.5, 7]:
-            sty_p = ParagraphStyle(
-                f"qtp{fsz}", fontName="Helvetica", fontSize=fsz, leading=fsz*1.55,
-                spaceAfter=3, textColor=GRAY_DARK, alignment=4,
-            )
-            sty_h = ParagraphStyle(
-                f"qth{fsz}", fontName="Helvetica-Bold", fontSize=fsz+1.5, leading=(fsz+1.5)*1.3,
-                spaceBefore=3, spaceAfter=2, textColor=TEAL_DARK,
-            )
-            sty_h3 = ParagraphStyle(
-                f"qth3{fsz}", fontName="Helvetica-Bold", fontSize=fsz+0.5, leading=(fsz+0.5)*1.3,
-                spaceBefore=2, spaceAfter=1.5, textColor=TEAL_DARK,
-            )
-            sty_li = ParagraphStyle(
-                f"qtli{fsz}", fontName="Helvetica", fontSize=fsz, leading=fsz*1.45,
-                spaceAfter=1.5, leftIndent=8, textColor=GRAY_DARK,
-            )
-            style_for = {"h1": sty_h, "h2": sty_h, "h3": sty_h3, "h4": sty_h3,
-                         "p": sty_p, "li": sty_li}
-            paragraphs = []
-            total_h = 0
-            for kind, text_rl in blocks:
-                sty = style_for.get(kind, sty_p)
-                p = Paragraph(text_rl, sty)
-                _, ph_ = p.wrap(CW, 20)
-                paragraphs.append((p, ph_, sty.spaceAfter))
-                total_h += ph_ + sty.spaceAfter
-            if total_h <= max_text_h:
-                fitted = True
-                break
-        # Render (au pire avec fsz=7 si overflow — on tronque proprement)
+        # Page 1 : on rend ce qui tient dans la zone (carte réservée en dessous) ; le
+        # surplus part sur une page "Le quartier (suite)" (cf. _draw_quartier_suite dans
+        # generate_dossier_pdf) au lieu d'être tronqué. Police lisible (plus de 7pt).
+        fsz, p1_blocks, _overflow = _quartier_split(d)
+        style_for, sty_p = _quartier_style_for(fsz)
         cursor_qt = text_top
         bottom_limit = text_top - max_text_h
-        for p, ph_, sa in paragraphs:
+        for kind, text_rl in (p1_blocks or []):
+            sty = style_for.get(kind, sty_p)
+            p = Paragraph(text_rl, sty)
+            _, ph_ = p.wrap(CW, 20)
             if cursor_qt - ph_ < bottom_limit:
                 break
             p.drawOn(c, ML, cursor_qt - ph_)
-            cursor_qt -= ph_ + sa
+            cursor_qt -= ph_ + sty.spaceAfter
         text_draw_y = cursor_qt
     else:
         # Texte plat historique : 1ère phrase en gras
@@ -2671,6 +2758,8 @@ def generate_dossier_pdf(d):
 
     # Count total pages
     total = 2  # cover + quartier
+    _, _, _quartier_overflow = _quartier_split(d)
+    total += _count_quartier_suite(_quartier_overflow)  # page(s) "Le quartier (suite)"
     if has_cadastre:
         total += 1
     if is_estimation:
@@ -2704,6 +2793,11 @@ def generate_dossier_pdf(d):
     _page2(cv, d, page_num=pn, total=total)
     cv.showPage()
     pn += 1
+    # Surplus de la description quartier (texte cliente long) → page(s) "Le quartier (suite)"
+    if _quartier_overflow:
+        _nq = _draw_quartier_suite(cv, _quartier_overflow, page_num=pn, total=total)
+        cv.showPage()
+        pn += _nq
 
     # Estimation pages (if applicable)
     if is_estimation:
