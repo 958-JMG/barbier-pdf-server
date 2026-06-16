@@ -2383,6 +2383,35 @@ def _page_estimation(c, d, page_num, total):
     _footer(c, page_num, total=total)
 
 
+def _text_to_blocks(txt):
+    """Convertit un avis de valeur en TEXTE BRUT (sans balises) en blocs structurés
+    (kind, text_rl) pour le rendu PDF, pour éviter le 'mur de texte' illisible quand
+    l'avis n'est pas du HTML. Détection ligne à ligne :
+      - "1) TITRE", "2) ..." ou titre en CAPITALES seules → h2 (section) ;
+      - ligne courte finissant par ':' (ex. "Points forts :") → h3 (sous-titre) ;
+      - ligne commençant par -/•/* ou finissant par ';' → item de liste ;
+      - sinon → paragraphe.
+    Chaque ligne non vide = un bloc (l'avis utilise les sauts de ligne comme structure)."""
+    blocks = []
+    for raw in str(txt).split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        safe = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if re.match(r"^\d+\)\s", line) or (len(line) <= 70 and line == line.upper()
+                                           and any(ch.isalpha() for ch in line)):
+            blocks.append(("h2", safe))
+        elif line.startswith(("- ", "• ", "* ")):
+            blocks.append(("li", "• " + safe[2:].strip()))
+        elif len(line) <= 60 and line.endswith(":"):
+            blocks.append(("h3", safe))
+        elif line.endswith(";"):
+            blocks.append(("li", "• " + safe))
+        else:
+            blocks.append(("p", safe))
+    return blocks
+
+
 # ---------------------------------------------------------------------------
 # PAGE — Estimation LOYER (page optionnelle, mode estimation)
 # ---------------------------------------------------------------------------
@@ -2425,7 +2454,9 @@ def _page_avis_valeur(c, d, page_num, total):
                  "p": sty_body, "li": sty_li}
 
     min_y = 22 * mm  # marge basse pour ne pas déborder sur le footer
-    blocks = _html_to_blocks(avis)
+    # L'avis peut être du HTML (Claude) OU du texte brut (saisie / sections "1) ..."). En
+    # texte brut, _html_to_blocks renvoyait UN seul bloc = mur illisible → on structure.
+    blocks = _html_to_blocks(avis) if "<" in avis else _text_to_blocks(avis)
     for kind, text_rl in blocks:
         sty = style_for.get(kind, sty_body)
         p = Paragraph(text_rl, sty)
