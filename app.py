@@ -2627,17 +2627,22 @@ def generate_dossier_pdf(d):
 
     # Estimation pages (if applicable)
     if is_estimation:
+        # Ordre logique du raisonnement (demande JMG 2026-06-16) :
+        # 1) Analyse des biens comparables (les données) →
+        # 2) Avis de valeur (le raisonnement rédigé) →
+        # 3) Positionnement prix (la conclusion chiffrée).
+        # Auparavant Positionnement passait AVANT l'Avis de valeur (inversé).
         _page_comparables(cv, d, page_num=pn, total=total)
         cv.showPage()
         pn += 1
-        _page_estimation(cv, d, page_num=pn, total=total)
-        cv.showPage()
-        pn += 1
-        # Avis de valeur détaillé (page optionnelle, juste après l'estimation)
+        # Avis de valeur détaillé (page optionnelle) — AVANT le positionnement prix
         if has_avis_valeur:
             _page_avis_valeur(cv, d, page_num=pn, total=total)
             cv.showPage()
             pn += 1
+        _page_estimation(cv, d, page_num=pn, total=total)
+        cv.showPage()
+        pn += 1
         # Estimation loyer (page optionnelle)
         if include_loyer:
             _page_estimation_loyer(cv, d, page_num=pn, total=total)
