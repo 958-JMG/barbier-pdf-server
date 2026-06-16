@@ -2415,21 +2415,11 @@ def _text_to_blocks(txt):
 # ---------------------------------------------------------------------------
 # PAGE — Estimation LOYER (page optionnelle, mode estimation)
 # ---------------------------------------------------------------------------
-def _page_avis_valeur(c, d, page_num, total):
-    """Page dédiée à l'avis de valeur rédigé par l'agent (champ Airtable
-    'Avis de valeur'). Parse le HTML produit par Claude (h2/h3/p/strong/ul/li)
-    et émet les Paragraph ReportLab avec les styles correspondants.
-    Compat texte plat (non-HTML) : un seul bloc 'p'."""
-    avis = _safe(d.get("avis_valeur"), "").strip()
-    if not avis:
-        return
+_AVIS_MIN_Y = 22 * mm  # marge basse (footer)
 
-    _header(c, "Avis de valeur détaillé")
 
-    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
-    _sec(c, "Avis de valeur", ML, cursor)
-    cursor -= SEC_H + SP_AFTER_SEC + 2 * mm
-
+def _avis_styles():
+    """Styles ReportLab de l'avis de valeur (partagés rendu ↔ mesure de pagination)."""
     sty_body = ParagraphStyle(
         "avisBody", fontName="Helvetica", fontSize=9.5, leading=13.5,
         spaceAfter=6, textColor=GRAY_DARK,
@@ -2452,21 +2442,80 @@ def _page_avis_valeur(c, d, page_num, total):
     )
     style_for = {"h1": sty_h2, "h2": sty_h2, "h3": sty_h3, "h4": sty_h4,
                  "p": sty_body, "li": sty_li}
+    return style_for, sty_body
 
-    min_y = 22 * mm  # marge basse pour ne pas déborder sur le footer
-    # L'avis peut être du HTML (Claude) OU du texte brut (saisie / sections "1) ..."). En
-    # texte brut, _html_to_blocks renvoyait UN seul bloc = mur illisible → on structure.
-    blocks = _html_to_blocks(avis) if "<" in avis else _text_to_blocks(avis)
+
+def _avis_blocks(d):
+    """Blocs (kind, text_rl) de l'avis de valeur, ou [] si vide.
+    HTML (Claude) → _html_to_blocks ; texte brut → _text_to_blocks (sinon mur illisible)."""
+    avis = _safe(d.get("avis_valeur"), "").strip()
+    if not avis:
+        return []
+    return _html_to_blocks(avis) if "<" in avis else _text_to_blocks(avis)
+
+
+def _avis_top_y():
+    return PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - 2 * mm
+
+
+def _count_avis_pages(d):
+    """Nombre de pages nécessaires pour l'avis (mesure AVANT rendu, pour caler le total).
+    Même logique de saut de page que _page_avis_valeur → comptage exact."""
+    blocks = _avis_blocks(d)
+    if not blocks:
+        return 0
+    style_for, sty_body = _avis_styles()
+    top_y = _avis_top_y()
+    pages, cursor, fresh = 1, top_y, True
+    for kind, text_rl in blocks:
+        sty = style_for.get(kind, sty_body)
+        _, ph = Paragraph(text_rl, sty).wrap(CW, 20)
+        if cursor - ph < _AVIS_MIN_Y and not fresh:
+            pages += 1
+            cursor = top_y
+            fresh = True
+        cursor -= ph + sty.spaceAfter
+        fresh = False
+    return pages
+
+
+def _page_avis_valeur(c, d, page_num, total):
+    """Avis de valeur, paginé sur autant de pages que nécessaire (plus de troncature à
+    1 page). HTML (Claude) ou texte brut structuré. Retourne le nombre de pages dessinées.
+    L'appelant fait le showPage() final."""
+    blocks = _avis_blocks(d)
+    if not blocks:
+        return 0
+    style_for, sty_body = _avis_styles()
+    top_y = _avis_top_y()
+
+    def _open_page(first):
+        _header(c, "Avis de valeur détaillé")
+        y = PAGE_H - HEADER_H - SP_AFTER_HEADER
+        _sec(c, "Avis de valeur" if first else "Avis de valeur (suite)", ML, y)
+        return top_y
+
+    pages_drawn = 1
+    cursor = _open_page(True)
+    fresh = True
     for kind, text_rl in blocks:
         sty = style_for.get(kind, sty_body)
         p = Paragraph(text_rl, sty)
         _, ph = p.wrap(CW, 20)
-        if cursor - ph < min_y:
-            break  # on tronque proprement pour tenir sur 1 page
+        # Saut de page si le bloc ne tient pas — sauf s'il est seul et plus grand qu'une
+        # page (fresh) : on le dessine quand même pour ne pas boucler.
+        if cursor - ph < _AVIS_MIN_Y and not fresh:
+            _footer(c, page_num + pages_drawn - 1, total)
+            c.showPage()
+            pages_drawn += 1
+            cursor = _open_page(False)
+            fresh = True
         p.drawOn(c, ML, cursor - ph)
         cursor -= ph + sty.spaceAfter
+        fresh = False
 
-    _footer(c, page_num, total)
+    _footer(c, page_num + pages_drawn - 1, total)
+    return pages_drawn
 
 
 def _page_estimation_loyer(c, d, page_num, total):
@@ -2627,7 +2676,7 @@ def generate_dossier_pdf(d):
     if is_estimation:
         total += 2
     if has_avis_valeur:
-        total += 1
+        total += _count_avis_pages(d)   # avis paginé : 1..N pages
     if include_loyer:
         total += 1
     total += 1  # page3 (annonce + caract\u00e9ristiques)
@@ -2666,11 +2715,11 @@ def generate_dossier_pdf(d):
         _page_comparables(cv, d, page_num=pn, total=total)
         cv.showPage()
         pn += 1
-        # Avis de valeur détaillé (page optionnelle) — AVANT le positionnement prix
+        # Avis de valeur détaillé (page optionnelle, paginée) — AVANT le positionnement
         if has_avis_valeur:
-            _page_avis_valeur(cv, d, page_num=pn, total=total)
+            _np = _page_avis_valeur(cv, d, page_num=pn, total=total)
             cv.showPage()
-            pn += 1
+            pn += _np
         _page_estimation(cv, d, page_num=pn, total=total)
         cv.showPage()
         pn += 1
