@@ -1180,7 +1180,7 @@ def _draw_quartier_suite(c, blocks, page_num, total):
 
     def _open():
         _header(c, "Quartier & environnement")
-        _sec(c, "Le quartier (suite)", ML, PAGE_H - HEADER_H - SP_AFTER_HEADER)
+        _sec(c, "Analyse Commerciale (suite)", ML, PAGE_H - HEADER_H - SP_AFTER_HEADER)
         return top_y
 
     pages, cursor, fresh = 1, _open(), True
@@ -1201,118 +1201,32 @@ def _draw_quartier_suite(c, blocks, page_num, total):
     return pages
 
 
-def _page2(c, d, page_num=2, total=3):
-    _header(c, "Quartier & environnement")
-
-    # -- 1) "Pourquoi Barbier Immobilier" at TOP
-    pourquoi_h = 30 * mm
-    pq_top = PAGE_H - HEADER_H - SP_AFTER_HEADER
-    pq_bot = pq_top - pourquoi_h
-    c.setFillColor(TEAL)
-    c.roundRect(ML, pq_bot, CW, pourquoi_h, 2 * mm, fill=1, stroke=0)
-    c.setFillColor(WHITE)
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(ML + 5 * mm, pq_top - 5 * mm, "Pourquoi Barbier Immobilier ?")
-    c.setFont("Helvetica", 7.5)
-    lines_pq = [
-        "Plus de 35 ans d'expertise en immobilier commercial dans le Morbihan.",
-        "Un accompagnement personnalis\u00e9 pour chaque projet d'investissement.",
-        "Une connaissance approfondie du tissu \u00e9conomique local et des opportunit\u00e9s.",
-    ]
-    for i_pq, lpq in enumerate(lines_pq):
-        c.drawString(ML + 5 * mm, pq_top - 14 * mm - i_pq * 6 * mm,
-                     "\u2022  " + lpq)
-
-    # -- 2) "Le quartier" section — SP_BETWEEN_BLOCS gap
-    ville = _safe(d.get("ville"), "Vannes")
-    tb = d.get("type_bien") or ""
-    quartier_sec_y = pq_bot - SP_BETWEEN_BLOCS
-    _sec(c, "Le quartier", ML, quartier_sec_y)
-
-    if tb and tb != "\u2014":
-        chapeau = "Un emplacement strat\u00e9gique pour votre " + tb.lower() + " au c\u0153ur de " + ville + "."
-    else:
-        chapeau = "Un emplacement strat\u00e9gique au c\u0153ur de " + ville + "."
-
-    chapeau_y = quartier_sec_y - SEC_H - SP_AFTER_SEC
-    c.setFillColor(ORANGE)
-    c.setFont("Helvetica-Bold", 9)
-    c.drawString(ML, chapeau_y, chapeau)
-
-    # Quartier text
+def _quartier_blocks(d):
+    """Blocs (kind, text_rl) du texte 'Analyse Commerciale' (quartier), HTML ou texte plat
+    (1ère phrase en gras). Liste unifiée pour un rendu paginé contigu."""
     texte = _quartier_text(d)
-
-    text_top = chapeau_y - 5 * mm
-    # Reserve: map zone (min 75mm) + section header (10mm) + footer
-    map_min_h = 75 * mm
-    bottom_reserved = FOOTER_H + SP_BEFORE_FOOTER + map_min_h + SP_BETWEEN_BLOCS + SEC_H
-    max_text_h = text_top - bottom_reserved
-    if max_text_h < 8 * mm:
-        max_text_h = 8 * mm
-
-    # Si le texte contient du HTML produit par l'IA (Description ville Claude),
-    # le parser en blocs structurés (h2/h3/p/li/strong) et émettre plusieurs
-    # Paragraph avec cursor avancing. Sinon (texte plat), comportement historique
-    # (1ère phrase en gras dans 1 Paragraph).
     if "<" in (texte or ""):
-        # Page 1 : on rend ce qui tient dans la zone (carte réservée en dessous) ; le
-        # surplus part sur une page "Le quartier (suite)" (cf. _draw_quartier_suite dans
-        # generate_dossier_pdf) au lieu d'être tronqué. Police lisible (plus de 7pt).
-        fsz, p1_blocks, _overflow = _quartier_split(d)
-        style_for, sty_p = _quartier_style_for(fsz)
-        cursor_qt = text_top
-        bottom_limit = text_top - max_text_h
-        for kind, text_rl in (p1_blocks or []):
-            sty = style_for.get(kind, sty_p)
-            p = Paragraph(text_rl, sty)
-            _, ph_ = p.wrap(CW, 20)
-            if cursor_qt - ph_ < bottom_limit:
-                break
-            p.drawOn(c, ML, cursor_qt - ph_)
-            cursor_qt -= ph_ + sty.spaceAfter
-        text_draw_y = cursor_qt
+        return _html_to_blocks(texte)
+    parts = re.split(r"(?<=[.!?])\s+", (texte or "").strip(), maxsplit=1)
+    if len(parts) == 2:
+        t = ("<b>" + parts[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</b> "
+             + parts[1].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
     else:
-        # Texte plat historique : 1ère phrase en gras
-        parts = re.split(r"(?<=[.!?])\s+", texte.strip(), maxsplit=1)
-        if len(parts) == 2:
-            p1 = parts[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            p2 = parts[1].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            texte_xml = "<b>" + p1 + "</b> " + p2
-        else:
-            texte_xml = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        t = (texte or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return [("p", t)]
 
-        sty = ParagraphStyle("qt", fontName="Helvetica", fontSize=9,
-                             textColor=GRAY_DARK, leading=15, alignment=4)
-        para = Paragraph(texte_xml, sty)
-        _, ph = para.wrap(CW, max_text_h)
-        if ph > max_text_h:
-            for fsz in [8.5, 8, 7.5, 7]:
-                sty2 = ParagraphStyle("qt" + str(fsz), fontName="Helvetica", fontSize=fsz,
-                                      textColor=GRAY_DARK, leading=fsz * 1.55, alignment=4)
-                para = Paragraph(texte_xml, sty2)
-                _, ph = para.wrap(CW, max_text_h)
-                if ph <= max_text_h:
-                    break
-        text_draw_y = text_top - ph
-        para.drawOn(c, ML, text_draw_y)
 
-    # -- 3) Localisation & Environnement — single full-width map with POI markers
+def _draw_localisation(c, d, sec2_y):
+    """Dessine la rubrique 'Localisation & environnement' (carte plein largeur + POI) sous
+    sec2_y. Placée APRÈS le texte Analyse Commerciale complet (jamais au milieu)."""
     zone_bot = FOOTER_H + SP_BEFORE_FOOTER
-    sec2_y = text_draw_y - SP_BETWEEN_BLOCS
     zone_h = sec2_y - SEC_H - zone_bot
     if zone_h < 40 * mm:
         zone_h = 40 * mm
     zone_top = zone_bot + zone_h
-
     _sec(c, "Localisation & environnement", ML, zone_top + 1 * mm)
 
-    mx = ML
-    mw = CW
-    mh = zone_h
-    my = zone_bot
-    lat = lon = None
-
-    # 1) Fetch POI (with coordinates)
+    mx, mw, mh, my = ML, CW, zone_h, zone_bot
     adresse_str = _safe(d.get("adresse"), "")
     ville_str = _safe(d.get("ville"), "Vannes")
     lat, lon = _geocode(adresse_str, ville_str)
@@ -1320,31 +1234,22 @@ def _page2(c, d, page_num=2, total=3):
     if lat and lon:
         poi_blocks = _get_poi_osm(lat, lon, radius=500)
 
-    # 2) Try Google Maps Static (full width, all POI as markers)
     map_img = None
     if GOOGLE_MAPS_KEY:
         try:
-            gmap_img, glat, glon = _google_static_map(
-                adresse_str, ville_str, poi_blocks, w=640, h=380, zoom=16)
+            gmap_img, glat, glon = _google_static_map(adresse_str, ville_str, poi_blocks, w=640, h=380, zoom=16)
             if gmap_img:
                 map_img = gmap_img
-                if glat:
-                    lat, lon = glat, glon
         except Exception as e:
             app.logger.error("Google map attempt: %s", e)
-
-    # 3) Fallback to OSM tiles if Google failed
     if map_img is None:
         try:
             osm_img, olat, olon = _osm_map(adresse_str, ville_str)
             if osm_img:
                 map_img = osm_img
-                if olat:
-                    lat, lon = olat, olon
         except Exception as e:
             app.logger.error("OSM fallback: %s", e)
 
-    # 4) Draw the map
     if map_img:
         try:
             iw2, ih2 = map_img.size
@@ -1365,11 +1270,9 @@ def _page2(c, d, page_num=2, total=3):
             c.clipPath(clip, stroke=0, fill=0)
             c.drawImage(ImageReader(buf2), mx, my, width=mw, height=mh)
             c.restoreState()
-            # Subtle border
             c.setStrokeColor(colors.HexColor("#BBBBBB"))
             c.setLineWidth(0.6)
             c.roundRect(mx, my, mw, mh, 3 * mm, fill=0, stroke=1)
-            # Address chip centered at bottom of map
             adr = adresse_str + ", " + ville_str
             chip_w = min(c.stringWidth(adr, "Helvetica-Bold", 7) + 10 * mm, mw - 20 * mm)
             chip_h = 8 * mm
@@ -1391,14 +1294,12 @@ def _page2(c, d, page_num=2, total=3):
         c.setFont("Helvetica", 8)
         c.drawCentredString(mx + mw / 2, my + mh / 2, "Carte indisponible")
 
-    # 5) POI legend below map (compact row of labels if we have POI)
     if poi_blocks:
         legend_y = my - 5 * mm
         c.setFont("Helvetica", 6)
         lx = ML
         for i_poi, (cat, nom, col_hex, *_coords) in enumerate(poi_blocks[:6]):
             col = colors.HexColor(col_hex) if col_hex else TEAL
-            # Colored dot + text
             c.setFillColor(col)
             c.circle(lx + 2 * mm, legend_y + 1.5 * mm, 1.5 * mm, fill=1, stroke=0)
             c.setFillColor(GRAY_DARK)
@@ -1408,7 +1309,108 @@ def _page2(c, d, page_num=2, total=3):
             if lx > ML + CW - 20 * mm:
                 break
 
-    _footer(c, page_num, total=total)
+
+_QUARTIER_MAP_MIN = 72 * mm  # hauteur mini pour garder la carte sur la page du texte
+
+
+def _count_page2(d):
+    """Nombre de pages de la rubrique Analyse Commerciale (texte paginé + localisation)."""
+    blocks = _quartier_blocks(d)
+    style_for, sty_p = _quartier_style_for(9)
+    footer_y = FOOTER_H + SP_BEFORE_FOOTER
+    pq_top = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    pq_bot = pq_top - 30 * mm
+    quartier_sec_y = pq_bot - SP_BETWEEN_BLOCS
+    chapeau_y = quartier_sec_y - SEC_H - SP_AFTER_SEC
+    cursor = chapeau_y - 5 * mm
+    suite_top = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - 2 * mm
+    pages = 1
+    for kind, text in blocks:
+        sty = style_for.get(kind, sty_p)
+        ph = Paragraph(text, sty).wrap(CW, 9999)[1]
+        if cursor - ph < footer_y:
+            pages += 1
+            cursor = suite_top
+        cursor -= ph + sty.spaceAfter
+    avail = (cursor - SP_BETWEEN_BLOCS) - SEC_H - footer_y
+    if avail < _QUARTIER_MAP_MIN:
+        pages += 1
+    return pages
+
+
+def _page2(c, d, page_num=2, total=3):
+    """Analyse Commerciale : 'Pourquoi Barbier' + texte quartier COMPLET (paginé) puis
+    Localisation APRÈS le texte (jamais coupé). Gère ses sauts de page, le caller fait le
+    showPage() final. Retourne le nombre de pages dessinées."""
+    htitle = "Quartier & environnement"
+    blocks = _quartier_blocks(d)
+    style_for, sty_p = _quartier_style_for(9)
+    footer_y = FOOTER_H + SP_BEFORE_FOOTER
+
+    # -- Page 1 : "Pourquoi Barbier Immobilier" en haut --
+    _header(c, htitle)
+    pourquoi_h = 30 * mm
+    pq_top = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    pq_bot = pq_top - pourquoi_h
+    c.setFillColor(TEAL)
+    c.roundRect(ML, pq_bot, CW, pourquoi_h, 2 * mm, fill=1, stroke=0)
+    c.setFillColor(WHITE)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(ML + 5 * mm, pq_top - 5 * mm, "Pourquoi Barbier Immobilier ?")
+    c.setFont("Helvetica", 7.5)
+    for i_pq, lpq in enumerate([
+        "Plus de 35 ans d'expertise en immobilier commercial dans le Morbihan.",
+        "Un accompagnement personnalisé pour chaque projet d'investissement.",
+        "Une connaissance approfondie du tissu économique local et des opportunités.",
+    ]):
+        c.drawString(ML + 5 * mm, pq_top - 14 * mm - i_pq * 6 * mm, "•  " + lpq)
+
+    # -- "Analyse Commerciale" : titre + chapeau --
+    ville = _safe(d.get("ville"), "Vannes")
+    tb = d.get("type_bien") or ""
+    quartier_sec_y = pq_bot - SP_BETWEEN_BLOCS
+    _sec(c, "Analyse Commerciale", ML, quartier_sec_y)
+    if tb and tb != "—":
+        chapeau = "Un emplacement stratégique pour votre " + tb.lower() + " au cœur de " + ville + "."
+    else:
+        chapeau = "Un emplacement stratégique au cœur de " + ville + "."
+    chapeau_y = quartier_sec_y - SEC_H - SP_AFTER_SEC
+    c.setFillColor(ORANGE)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(ML, chapeau_y, chapeau)
+
+    # -- Texte complet, paginé (contigu) --
+    cursor = chapeau_y - 5 * mm
+    suite_top = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - 2 * mm
+    pages_used = 0
+    for kind, text in blocks:
+        sty = style_for.get(kind, sty_p)
+        p = Paragraph(text, sty)
+        _, ph = p.wrap(CW, 9999)
+        if cursor - ph < footer_y:
+            _footer(c, page_num + pages_used, total=total)
+            c.showPage()
+            pages_used += 1
+            _header(c, htitle)
+            _sec(c, "Analyse Commerciale (suite)", ML, PAGE_H - HEADER_H - SP_AFTER_HEADER)
+            cursor = suite_top
+            p = Paragraph(text, sty)
+            _, ph = p.wrap(CW, 9999)
+        p.drawOn(c, ML, cursor - ph)
+        cursor -= ph + sty.spaceAfter
+
+    # -- Localisation APRÈS le texte (même page si la place, sinon page dédiée) --
+    sec2_y = cursor - SP_BETWEEN_BLOCS
+    avail = sec2_y - SEC_H - footer_y
+    if avail < _QUARTIER_MAP_MIN:
+        _footer(c, page_num + pages_used, total=total)
+        c.showPage()
+        pages_used += 1
+        _header(c, htitle)
+        sec2_y = PAGE_H - HEADER_H - SP_AFTER_HEADER
+    _draw_localisation(c, d, sec2_y)
+    _footer(c, page_num + pages_used, total=total)
+    return pages_used + 1
 
 
 # ---------------------------------------------------------------------------
@@ -1593,56 +1595,30 @@ def _draw_desc_suite(c, overflow_pages, page_num, total, header_sub):
     return n
 
 
-def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
-    """Page Annonce + Caractéristiques. Retourne les pages 'Présentation (suite)'
-    en surplus (liste de listes de blocs, [] si tout tient) — l'appelant les rend."""
-    header_sub = _safe(d.get("type_bien")) + " — " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville"))
-    _header(c, header_sub)
-
-    # ── Gather data (centralisé) ──
-    m = _page3_metrics(d, skip_bail_prix)
-    loc = m["loc"]; lht = m["lht"]; linit = m["linit"]; evol = m["evol"]
-    duree = m["duree"]; taxe = m["taxe"]; is_bail = m["is_bail"]
-    prix_brut = m["prix_brut"]; has_prix = m["has_prix"]
+def _draw_page3_tail(c, d, cursor, m, skip_bail_prix):
+    """Dessine Caractéristiques (+ Données du bail + Prix) à partir de `cursor`.
+    Extrait des anciens BLOC 2/3/4 — placé APRÈS la description complète (jamais au milieu)."""
     pills_data = m["pills_data"]; n_pill_rows = m["n_pill_rows"]
     pw2 = 57 * mm; ph2 = 16 * mm; pgy = 3 * mm
-    pills_total_h = m["pills_total_h"]
-    bail_rows = m["bail_rows"]; bail_bloc_h = m["bail_bloc_h"]; prix_block_h = m["prix_block_h"]
+    is_bail = m["is_bail"]; bail_rows = m["bail_rows"]; bail_bloc_h = m["bail_bloc_h"]
+    has_prix = m["has_prix"]; prix_brut = m["prix_brut"]; prix_block_h = m["prix_block_h"]
 
-    # ── BLOC 1: Présentation du bien (structurée + paginée) ──
-    cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
-    _sec(c, "Présentation du bien", ML, cursor)
-    cursor -= SEC_H + SP_AFTER_SEC
-
-    titre_annonce, desc_pages = _paginate_desc(d, skip_bail_prix)
-    th, sty_titre = _desc_title_height(titre_annonce)
-    cursor -= th
-    _p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
-    _p_titre.wrap(CW, 30 * mm)
-    _p_titre.drawOn(c, ML, cursor)
-    cursor -= 2 * mm
-
-    cursor = _draw_desc_blocks(c, desc_pages[0], cursor)
-    overflow_pages = desc_pages[1:]
-
-    # ── BLOC 2: Caractéristiques ──
+    # ── Caractéristiques ──
     cursor -= SP_BETWEEN_BLOCS
-    _sec(c, "Caract\u00e9ristiques", ML, cursor)
+    _sec(c, "Caractéristiques", ML, cursor)
     cursor -= SEC_H + SP_AFTER_SEC
     pgx = 3 * mm
     cols = 3
     pill_y = cursor - ph2
     for i, (b64, lbl, val) in enumerate(pills_data):
-        col_i = i % cols
-        row_i = i // cols
-        _pill(c, ML + col_i * (pw2 + pgx), pill_y - row_i * (ph2 + pgy), b64, lbl, val, pw2, ph2)
+        _pill(c, ML + (i % cols) * (pw2 + pgx), pill_y - (i // cols) * (ph2 + pgy), b64, lbl, val, pw2, ph2)
     cursor = pill_y - (n_pill_rows - 1) * (ph2 + pgy)
 
-    # ── BLOC 3: Données du bail (inline, skipped when bail_details page exists) ──
+    # ── Données du bail ──
     if bail_rows and not skip_bail_prix:
         row_h_bail = 12 * mm
         cursor -= SP_BETWEEN_BLOCS
-        bail_label = "Donn\u00e9es du bail" if is_bail else "Donn\u00e9es financi\u00e8res"
+        bail_label = "Données du bail" if is_bail else "Données financières"
         _sec(c, bail_label, ML, cursor)
         cursor -= SEC_H + SP_AFTER_SEC
         c.setFillColor(colors.HexColor("#EBF0F8"))
@@ -1665,7 +1641,7 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
             c.drawString(cx2, cy2 - 6.5 * mm, str(valeur))
         cursor -= bail_bloc_h
 
-    # ── BLOC 4: Prix (inline, skipped when bail_details page exists) ──
+    # ── Prix ──
     if has_prix and not skip_bail_prix:
         try:
             prix_fai = int(float(str(prix_brut)))
@@ -1681,8 +1657,6 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
             cursor -= SP_BETWEEN_BLOCS
             _sec(c, "Prix", ML, cursor)
             cursor -= SEC_H + SP_AFTER_SEC
-            # Determine layout: 3 boxes + optional rentabilité
-            # Si show_honoraires=False (mode estimation), n'afficher que PRIX FAI (pas honoraires ni net vendeur)
             show_hono3 = d.get("show_honoraires", True)
             taux = d.get("taux_rentabilite") or ""
             if show_hono3:
@@ -1690,7 +1664,7 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
             else:
                 n_boxes = 2 if taux else 1
             bw3 = CW / n_boxes - 2 * mm
-            hcharge = d.get("honoraires_charge") or "Acqu\u00e9reur"
+            hcharge = d.get("honoraires_charge") or "Acquéreur"
             bloc_y = cursor - prix_block_h
             if show_hono3:
                 items = [
@@ -1701,7 +1675,7 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
             else:
                 items = [("VALEUR ESTIMÉE", _pfmt(prix_fai), TEAL_DARK)]
             if taux:
-                items.append(("RENTABILIT\u00c9 BRUTE", str(taux), colors.HexColor("#2E7D32")))
+                items.append(("RENTABILITÉ BRUTE", str(taux), colors.HexColor("#2E7D32")))
             for ip, (lbl, val, col) in enumerate(items):
                 bxp = ML + ip * (bw3 + 2 * mm)
                 c.setFillColor(col)
@@ -1717,8 +1691,91 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
         except Exception as e:
             app.logger.error("Prix block: %s", e)
 
-    _footer(c, page_num, total=total)
-    return overflow_pages
+
+def _page3_pages(d, skip_bail_prix=False):
+    """Découpe la 'Présentation du bien' : description complète paginée plein-page, PUIS
+    Caractéristiques/Prix après (jamais au milieu). Retourne
+    (titre, th, [page_blocks...], tail_sur_page_dédiée, metrics)."""
+    blocks = _desc_blocks(d)
+    style_for = _desc_styles()
+    if blocks:
+        first_txt = re.sub(r"<[^>]+>", "", blocks[0][1]).strip()
+        if blocks[0][0] in ("h1", "h2", "h3", "h4") or len(first_txt) <= 100:
+            titre, body = first_txt, blocks[1:]
+        else:
+            titre, body = _safe(d.get("type_bien"), "Bien immobilier"), blocks
+    else:
+        titre, body = _safe(d.get("type_bien"), "Bien immobilier"), []
+
+    th, _ = _desc_title_height(titre)
+    m = _page3_metrics(d, skip_bail_prix)
+
+    # Hauteur du bloc Caractéristiques (+ bail + prix) à réserver pour le tail
+    H_cp = SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC + m["pills_total_h"]
+    if m["bail_rows"] and not skip_bail_prix:
+        H_cp += SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC + m["bail_bloc_h"]
+    if m["has_prix"] and not skip_bail_prix:
+        H_cp += SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC + m["prix_block_h"]
+
+    footer_y = FOOTER_H + SP_BEFORE_FOOTER
+    top_first = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - th - 2 * mm
+    top_suite = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - 2 * mm
+
+    pages = [[]]
+    y = top_first
+    for kind, text in body:
+        sty = style_for.get(kind, style_for["p"])
+        _, ph = Paragraph(text, sty).wrap(CW, 9999)
+        if y - ph < footer_y and pages[-1]:
+            pages.append([])
+            y = top_suite
+        pages[-1].append((kind, text))
+        y -= ph + sty.spaceAfter
+
+    # Le tail (Caractéristiques/Prix) tient-il sous la fin de la description ?
+    tail_new_page = (y - H_cp < footer_y)
+    return titre, th, pages, tail_new_page, m
+
+
+def _count_page3(d, skip_bail_prix=False):
+    _, _, pages, tail_new, _ = _page3_pages(d, skip_bail_prix)
+    return len(pages) + (1 if tail_new else 0)
+
+
+def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
+    """Présentation du bien (description COMPLÈTE d'abord, paginée) puis Caractéristiques/Prix
+    APRÈS — jamais d'interruption. Gère ses propres sauts de page ; le caller fait le
+    showPage() final. Retourne le nombre de pages dessinées."""
+    header_sub = _safe(d.get("type_bien")) + " — " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville"))
+    titre, th, pages, tail_new, m = _page3_pages(d, skip_bail_prix)
+    npages = len(pages) + (1 if tail_new else 0)
+
+    for i, pg in enumerate(pages):
+        _header(c, header_sub)
+        cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+        _sec(c, "Présentation du bien" if i == 0 else "Présentation du bien (suite)", ML, cursor)
+        cursor -= SEC_H + SP_AFTER_SEC
+        if i == 0:
+            _, sty_titre = _desc_title_height(titre)
+            cursor -= th
+            _pt = Paragraph(titre.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
+            _pt.wrap(CW, 30 * mm)
+            _pt.drawOn(c, ML, cursor)
+            cursor -= 2 * mm
+        cursor = _draw_desc_blocks(c, pg, cursor)
+        if i == len(pages) - 1 and not tail_new:
+            _draw_page3_tail(c, d, cursor, m, skip_bail_prix)
+        _footer(c, page_num + i, total=total)
+        if i < len(pages) - 1 or tail_new:
+            c.showPage()
+
+    if tail_new:
+        _header(c, header_sub)
+        cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+        _draw_page3_tail(c, d, cursor, m, skip_bail_prix)
+        _footer(c, page_num + npages - 1, total=total)
+
+    return npages
 
 
 # ---------------------------------------------------------------------------
@@ -2874,9 +2931,8 @@ def generate_dossier_pdf(d):
         d.get("loyer_retenu") or d.get("loyer_min") or d.get("loyer_max"))
 
     # Count total pages
-    total = 2  # cover + quartier
-    _, _, _quartier_overflow = _quartier_split(d)
-    total += _count_quartier_suite(_quartier_overflow)  # page(s) "Le quartier (suite)"
+    total = 1  # cover
+    total += _count_page2(d)  # Analyse Commerciale (texte + localisation)
     if has_cadastre:
         total += 1
     if is_estimation:
@@ -2885,8 +2941,7 @@ def generate_dossier_pdf(d):
         total += _count_avis_pages(d)   # avis paginé : 1..N pages
     if include_loyer:
         total += 1
-    total += 1  # page3 (annonce + caract\u00e9ristiques)
-    total += _count_desc_suite(d, skip_bail_prix=has_bail_details)  # pages 'Présentation (suite)'
+    total += _count_page3(d, skip_bail_prix=has_bail_details)  # Présentation (desc + caract/prix)
     if has_bail_details:
         total += 1
     if has_plans:
@@ -2907,15 +2962,9 @@ def generate_dossier_pdf(d):
         cv.showPage()
         pn += 1
 
-    # Quartier & Environnement (carte/localisation) — placé après le cadastre
-    _page2(cv, d, page_num=pn, total=total)
+    # Analyse Commerciale (texte complet) puis Localisation — placé après le cadastre
+    pn += _page2(cv, d, page_num=pn, total=total)
     cv.showPage()
-    pn += 1
-    # Surplus de la description quartier (texte cliente long) → page(s) "Le quartier (suite)"
-    if _quartier_overflow:
-        _nq = _draw_quartier_suite(cv, _quartier_overflow, page_num=pn, total=total)
-        cv.showPage()
-        pn += _nq
 
     # Estimation pages (if applicable)
     if is_estimation:
@@ -2942,14 +2991,8 @@ def generate_dossier_pdf(d):
             pn += 1
 
     # Annonce + Caract\u00e9ristiques (+ inline bail/prix if no bail_details)
-    _desc_overflow = _page3(cv, d, page_num=pn, total=total, skip_bail_prix=has_bail_details)
+    pn += _page3(cv, d, page_num=pn, total=total, skip_bail_prix=has_bail_details)
     cv.showPage()
-    pn += 1
-    if _desc_overflow:
-        _hdr_sub = _safe(d.get("type_bien")) + " — " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville"))
-        _nd = _draw_desc_suite(cv, _desc_overflow, pn, total, _hdr_sub)
-        cv.showPage()
-        pn += _nd
 
     # Dedicated bail details + prix page (when bail_details provided)
     if has_bail_details:
