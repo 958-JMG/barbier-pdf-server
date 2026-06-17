@@ -1414,10 +1414,49 @@ def _page2(c, d, page_num=2, total=3):
 # ---------------------------------------------------------------------------
 # PAGE 3 — Annonce + Donnees financieres + Prix
 # ---------------------------------------------------------------------------
-def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
-    _header(c, _safe(d.get("type_bien")) + " \u2014 " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville")))
+# ---------------------------------------------------------------------------
+# DESCRIPTION DU BIEN — rendu structuré + pagination (zéro troncature)
+# ---------------------------------------------------------------------------
+# La description ("Version portail" HTML, ou texte brut) était auparavant
+# aplatie par _clean() puis tronquée à 4-5 blocs par _render_desc(). On rend
+# désormais la structure (h2/<ul><li>/<strong>) et on PAGINE le surplus sur
+# une/des page(s) "Présentation du bien (suite)" — comme le quartier.
 
-    # ── Gather data ──
+def _desc_styles():
+    """Styles ReportLab de la description du bien (rendu <-> mesure pagination)."""
+    h = ParagraphStyle("descH", fontName="Helvetica-Bold", fontSize=8.8,
+                        leading=12.5, textColor=TEAL_DARK, spaceBefore=0,
+                        spaceAfter=1.6 * mm)
+    p = ParagraphStyle("descP", fontName="Helvetica", fontSize=9, leading=12.8,
+                       textColor=GRAY_DARK, spaceBefore=0, spaceAfter=2.3 * mm,
+                       alignment=4)
+    li = ParagraphStyle("descLi", fontName="Helvetica", fontSize=8.6, leading=11.8,
+                        textColor=GRAY_DARK, spaceBefore=0, spaceAfter=0.9 * mm,
+                        leftIndent=4 * mm, firstLineIndent=-4 * mm)
+    return {"h1": h, "h2": h, "h3": h, "h4": h, "p": p, "li": li}
+
+
+def _desc_blocks(d):
+    """Blocs (kind, text_rl) de la description, ou [] si vide.
+    HTML (Version portail) -> _html_to_blocks ; texte brut -> _text_to_blocks."""
+    raw = str(d.get("description", "") or "").strip()
+    if not raw:
+        return []
+    raw = re.sub(r",?\s*avec une augmentation de [0-9,.]+ ?% sur la période récente,?",
+                 "", raw)
+    return _html_to_blocks(raw) if "<" in raw else _text_to_blocks(raw)
+
+
+def _desc_title_height(titre):
+    sty = ParagraphStyle("descT", fontName="Helvetica-Bold", fontSize=11,
+                         textColor=TEAL_DARK, leading=14)
+    _, th = Paragraph(titre.replace("&", "&amp;").replace("<", "&lt;"), sty).wrap(CW, 30 * mm)
+    return th, sty
+
+
+def _page3_metrics(d, skip_bail_prix=False):
+    """Tout ce dont _page3 a besoin pour dessiner + mesurer la zone description.
+    Centralisé pour que pagination (compte) et rendu restent cohérents."""
     loc = d.get("locataire") or ""
     lht = d.get("loyer_annuel_ht") or 0
     linit = d.get("loyer_initial_ht") or 0
@@ -1438,7 +1477,7 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
     has_prix = bool(prix_brut)
 
     pills_data = [
-        (PICTO_SURFACE_B64, "Surface", _safe(d.get("surface")) + " m\u00b2"),
+        (PICTO_SURFACE_B64, "Surface", _safe(d.get("surface")) + " m²"),
         (PICTO_TYPE_B64, "Type de bien", _safe(d.get("type_bien"))),
         (PICTO_LIEU_B64, "Adresse", _safe(d.get("adresse"))),
         (PICTO_VILLE_B64, "Ville", _safe(d.get("ville"))),
@@ -1446,15 +1485,11 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
     if d.get("activite"):
         pills_data.append((PICTO_TYPE_B64, "Activite", _safe(d.get("activite"))))
     n_pill_rows = math.ceil(len(pills_data) / 3)
-    pw2 = 57 * mm; ph2 = 16 * mm; pgy = 3 * mm
+    ph2 = 16 * mm; pgy = 3 * mm
     pills_total_h = n_pill_rows * ph2 + (n_pill_rows - 1) * pgy
 
-    # When bail_details is provided, bail+prix go on a dedicated page
     if skip_bail_prix:
-        bail_rows = []
-        bail_bloc_h = 0
-        prix_block_h = 0
-        has_prix_inline = False
+        bail_rows = []; bail_bloc_h = 0; prix_block_h = 0
     else:
         bail_rows = []
         if is_bail:
@@ -1462,15 +1497,13 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
             if lht:    bail_rows.append(("Loyer annuel HT", _pfmt(lht) + " HT/an"))
             if linit:  bail_rows.append(("Loyer initial", _pfmt(linit) + " HT"))
             if evol:   bail_rows.append(("Evolution loyer", str(evol)))
-            if duree:  bail_rows.append(("Dur\u00e9e du bail", str(duree)))
-            if taxe:   bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
+            if duree:  bail_rows.append(("Durée du bail", str(duree)))
+            if taxe:   bail_rows.append(("Taxe foncière", _pfmt(taxe) + "/an"))
         elif taxe:
-            bail_rows.append(("Taxe fonci\u00e8re", _pfmt(taxe) + "/an"))
+            bail_rows.append(("Taxe foncière", _pfmt(taxe) + "/an"))
         bail_bloc_h = (math.ceil(len(bail_rows) / 2) * 12 * mm + 4 * mm) if bail_rows else 0
         prix_block_h = 28 * mm if has_prix else 0
-        has_prix_inline = has_prix
 
-    # ── PRE-COMPUTE: what desc can use ──
     bottom_used = FOOTER_H + SP_BEFORE_FOOTER
     if has_prix and not skip_bail_prix:
         bottom_used += prix_block_h + SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC
@@ -1478,36 +1511,119 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
         bottom_used += bail_bloc_h + SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC
     bottom_used += pills_total_h + SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC
 
-    # ── BLOC 1: Présentation du bien ──
+    return {
+        "loc": loc, "lht": lht, "linit": linit, "evol": evol, "duree": duree,
+        "taxe": taxe, "is_bail": is_bail, "prix_brut": prix_brut, "has_prix": has_prix,
+        "pills_data": pills_data, "n_pill_rows": n_pill_rows, "pills_total_h": pills_total_h,
+        "bail_rows": bail_rows, "bail_bloc_h": bail_bloc_h, "prix_block_h": prix_block_h,
+        "bottom_used": bottom_used,
+    }
+
+
+def _paginate_desc(d, skip_bail_prix=False):
+    """Découpe la description en pages. Retourne (titre, [page0_blocks, page1_blocks, ...]).
+    page0 = portion qui tient sur _page3 (sous le titre, au-dessus de Caract./Prix) ;
+    pages suivantes = pages 'Présentation (suite)'."""
+    blocks = _desc_blocks(d)
+    if not blocks:
+        return ("", [[]])
+    style_for = _desc_styles()
+    first_txt = re.sub(r"<[^>]+>", "", blocks[0][1]).strip()
+    if blocks[0][0] in ("h1", "h2", "h3", "h4") or len(first_txt) <= 100:
+        titre = first_txt
+        body = blocks[1:]
+    else:
+        titre = _safe(d.get("type_bien"), "Bien immobilier")
+        body = blocks
+
+    th, _ = _desc_title_height(titre)
+    m = _page3_metrics(d, skip_bail_prix)
+    top0 = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - th - 2 * mm
+    bot0 = m["bottom_used"] + 2 * mm
+    top_s = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - 2 * mm
+    bot_s = FOOTER_H + SP_BEFORE_FOOTER + 4 * mm
+
+    pages = [[]]
+    y, stop = top0, bot0
+    for kind, text in body:
+        sty = style_for.get(kind, style_for["p"])
+        _, ph = Paragraph(text, sty).wrap(CW, 9999)
+        if y - ph < stop and pages[-1]:
+            pages.append([])
+            y, stop = top_s, bot_s
+        pages[-1].append((kind, text))
+        y -= ph + sty.spaceAfter
+    return (titre, pages)
+
+
+def _count_desc_suite(d, skip_bail_prix=False):
+    """Nombre de pages 'Présentation (suite)' (0 si tout tient sur _page3)."""
+    _, pages = _paginate_desc(d, skip_bail_prix)
+    return max(0, len(pages) - 1)
+
+
+def _draw_desc_blocks(c, blocks, start_y, x=ML, col_w=CW):
+    """Dessine une liste de blocs (kind, text_rl) de haut en bas. Retourne le y bas."""
+    style_for = _desc_styles()
+    y = start_y
+    for kind, text in blocks:
+        sty = style_for.get(kind, style_for["p"])
+        p = Paragraph(text, sty)
+        _, ph = p.wrap(col_w, 9999)
+        y -= ph
+        p.drawOn(c, x, y)
+        y -= sty.spaceAfter
+    return y
+
+
+def _draw_desc_suite(c, overflow_pages, page_num, total, header_sub):
+    """Rend la/les page(s) 'Présentation du bien (suite)'. Le caller fait le
+    showPage() de la dernière page. Retourne le nb de pages dessinées."""
+    n = 0
+    for pg in overflow_pages:
+        _header(c, header_sub)
+        cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
+        _sec(c, "Présentation du bien (suite)", ML, cursor)
+        cursor -= SEC_H + SP_AFTER_SEC
+        _draw_desc_blocks(c, pg, cursor)
+        _footer(c, page_num + n, total=total)
+        if n < len(overflow_pages) - 1:
+            c.showPage()
+        n += 1
+    return n
+
+
+def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
+    """Page Annonce + Caractéristiques. Retourne les pages 'Présentation (suite)'
+    en surplus (liste de listes de blocs, [] si tout tient) — l'appelant les rend."""
+    header_sub = _safe(d.get("type_bien")) + " — " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville"))
+    _header(c, header_sub)
+
+    # ── Gather data (centralisé) ──
+    m = _page3_metrics(d, skip_bail_prix)
+    loc = m["loc"]; lht = m["lht"]; linit = m["linit"]; evol = m["evol"]
+    duree = m["duree"]; taxe = m["taxe"]; is_bail = m["is_bail"]
+    prix_brut = m["prix_brut"]; has_prix = m["has_prix"]
+    pills_data = m["pills_data"]; n_pill_rows = m["n_pill_rows"]
+    pw2 = 57 * mm; ph2 = 16 * mm; pgy = 3 * mm
+    pills_total_h = m["pills_total_h"]
+    bail_rows = m["bail_rows"]; bail_bloc_h = m["bail_bloc_h"]; prix_block_h = m["prix_block_h"]
+
+    # ── BLOC 1: Présentation du bien (structurée + paginée) ──
     cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
-    _sec(c, "Pr\u00e9sentation du bien", ML, cursor)
+    _sec(c, "Présentation du bien", ML, cursor)
     cursor -= SEC_H + SP_AFTER_SEC
 
-    desc = _clean(d.get("description", ""))
-    # Filter out "augmentation" phrase if present
-    desc = re.sub(r",?\s*avec une augmentation de [0-9,.]+ ?% sur la p\u00e9riode r\u00e9cente,?", "", desc)
-    desc_lines = desc.split("\n")
-    titre_annonce = ""
-    desc_body = desc
-    if desc_lines:
-        titre_annonce = desc_lines[0].strip()
-        if len(titre_annonce) < 120:
-            desc_body = "\n".join(desc_lines[1:]).strip()
-        else:
-            titre_annonce = _safe(d.get("type_bien"), "Bien immobilier")
-            desc_body = desc
-
-    sty_titre = ParagraphStyle("pt", fontName="Helvetica-Bold", fontSize=11,
-                                textColor=TEAL_DARK, leading=14)
-    p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
-    _, th = p_titre.wrap(CW, 30 * mm)
+    titre_annonce, desc_pages = _paginate_desc(d, skip_bail_prix)
+    th, sty_titre = _desc_title_height(titre_annonce)
     cursor -= th
-    p_titre.drawOn(c, ML, cursor)
+    _p_titre = Paragraph(titre_annonce.replace("&", "&amp;").replace("<", "&lt;"), sty_titre)
+    _p_titre.wrap(CW, 30 * mm)
+    _p_titre.drawOn(c, ML, cursor)
     cursor -= 2 * mm
 
-    desc_stop_y = bottom_used + 2 * mm
-    desc_bot = _render_desc(c, desc_body, cursor, 999, stop_y=desc_stop_y)
-    cursor = desc_bot
+    cursor = _draw_desc_blocks(c, desc_pages[0], cursor)
+    overflow_pages = desc_pages[1:]
 
     # ── BLOC 2: Caractéristiques ──
     cursor -= SP_BETWEEN_BLOCS
@@ -1602,6 +1718,7 @@ def _page3(c, d, page_num=3, total=3, skip_bail_prix=False):
             app.logger.error("Prix block: %s", e)
 
     _footer(c, page_num, total=total)
+    return overflow_pages
 
 
 # ---------------------------------------------------------------------------
@@ -2769,6 +2886,7 @@ def generate_dossier_pdf(d):
     if include_loyer:
         total += 1
     total += 1  # page3 (annonce + caract\u00e9ristiques)
+    total += _count_desc_suite(d, skip_bail_prix=has_bail_details)  # pages 'Présentation (suite)'
     if has_bail_details:
         total += 1
     if has_plans:
@@ -2824,9 +2942,14 @@ def generate_dossier_pdf(d):
             pn += 1
 
     # Annonce + Caract\u00e9ristiques (+ inline bail/prix if no bail_details)
-    _page3(cv, d, page_num=pn, total=total, skip_bail_prix=has_bail_details)
+    _desc_overflow = _page3(cv, d, page_num=pn, total=total, skip_bail_prix=has_bail_details)
     cv.showPage()
     pn += 1
+    if _desc_overflow:
+        _hdr_sub = _safe(d.get("type_bien")) + " — " + _safe(d.get("adresse")) + ", " + _safe(d.get("ville"))
+        _nd = _draw_desc_suite(cv, _desc_overflow, pn, total, _hdr_sub)
+        cv.showPage()
+        pn += _nd
 
     # Dedicated bail details + prix page (when bail_details provided)
     if has_bail_details:
