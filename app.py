@@ -1094,17 +1094,6 @@ def _quartier_text(d):
     )
 
 
-def _quartier_zone():
-    """Géométrie de la zone texte quartier sur la page 2 (carte réservée en dessous)."""
-    pq_top = PAGE_H - HEADER_H - SP_AFTER_HEADER
-    pq_bot = pq_top - 30 * mm
-    quartier_sec_y = pq_bot - SP_BETWEEN_BLOCS
-    chapeau_y = quartier_sec_y - SEC_H - SP_AFTER_SEC
-    text_top = chapeau_y - 5 * mm
-    bottom_reserved = FOOTER_H + SP_BEFORE_FOOTER + 75 * mm + SP_BETWEEN_BLOCS + SEC_H
-    return text_top, max(8 * mm, text_top - bottom_reserved)
-
-
 def _quartier_style_for(fsz):
     sty_p = ParagraphStyle(f"qtp{fsz}", fontName="Helvetica", fontSize=fsz, leading=fsz*1.55,
                            spaceAfter=3, textColor=GRAY_DARK, alignment=4)
@@ -1115,90 +1104,6 @@ def _quartier_style_for(fsz):
     sty_li = ParagraphStyle(f"qtli{fsz}", fontName="Helvetica", fontSize=fsz, leading=fsz*1.45,
                             spaceAfter=1.5, leftIndent=8, textColor=GRAY_DARK)
     return {"h1": sty_h, "h2": sty_h, "h3": sty_h3, "h4": sty_h3, "p": sty_p, "li": sty_li}, sty_p
-
-
-def _quartier_split(d):
-    """(fsz, page1_blocks, overflow_blocks) pour la description quartier HTML.
-    Page 1 garde la carte (zone réduite) ; ce qui ne tient pas part sur une page
-    'Le quartier (suite)' au lieu d'être tronqué. Police lisible (>=8, plus de 7pt).
-    Si pas de HTML → (None, None, [])."""
-    texte = _quartier_text(d)
-    if "<" not in (texte or ""):
-        return None, None, []
-    blocks = _html_to_blocks(texte)
-    text_top, max_h = _quartier_zone()
-    for fsz in (9, 8.5, 8):  # tout sur page 1 si ça rentre
-        style_for, sty_p = _quartier_style_for(fsz)
-        total_h = sum(Paragraph(t, style_for.get(k, sty_p)).wrap(CW, 20)[1]
-                      + style_for.get(k, sty_p).spaceAfter for k, t in blocks)
-        if total_h <= max_h:
-            return fsz, blocks, []
-    # Ne rentre pas : police lisible 8.5, on remplit page 1 puis overflow → page (suite).
-    fsz = 8.5
-    style_for, sty_p = _quartier_style_for(fsz)
-    cursor, bottom_limit, split = text_top, text_top - max_h, len(blocks)
-    for i, (k, t) in enumerate(blocks):
-        sty = style_for.get(k, sty_p)
-        ph = Paragraph(t, sty).wrap(CW, 20)[1]
-        if cursor - ph < bottom_limit:
-            split = i
-            break
-        cursor -= ph + sty.spaceAfter
-    return fsz, blocks[:split], blocks[split:]
-
-
-def _quartier_suite_geom():
-    top_y = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - 2 * mm
-    min_y = FOOTER_H + SP_BEFORE_FOOTER + 3 * mm
-    return top_y, min_y
-
-
-def _count_quartier_suite(blocks):
-    """Nombre de pages pour l'overflow quartier (mesure AVANT rendu → total correct)."""
-    if not blocks:
-        return 0
-    style_for, sty_p = _quartier_style_for(9)
-    top_y, min_y = _quartier_suite_geom()
-    pages, cursor, fresh = 1, top_y, True
-    for k, t in blocks:
-        sty = style_for.get(k, sty_p)
-        ph = Paragraph(t, sty).wrap(CW, 20)[1]
-        if cursor - ph < min_y and not fresh:
-            pages += 1
-            cursor = top_y
-            fresh = True
-        cursor -= ph + sty.spaceAfter
-        fresh = False
-    return pages
-
-
-def _draw_quartier_suite(c, blocks, page_num, total):
-    """Rend l'overflow de la description quartier sur page(s) 'Le quartier (suite)'.
-    Retourne le nombre de pages dessinées (l'appelant fait le showPage final)."""
-    style_for, sty_p = _quartier_style_for(9)
-    top_y, min_y = _quartier_suite_geom()
-
-    def _open():
-        _header(c, "Quartier & environnement")
-        _sec(c, "Analyse Commerciale (suite)", ML, PAGE_H - HEADER_H - SP_AFTER_HEADER)
-        return top_y
-
-    pages, cursor, fresh = 1, _open(), True
-    for k, t in blocks:
-        sty = style_for.get(k, sty_p)
-        p = Paragraph(t, sty)
-        ph = p.wrap(CW, 20)[1]
-        if cursor - ph < min_y and not fresh:
-            _footer(c, page_num + pages - 1, total)
-            c.showPage()
-            pages += 1
-            cursor = _open()
-            fresh = True
-        p.drawOn(c, ML, cursor - ph)
-        cursor -= ph + sty.spaceAfter
-        fresh = False
-    _footer(c, page_num + pages - 1, total)
-    return pages
 
 
 def _quartier_blocks(d):
@@ -1522,48 +1427,6 @@ def _page3_metrics(d, skip_bail_prix=False):
     }
 
 
-def _paginate_desc(d, skip_bail_prix=False):
-    """Découpe la description en pages. Retourne (titre, [page0_blocks, page1_blocks, ...]).
-    page0 = portion qui tient sur _page3 (sous le titre, au-dessus de Caract./Prix) ;
-    pages suivantes = pages 'Présentation (suite)'."""
-    blocks = _desc_blocks(d)
-    if not blocks:
-        return ("", [[]])
-    style_for = _desc_styles()
-    first_txt = re.sub(r"<[^>]+>", "", blocks[0][1]).strip()
-    if blocks[0][0] in ("h1", "h2", "h3", "h4") or len(first_txt) <= 100:
-        titre = first_txt
-        body = blocks[1:]
-    else:
-        titre = _safe(d.get("type_bien"), "Bien immobilier")
-        body = blocks
-
-    th, _ = _desc_title_height(titre)
-    m = _page3_metrics(d, skip_bail_prix)
-    top0 = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - th - 2 * mm
-    bot0 = m["bottom_used"] + 2 * mm
-    top_s = PAGE_H - HEADER_H - SP_AFTER_HEADER - SEC_H - SP_AFTER_SEC - 2 * mm
-    bot_s = FOOTER_H + SP_BEFORE_FOOTER + 4 * mm
-
-    pages = [[]]
-    y, stop = top0, bot0
-    for kind, text in body:
-        sty = style_for.get(kind, style_for["p"])
-        _, ph = Paragraph(text, sty).wrap(CW, 9999)
-        if y - ph < stop and pages[-1]:
-            pages.append([])
-            y, stop = top_s, bot_s
-        pages[-1].append((kind, text))
-        y -= ph + sty.spaceAfter
-    return (titre, pages)
-
-
-def _count_desc_suite(d, skip_bail_prix=False):
-    """Nombre de pages 'Présentation (suite)' (0 si tout tient sur _page3)."""
-    _, pages = _paginate_desc(d, skip_bail_prix)
-    return max(0, len(pages) - 1)
-
-
 def _draw_desc_blocks(c, blocks, start_y, x=ML, col_w=CW):
     """Dessine une liste de blocs (kind, text_rl) de haut en bas. Retourne le y bas."""
     style_for = _desc_styles()
@@ -1576,23 +1439,6 @@ def _draw_desc_blocks(c, blocks, start_y, x=ML, col_w=CW):
         p.drawOn(c, x, y)
         y -= sty.spaceAfter
     return y
-
-
-def _draw_desc_suite(c, overflow_pages, page_num, total, header_sub):
-    """Rend la/les page(s) 'Présentation du bien (suite)'. Le caller fait le
-    showPage() de la dernière page. Retourne le nb de pages dessinées."""
-    n = 0
-    for pg in overflow_pages:
-        _header(c, header_sub)
-        cursor = PAGE_H - HEADER_H - SP_AFTER_HEADER
-        _sec(c, "Présentation du bien (suite)", ML, cursor)
-        cursor -= SEC_H + SP_AFTER_SEC
-        _draw_desc_blocks(c, pg, cursor)
-        _footer(c, page_num + n, total=total)
-        if n < len(overflow_pages) - 1:
-            c.showPage()
-        n += 1
-    return n
 
 
 def _draw_page3_tail(c, d, cursor, m, skip_bail_prix):
@@ -1981,169 +1827,6 @@ def _page_plans_locaux(c, d, page_num, total):
             c.drawCentredString(ML + CW / 2, py + ph_each / 2, "Plan " + str(i + 1))
 
     _footer(c, page_num, total=total)
-
-
-def _render_desc(c, desc_txt, start_y, max_h, stop_y=None):
-    """Render description with editorial formatting. Returns y of bottom."""
-    if not desc_txt:
-        return start_y
-    if stop_y is None:
-        stop_y = 18 * mm
-    y = start_y
-    gap = 2.5 * mm
-    col_w = CW
-    x = ML
-
-    def _xs(t):
-        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    def _sb(t):
-        return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
-
-    def _strip(t):
-        return re.sub(r"<[^>]+>", "", t)
-
-    is_html = bool(re.search(r"<(p|h[1-6]|ul|li|strong|em|br)\b", desc_txt, re.I))
-
-    if is_html:
-        tokens = re.split(
-            r"(<h[1-6][^>]*>.*?</h[1-6]>|<p[^>]*>.*?</p>|<li[^>]*>.*?</li>)",
-            desc_txt, flags=re.I | re.DOTALL)
-        first = True
-        bloc_count = 0
-        for tok in tokens:
-            tok = tok.strip()
-            if not tok:
-                continue
-            bloc_count += 1
-            if bloc_count > 5:
-                break
-            mh2 = re.match(r"<h[1-6][^>]*>(.*?)</h[1-6]>", tok, re.I | re.DOTALL)
-            mp = re.match(r"<p[^>]*>(.*?)</p>", tok, re.I | re.DOTALL)
-            ml = re.match(r"<li[^>]*>(.*?)</li>", tok, re.I | re.DOTALL)
-            if mh2:
-                txt = _xs(_strip(mh2.group(1)).strip())
-                if first:
-                    p = Paragraph("<b>" + txt + "</b>",
-                                  ParagraphStyle("a", fontName="Helvetica-Bold", fontSize=10,
-                                                 textColor=TEAL_DARK, leading=15))
-                    first = False
-                else:
-                    p = Paragraph(txt, ParagraphStyle("s", fontName="Helvetica-Bold", fontSize=8.5,
-                                                      textColor=TEAL_DARK, leading=13))
-                _, ph = p.wrap(col_w, 9999)
-                if y - ph < stop_y:
-                    break
-                y -= ph
-                p.drawOn(c, x, y)
-                y -= gap
-            elif ml:
-                txt = _sb(_xs(_strip(ml.group(1)).strip()))
-                if txt:
-                    p = Paragraph("\u2022 " + txt,
-                                  ParagraphStyle("l", fontName="Helvetica", fontSize=8.5,
-                                                 textColor=GRAY_DARK, leading=12,
-                                                 leftIndent=4*mm, firstLineIndent=-4*mm))
-                    _, ph = p.wrap(col_w, 9999)
-                    if y - ph < stop_y:
-                        break
-                    y -= ph
-                    p.drawOn(c, x, y)
-                    y -= 0.8 * mm
-                    first = False
-            elif mp:
-                txt = _strip(mp.group(1)).strip()
-                txt = re.sub(r"(\d[\d\s]*(?:\u20ac|%|m\u00b2|ans?)[^.,;]*)", r"**\1**", txt)
-                txt = _sb(_xs(txt))
-                if txt:
-                    if first:
-                        p = Paragraph("<b>" + txt + "</b>",
-                                      ParagraphStyle("a2", fontName="Helvetica-Bold", fontSize=10,
-                                                     textColor=TEAL_DARK, leading=15))
-                        first = False
-                    else:
-                        p = Paragraph(txt, ParagraphStyle("p", fontName="Helvetica", fontSize=9,
-                                                          textColor=GRAY_DARK, leading=13, alignment=4))
-                    _, ph = p.wrap(col_w, 9999)
-                    if y - ph < stop_y:
-                        break
-                    y -= ph
-                    p.drawOn(c, x, y)
-                    y -= gap
-    else:
-        blocs = [b.strip() for b in desc_txt.split("\n\n") if b.strip()]
-        for idx, bloc in enumerate(blocs):
-            if y < stop_y or idx >= 4:
-                break
-            lines = [l.strip() for l in bloc.splitlines() if l.strip()]
-            if not lines:
-                continue
-            fl = lines[0]
-            is_sec = (fl == fl.upper() and len(fl) > 4 and not any(ch.isdigit() for ch in fl[:2]) and len(lines) == 1)
-            is_bul = len(lines) > 1 and all(len(l) < 120 for l in lines)
-            if idx == 0:
-                if len(fl) <= 100 and len(lines) == 1:
-                    p = Paragraph("<b>" + _xs(fl) + "</b>",
-                                  ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=10,
-                                                 textColor=TEAL_DARK, leading=15))
-                    _, ph = p.wrap(col_w, 9999)
-                    if y - ph < stop_y:
-                        break
-                    y -= ph
-                    p.drawOn(c, x, y)
-                    y -= gap + 1 * mm
-                else:
-                    txt = re.sub(r"(\d[\d\s]*(?:\u20ac|%|m\u00b2)[^.,;]*)", r"**\1**", " ".join(lines))
-                    p = Paragraph(_sb(_xs(txt)),
-                                  ParagraphStyle("b", fontName="Helvetica", fontSize=9,
-                                                 textColor=GRAY_DARK, leading=13, alignment=4))
-                    _, ph = p.wrap(col_w, 9999)
-                    if y - ph < stop_y:
-                        break
-                    y -= ph
-                    p.drawOn(c, x, y)
-                    y -= gap
-            elif is_sec:
-                txt = _xs(fl)
-                p = Paragraph(txt, ParagraphStyle("sc", fontName="Helvetica-Bold", fontSize=8.5,
-                                                   textColor=TEAL_DARK, leading=13))
-                _, ph = p.wrap(col_w - 6 * mm, 9999)
-                bh = ph + 4 * mm
-                if y - bh < stop_y:
-                    break
-                y -= 1 * mm
-                c.setFillColor(colors.HexColor("#EBF0F8"))
-                c.roundRect(x, y - ph - 1 * mm, col_w, bh, 1 * mm, fill=1, stroke=0)
-                c.setFillColor(ORANGE)
-                c.rect(x, y - ph - 1 * mm, 3 * mm, bh, fill=1, stroke=0)
-                y -= ph
-                p.drawOn(c, x + 6 * mm, y)
-                y -= gap
-            elif is_bul:
-                for li in lines:
-                    txt = re.sub(r"(\d[\d\s]*(?:\u20ac|%|m\u00b2|ans?)[^.,;]*)", r"**\1**", li)
-                    p = Paragraph("\u2022 " + _sb(_xs(txt)),
-                                  ParagraphStyle("bl", fontName="Helvetica", fontSize=8.5,
-                                                 textColor=GRAY_DARK, leading=12,
-                                                 leftIndent=4*mm, firstLineIndent=-4*mm))
-                    _, ph = p.wrap(col_w, 9999)
-                    if y - ph < stop_y:
-                        break
-                    y -= ph
-                    p.drawOn(c, x, y)
-                    y -= 0.8 * mm
-            else:
-                txt = re.sub(r"(\d[\d\s]*(?:\u20ac|%|m\u00b2)[^.,;]*)", r"**\1**", " ".join(lines))
-                p = Paragraph(_sb(_xs(txt)),
-                              ParagraphStyle("p2", fontName="Helvetica", fontSize=9,
-                                             textColor=GRAY_DARK, leading=13, alignment=4))
-                _, ph = p.wrap(col_w, 9999)
-                if y - ph < stop_y:
-                    break
-                y -= ph
-                p.drawOn(c, x, y)
-                y -= gap
-    return y
 
 
 def _is_plan(url_or_data):
@@ -4099,7 +3782,6 @@ def generate_avis_valeur_pdf(d):
     c.save()
     buf.seek(0)
     return buf
-
 
 
 @app.route("/avis-valeur", methods=["POST"])
