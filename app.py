@@ -2584,38 +2584,57 @@ def _page_estimation(c, d, page_num, total):
     arg_gap_x = 6 * mm
     arg_gap_y = 5 * mm
     arg_w = (CW - arg_gap_x) / 2
-    arg_h = 28 * mm
     border_w = 3 * mm
+    pw = arg_w - border_w - 8 * mm
 
-    for idx, arg in enumerate(args):
-        col = idx % 2
-        row = idx // 2
-        ax = ML + col * (arg_w + arg_gap_x)
-        ay = cursor - row * (arg_h + arg_gap_y) - arg_h
+    # Hauteur de carte ADAPTATIVE + auto-fit police + clip. Avant : hauteur fixe 28 mm →
+    # le texte IA long (ex. "Configuration verticale", 6 lignes) débordait sous la carte.
+    # On borne la zone des cartes pour que l'explication DVF + le footer tiennent toujours.
+    n_rows = (len(args) + 1) // 2
+    dvf_block = SP_BETWEEN_BLOCS + SEC_H + SP_AFTER_SEC + 30 * mm
+    avail = cursor - (FOOTER_H + SP_BEFORE_FOOTER + dvf_block)
+    row_h = (avail - (n_rows - 1) * arg_gap_y) / max(1, n_rows)
+    row_h = max(22 * mm, min(row_h, 40 * mm))
 
-        # Card background
-        _rrect(c, ax, ay, arg_w, arg_h, r=3, fill=GRAY_LIGHT)
-        # Left border accent
-        c.setFillColor(TEAL_DARK)
-        c.rect(ax, ay, border_w, arg_h, fill=1, stroke=0)
+    y_top = cursor
+    for r in range(n_rows):
+        ay = y_top - r * (row_h + arg_gap_y) - row_h
+        for col in range(2):
+            idx = r * 2 + col
+            if idx >= len(args):
+                break
+            arg = args[idx]
+            ax = ML + col * (arg_w + arg_gap_x)
+            _rrect(c, ax, ay, arg_w, row_h, r=3, fill=GRAY_LIGHT)
+            c.setFillColor(TEAL_DARK)
+            c.rect(ax, ay, border_w, row_h, fill=1, stroke=0)
+            c.setFillColor(ORANGE)
+            c.setFont("Helvetica-Bold", 8.5)
+            titre = arg.get("titre", "") if isinstance(arg, dict) else str(arg)
+            c.drawString(ax + border_w + 4 * mm, ay + row_h - 8 * mm, titre[:45])
 
-        # Title
-        c.setFillColor(ORANGE)
-        c.setFont("Helvetica-Bold", 8.5)
-        titre = arg.get("titre", "") if isinstance(arg, dict) else str(arg)
-        c.drawString(ax + border_w + 4 * mm, ay + arg_h - 8 * mm, titre[:45])
+            texte = arg.get("texte", "") if isinstance(arg, dict) else ""
+            if texte:
+                texte_esc = texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                avail_txt_h = row_h - 12 * mm
+                para = None
+                th = 0
+                for fsz in (7, 6.5, 6, 5.5, 5):
+                    sty = ParagraphStyle("arg%d_%d" % (idx, int(fsz * 10)), fontName="Helvetica",
+                                         fontSize=fsz, leading=fsz * 1.38, textColor=GRAY_DARK)
+                    para = Paragraph(texte_esc, sty)
+                    _, th = para.wrap(pw, 9999)
+                    if th <= avail_txt_h:
+                        break
+                # Clip dans la carte (garantie : aucun débordement même si très long)
+                c.saveState()
+                cp = c.beginPath()
+                cp.rect(ax + border_w + 3 * mm, ay + 2.5 * mm, pw + 2 * mm, row_h - 10 * mm)
+                c.clipPath(cp, stroke=0, fill=0)
+                para.drawOn(c, ax + border_w + 4 * mm, ay + row_h - 11 * mm - min(th, avail_txt_h))
+                c.restoreState()
 
-        # Body text
-        texte = arg.get("texte", "") if isinstance(arg, dict) else ""
-        if texte:
-            sty = ParagraphStyle("arg" + str(idx), fontName="Helvetica", fontSize=7,
-                                 textColor=GRAY_DARK, leading=9.5)
-            para = Paragraph(texte.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"), sty)
-            pw = arg_w - border_w - 8 * mm
-            _, ph = para.wrap(pw, arg_h - 12 * mm)
-            para.drawOn(c, ax + border_w + 4 * mm, ay + arg_h - 11 * mm - ph)
-
-    cursor -= 2 * (arg_h + arg_gap_y)
+    cursor = y_top - n_rows * row_h - (n_rows - 1) * arg_gap_y - arg_gap_y
 
     # -- Pourquoi cet ecart avec les DVF? --
     cursor -= SP_BETWEEN_BLOCS
